@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS projects (
   duration INTEGER DEFAULT 60,
   video_url TEXT,
   thumbnail_url TEXT,
+  autopilot_status TEXT, -- 'generating_script', 'generating_voice', 'generating_images', 'completed', 'failed'
+  autopilot_progress INTEGER DEFAULT 0, -- 0 to 100
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

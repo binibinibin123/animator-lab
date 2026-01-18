@@ -38,8 +38,10 @@ export default function Home() {
                 <span className="text-lg">⚙️</span>
                 <span className="text-sm font-medium">설정</span>
               </Link>
-              <span className="text-sm text-gray-400">|</span>
-              <span className="text-sm text-gray-500">AI 영상 자동화 에이전트</span>
+              <Link href="/create/autopilot" className="group flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-full text-xs font-bold hover:shadow-lg transition-all">
+                <span>✨</span>
+                <span>오토파일럿</span>
+              </Link>
             </div>
           </div>
         </div>

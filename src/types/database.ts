@@ -23,6 +23,8 @@ export type Database = {
                     duration: number;
                     video_url: string | null;
                     thumbnail_url: string | null;
+                    autopilot_status: string | null;
+                    autopilot_progress: number | null;
                     created_at: string;
                     updated_at: string;
                 };
@@ -36,6 +38,8 @@ export type Database = {
                     duration?: number;
                     video_url?: string | null;
                     thumbnail_url?: string | null;
+                    autopilot_status?: string | null;
+                    autopilot_progress?: number | null;
                     created_at?: string;
                     updated_at?: string;
                 };
@@ -49,6 +53,8 @@ export type Database = {
                     duration?: number;
                     video_url?: string | null;
                     thumbnail_url?: string | null;
+                    autopilot_status?: string | null;
+                    autopilot_progress?: number | null;
                     created_at?: string;
                     updated_at?: string;
                 };
