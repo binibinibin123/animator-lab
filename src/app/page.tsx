@@ -33,7 +33,14 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold text-violet-600">AutoVideo</h1>
-            <span className="text-sm text-gray-500">AI 영상 자동화 에이전트</span>
+            <div className="flex items-center gap-6">
+              <Link href="/settings" className="text-gray-500 hover:text-violet-600 transition-colors flex items-center gap-1">
+                <span className="text-lg">⚙️</span>
+                <span className="text-sm font-medium">설정</span>
+              </Link>
+              <span className="text-sm text-gray-400">|</span>
+              <span className="text-sm text-gray-500">AI 영상 자동화 에이전트</span>
+            </div>
           </div>
         </div>
       </header>

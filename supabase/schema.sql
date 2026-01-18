@@ -54,3 +54,28 @@ CREATE TRIGGER update_projects_updated_at
 
 -- Storage bucket for media files (run in Supabase Dashboard > Storage)
 -- CREATE BUCKET IF NOT EXISTS 'autovideo-media' WITH (public = true);
+
+-- Function to shift segment order indexes
+CREATE OR REPLACE FUNCTION shift_segments(p_project_id UUID, p_after_index INTEGER, p_shift INTEGER)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE segments
+    SET order_index = order_index + p_shift
+    WHERE project_id = p_project_id AND order_index > p_after_index;
+END;
+$$ LANGUAGE plpgsql;
+
+-- User settings table for global defaults
+CREATE TABLE IF NOT EXISTS user_settings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  default_aspect_ratio TEXT DEFAULT '16:9',
+  default_style TEXT DEFAULT 'anime',
+  default_voice_id TEXT DEFAULT 'pNInz6obpgDQGcFmaJgB',
+  default_video_model TEXT DEFAULT 'seedance-v1',
+  default_duration INTEGER DEFAULT 60,
+  include_subtitles BOOLEAN DEFAULT true,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Insert a default row if not exists
+-- INSERT INTO user_settings (id) VALUES ('00000000-0000-0000-0000-000000000000') ON CONFLICT DO NOTHING;

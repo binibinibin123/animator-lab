@@ -30,19 +30,28 @@ const STYLES = [
 export default function SettingsPage() {
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
     const [selectedStyle, setSelectedStyle] = useState<string>('anime');
+    const [customStyle, setCustomStyle] = useState<string>('');
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const router = useRouter();
 
     const handleNext = async () => {
         setIsSubmitting(true);
+        const styleToUse = selectedStyle === 'custom' ? customStyle : selectedStyle;
+
+        if (selectedStyle === 'custom' && !customStyle.trim()) {
+            alert('커스텀 스타일 프롬프트를 입력해주세요.');
+            setIsSubmitting(false);
+            return;
+        }
+
         try {
             const response = await fetch('/api/project', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     aspectRatio,
-                    style: selectedStyle,
+                    style: styleToUse,
                 }),
             });
 
@@ -107,19 +116,41 @@ export default function SettingsPage() {
                                 }
               `}
                         >
-                            <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
-                                <span className="text-white font-medium">{style.name}</span>
+                            <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center text-center p-2">
+                                <span className="text-white font-medium text-sm">{style.name}</span>
                             </div>
-                            {selectedStyle === style.id && (
-                                <div className="absolute top-2 right-2 w-5 h-5 bg-violet-600 rounded-full flex items-center justify-center">
-                                    <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                </div>
-                            )}
                         </button>
                     ))}
+                    {/* Custom Style Button */}
+                    <button
+                        onClick={() => setSelectedStyle('custom')}
+                        className={`
+                            relative aspect-video rounded-lg overflow-hidden border-2 border-dashed transition-all
+                            ${selectedStyle === 'custom'
+                                ? 'border-violet-600 bg-violet-50'
+                                : 'border-gray-300 hover:border-gray-400'
+                            }
+                        `}
+                    >
+                        <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                            <span className="text-xl">+</span>
+                            <span className="text-xs font-medium">커스텀 스타일</span>
+                        </div>
+                    </button>
                 </div>
+
+                {/* Custom Style Prompt Input */}
+                {selectedStyle === 'custom' && (
+                    <div className="mt-4 p-4 bg-violet-50 border border-violet-100 rounded-xl space-y-2 animate-in fade-in slide-in-from-top-2">
+                        <label className="text-sm font-medium text-violet-800">커스텀 스타일 프롬프트</label>
+                        <textarea
+                            value={customStyle}
+                            onChange={(e) => setCustomStyle(e.target.value)}
+                            placeholder="예: 80년대 복고풍 사이버펑크 애니메이션, 부드러운 파스텔 톤..."
+                            className="w-full p-3 bg-white border border-violet-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-violet-300 min-h-[80px]"
+                        />
+                    </div>
+                )}
             </div>
 
             {/* Navigation */}
@@ -133,7 +164,7 @@ export default function SettingsPage() {
                 <button
                     onClick={handleNext}
                     disabled={isSubmitting}
-                    className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
+                    className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50 shadow-lg shadow-violet-200"
                 >
                     {isSubmitting ? '생성 중...' : '다음 단계 →'}
                 </button>

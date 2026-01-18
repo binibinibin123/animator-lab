@@ -89,6 +89,66 @@ export default function VoicePage() {
         }
     };
 
+    const handleSplit = async (segmentId: string, text: string, splitIndex: number) => {
+        if (splitIndex === 0 || splitIndex === text.length) {
+            alert('중간 지점에서 분할해주세요.');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/segment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'split',
+                    segmentId,
+                    splitIndex
+                }),
+            });
+
+            if (!response.ok) throw new Error('Split failed');
+            await fetchSegments();
+        } catch (error) {
+            console.error('Split error:', error);
+            alert('분할에 실패했습니다.');
+        }
+    };
+
+    const handleMerge = async (segmentId: string) => {
+        try {
+            const response = await fetch('/api/segment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'merge',
+                    segmentId
+                }),
+            });
+
+            if (!response.ok) throw new Error('Merge failed');
+            await fetchSegments();
+        } catch (error) {
+            console.error('Merge error:', error);
+            alert('병합에 실패했습니다.');
+        }
+    };
+
+    const handleDelete = async (segmentId: string) => {
+        if (!confirm('이 컷을 삭제하시겠습니까?')) return;
+
+        try {
+            const response = await fetch(`/api/segment?segmentId=${segmentId}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) throw new Error('Delete failed');
+            await fetchSegments();
+        } catch (error) {
+            console.error('Delete error:', error);
+            alert('삭제에 실패했습니다.');
+        }
+    };
+
     const handleNext = () => {
         router.push(`/create/image?projectId=${projectId}`);
     };
@@ -146,7 +206,37 @@ export default function VoicePage() {
                     ) : segments.map((segment, index) => (
                         <div key={segment.id} className="p-4 bg-white border rounded-xl shadow-sm space-y-3">
                             <div className="flex justify-between items-center text-sm">
-                                <span className="font-bold text-violet-600">CUT #{index + 1}</span>
+                                <div className="flex items-center gap-3">
+                                    <span className="font-bold text-violet-600">CUT #{index + 1}</span>
+                                    <div className="flex items-center bg-gray-100 rounded-md p-0.5">
+                                        <button
+                                            onClick={() => {
+                                                const textarea = document.getElementById(`textarea-${segment.id}`) as HTMLTextAreaElement;
+                                                handleSplit(segment.id, segment.script_text, textarea.selectionStart);
+                                            }}
+                                            title="커서 위치에서 분할"
+                                            className="p-1 hover:bg-white rounded transition-colors text-gray-500 hover:text-violet-600"
+                                        >
+                                            ✂️
+                                        </button>
+                                        {index < segments.length - 1 && (
+                                            <button
+                                                onClick={() => handleMerge(segment.id)}
+                                                title="다음 컷과 합치기"
+                                                className="p-1 hover:bg-white rounded transition-colors text-gray-500 hover:text-violet-600"
+                                            >
+                                                🔗
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => handleDelete(segment.id)}
+                                            title="컷 삭제"
+                                            className="p-1 hover:bg-white rounded transition-colors text-gray-500 hover:text-red-500"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </div>
                                 <div className="flex items-center gap-3">
                                     {segment.audio_url && (
                                         <audio src={segment.audio_url} className="h-8" controls />
@@ -155,8 +245,8 @@ export default function VoicePage() {
                                         onClick={() => handleGenerateVoice(segment)}
                                         disabled={generatingId === segment.id}
                                         className={`px-3 py-1 rounded-md text-sm transition-colors ${segment.audio_url
-                                                ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                                : 'bg-violet-600 text-white hover:bg-violet-700'
+                                            ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                            : 'bg-violet-600 text-white hover:bg-violet-700'
                                             }`}
                                     >
                                         {generatingId === segment.id ? '생성 중...' : segment.audio_url ? '재생성' : '🎙️ 음성 생성'}
@@ -164,6 +254,7 @@ export default function VoicePage() {
                                 </div>
                             </div>
                             <textarea
+                                id={`textarea-${segment.id}`}
                                 value={segment.script_text}
                                 onChange={(e) => handleScriptChange(segment.id, e.target.value)}
                                 className="w-full p-3 bg-gray-50 border-none rounded-lg text-gray-700 resize-none focus:ring-1 focus:ring-violet-300"
