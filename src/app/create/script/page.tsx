@@ -1,18 +1,45 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+
+import { supabase } from '@/lib/supabase';
 
 export default function ScriptPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const projectId = searchParams.get('projectId');
+    const isValidProjectId = projectId && projectId !== 'null' && projectId !== 'undefined';
 
     const [title, setTitle] = useState('');
     const [script, setScript] = useState('');
     const [duration, setDuration] = useState(60);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+
+    // Load existing data
+    useEffect(() => {
+        const fetchProject = async () => {
+            if (!projectId) return;
+
+            setIsLoading(true);
+            const { data, error } = await supabase
+                .from('projects')
+                .select('title, topic, duration')
+                .eq('id', projectId)
+                .single();
+
+            if (data && !error) {
+                setTitle(data.title || '');
+                setScript(data.topic || '');
+                if (data.duration) setDuration(data.duration);
+            }
+            setIsLoading(false);
+        };
+
+        fetchProject();
+    }, [projectId]);
 
     const handleGenerate = async () => {
         if (!script) {
@@ -47,6 +74,10 @@ export default function ScriptPage() {
     };
 
     const handleNext = () => {
+        if (!isValidProjectId) {
+            alert('프로젝트 ID가 유효하지 않습니다.');
+            return;
+        }
         router.push(`/create/voice?projectId=${projectId}`);
     };
 

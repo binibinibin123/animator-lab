@@ -94,7 +94,17 @@ export default function AutopilotPage() {
 
     return (
         <div className="max-w-2xl mx-auto space-y-8">
+            {/* Back Link */}
+            <div>
+                <Link href="/create" className="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1">
+                    ← 일반 모드로 돌아가기
+                </Link>
+            </div>
+
             <div className="text-center space-y-2">
+                <div className="inline-block px-3 py-1 bg-violet-100 text-violet-700 rounded-full text-xs font-bold mb-2">
+                    ✨ BETA VER.
+                </div>
                 <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-indigo-600">
                     AutoVideo Agent
                 </h1>

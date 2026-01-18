@@ -28,6 +28,12 @@ export async function POST(request: NextRequest) {
                 .update({ status: 'script', topic })
                 .eq('id', projectId);
 
+            // Clear existing segments to prevent duplicates
+            await supabase
+                .from('segments')
+                .delete()
+                .eq('project_id', projectId);
+
             // Insert segments
             const segmentsToInsert = result.segments.map((seg, index) => ({
                 project_id: projectId,

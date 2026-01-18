@@ -23,22 +23,34 @@ export default function VoicePage() {
     const [selectedVoice, setSelectedVoice] = useState<string>(VOICES[0].id);
     const [generatingId, setGeneratingId] = useState<string | null>(null);
 
+    const isValidProjectId = projectId && projectId !== 'null' && projectId !== 'undefined';
+
     useEffect(() => {
+        if (!isValidProjectId) {
+            // alert('유효하지 않은 프로젝트입니다.');
+            // router.push('/create');
+            return;
+        }
+
         if (projectId) {
             fetchSegments();
         }
-    }, [projectId]);
+    }, [projectId, isValidProjectId]);
 
     const fetchSegments = async () => {
         setIsLoading(true);
+        console.log('Fetching segments for project:', projectId);
         const { data, error } = await supabase
             .from('segments')
             .select('*')
             .eq('project_id', projectId)
             .order('order_index', { ascending: true });
 
-        if (!error && data) {
-            setSegments(data);
+        if (error) {
+            console.error('Error fetching segments:', error);
+        } else {
+            console.log('Segments fetched:', data?.length);
+            if (data) setSegments(data);
         }
         setIsLoading(false);
     };
@@ -150,6 +162,10 @@ export default function VoicePage() {
     };
 
     const handleNext = () => {
+        if (!isValidProjectId) {
+            alert('프로젝트 ID가 유효하지 않습니다.');
+            return;
+        }
         router.push(`/create/image?projectId=${projectId}`);
     };
 

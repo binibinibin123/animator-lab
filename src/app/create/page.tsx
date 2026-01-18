@@ -70,8 +70,46 @@ export default function SettingsPage() {
     return (
         <div className="space-y-8">
             <div>
-                <h2 className="text-2xl font-bold text-gray-900">영상 설정</h2>
-                <p className="text-gray-500 mt-1">스타일과 비율을 선택하고 시작하세요.</p>
+                <h2 className="text-2xl font-bold text-gray-900">새 프로젝트 만들기</h2>
+                <p className="text-gray-500 mt-1">원하는 제작 방식을 선택하세요.</p>
+            </div>
+
+            {/* Autopilot Banner */}
+            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-110"></div>
+                <div className="relative z-10">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-bold mb-3">
+                                <span>✨ BETA</span>
+                                <span>오토파일럿 모드</span>
+                            </div>
+                            <h3 className="text-xl font-bold mb-2">주제만 입력하면 끝!</h3>
+                            <p className="text-violet-100 text-sm max-w-md mb-6">
+                                AI 에이전트가 대본 작성부터 영상 생성까지 모든 과정을 자동으로 수행합니다.
+                            </p>
+                            <Link
+                                href="/create/autopilot"
+                                className="inline-flex items-center gap-2 bg-white text-violet-600 px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-violet-50 transition-colors shadow-sm"
+                            >
+                                <span>오토파일럿 시작하기</span>
+                                <span>→</span>
+                            </Link>
+                        </div>
+                        <div className="hidden sm:block text-6xl opacity-80">
+                            🤖
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="relative">
+                <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                    <div className="w-full border-t border-gray-200"></div>
+                </div>
+                <div className="relative flex justify-center">
+                    <span className="bg-white px-3 text-sm text-gray-500">또는 직접 상세 설정하기</span>
+                </div>
             </div>
 
             {/* Aspect Ratio Selection */}

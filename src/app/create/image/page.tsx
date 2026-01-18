@@ -18,34 +18,57 @@ export default function ImagePage() {
     const [resolution, setResolution] = useState<'2K' | '4K'>('2K');
     const [customPrompt, setCustomPrompt] = useState('');
 
+    const [error, setError] = useState<string | null>(null);
+
+    const isValidProjectId = projectId && projectId !== 'null' && projectId !== 'undefined';
+
     useEffect(() => {
+        if (!isValidProjectId) {
+            setError('잘못된 접근입니다. 프로젝트 ID가 없습니다.');
+            return;
+        }
+
         if (projectId) {
             fetchSegments();
+        } else {
+            console.warn('No projectId found in URL');
+            setIsLoading(false);
         }
-    }, [projectId]);
+    }, [projectId, isValidProjectId]);
 
     useEffect(() => {
         const seg = segments.find(s => s.id === selectedSegmentId);
         if (seg) {
             setCustomPrompt(seg.visual_description || '');
         }
-    }, [selectedSegmentId, segments]);
+    }, [selectedSegmentId]);
 
     const fetchSegments = async () => {
         setIsLoading(true);
-        const { data, error } = await supabase
-            .from('segments')
-            .select('*')
-            .eq('project_id', projectId)
-            .order('order_index', { ascending: true });
+        setError(null);
+        try {
+            console.log('Fetching segments for image page, Project:', projectId);
+            const { data, error: fetchError } = await supabase
+                .from('segments')
+                .select('*')
+                .eq('project_id', projectId)
+                .order('order_index', { ascending: true });
 
-        if (!error && data) {
-            setSegments(data);
-            if (data.length > 0 && !selectedSegmentId) {
-                setSelectedSegmentId(data[0].id);
+            if (fetchError) throw fetchError;
+
+            if (data) {
+                console.log('Segments loaded:', data.length);
+                setSegments(data);
+                if (data.length > 0 && !selectedSegmentId) {
+                    setSelectedSegmentId(data[0].id);
+                }
             }
+        } catch (err: any) {
+            console.error('Error loading segments:', err);
+            setError(err.message || '데이터를 불러오는데 실패했습니다.');
+        } finally {
+            setIsLoading(false);
         }
-        setIsLoading(false);
     };
 
     const selectedSegment = segments.find(s => s.id === selectedSegmentId);
@@ -139,6 +162,23 @@ export default function ImagePage() {
                 <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
                     {isLoading ? (
                         <div className="p-8 text-center text-gray-400">데이터를 불러오는 중...</div>
+                    ) : error ? (
+                        <div className="p-8 text-center space-y-4">
+                            <p className="text-red-500">{error}</p>
+                            <button
+                                onClick={fetchSegments}
+                                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-700 transition-colors"
+                            >
+                                🔄 다시 시도
+                            </button>
+                        </div>
+                    ) : segments.length === 0 ? (
+                        <div className="p-8 text-center text-gray-400">
+                            생성된 컷이 없습니다.<br />
+                            <Link href={`/create/script?projectId=${projectId}`} className="text-violet-600 underline text-sm mt-2 inline-block">
+                                스크립트로 돌아가기
+                            </Link>
+                        </div>
                     ) : segments.map((seg, index) => (
                         <button
                             key={seg.id}
