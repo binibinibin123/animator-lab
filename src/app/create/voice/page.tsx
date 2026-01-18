@@ -27,8 +27,7 @@ export default function VoicePage() {
 
     useEffect(() => {
         if (!isValidProjectId) {
-            // alert('유효하지 않은 프로젝트입니다.');
-            // router.push('/create');
+            console.warn('Invalid Project ID in Voice Page');
             return;
         }
 

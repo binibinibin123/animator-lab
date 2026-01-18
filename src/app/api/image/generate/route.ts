@@ -59,10 +59,16 @@ export async function POST(request: NextRequest) {
             width: result.width,
             height: result.height,
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Image generation error:', error);
+
+        // Identify specific error types
+        let errorMessage = 'Failed to generate image';
+        if (error.message.includes('API key')) errorMessage = 'API 키가 설정되지 않았습니다.';
+        else if (error.message.includes('timout')) errorMessage = '생성 시간이 초과되었습니다.';
+
         return NextResponse.json(
-            { error: 'Failed to generate image' },
+            { error: errorMessage, details: error.message },
             { status: 500 }
         );
     }

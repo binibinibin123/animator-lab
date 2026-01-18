@@ -20,6 +20,12 @@ export default function ScriptPage() {
 
     // Load existing data
     useEffect(() => {
+        if (!isValidProjectId) {
+            // Redirect removed for debugging
+            console.warn('Invalid Project ID on mount');
+            return;
+        }
+
         const fetchProject = async () => {
             if (!projectId) return;
 
@@ -39,9 +45,14 @@ export default function ScriptPage() {
         };
 
         fetchProject();
-    }, [projectId]);
+    }, [projectId, isValidProjectId, router]);
 
     const handleGenerate = async () => {
+        if (!isValidProjectId) {
+            alert('프로젝트 ID가 유효하지 않습니다.');
+            return;
+        }
+
         if (!script) {
             alert('주제나 대본을 입력해주세요.');
             return;

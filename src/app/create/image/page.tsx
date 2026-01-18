@@ -20,21 +20,23 @@ export default function ImagePage() {
 
     const [error, setError] = useState<string | null>(null);
 
-    const isValidProjectId = projectId && projectId !== 'null' && projectId !== 'undefined';
+    const isValidProjectId = Boolean(projectId && projectId !== 'null' && projectId !== 'undefined');
 
     useEffect(() => {
-        if (!isValidProjectId) {
-            setError('잘못된 접근입니다. 프로젝트 ID가 없습니다.');
+        if (!projectId) {
+            console.warn('No projectId found in URL');
+            setIsLoading(false);
             return;
         }
 
-        if (projectId) {
-            fetchSegments();
-        } else {
-            console.warn('No projectId found in URL');
+        if (!isValidProjectId) {
+            setError('잘못된 접근입니다. 프로젝트 ID가 유효하지 않습니다.');
             setIsLoading(false);
+            return;
         }
-    }, [projectId, isValidProjectId]);
+
+        fetchSegments();
+    }, [projectId]); // Removed isValidProjectId from dependency to avoid re-render loop or size change error
 
     useEffect(() => {
         const seg = segments.find(s => s.id === selectedSegmentId);
