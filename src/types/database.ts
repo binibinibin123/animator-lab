@@ -62,6 +62,7 @@ export type Database = {
                     audio_url: string | null;
                     image_url: string | null;
                     video_url: string | null;
+                    visual_description: string | null;
                     duration_ms: number | null;
                     created_at: string;
                 };
@@ -73,6 +74,7 @@ export type Database = {
                     audio_url?: string | null;
                     image_url?: string | null;
                     video_url?: string | null;
+                    visual_description?: string | null;
                     duration_ms?: number | null;
                     created_at?: string;
                 };
@@ -84,6 +86,7 @@ export type Database = {
                     audio_url?: string | null;
                     image_url?: string | null;
                     video_url?: string | null;
+                    visual_description?: string | null;
                     duration_ms?: number | null;
                     created_at?: string;
                 };

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
 import { generateImage, scriptToImagePrompt } from '@/lib/ai/nanobanana';
+import path from 'path';
+import fs from 'fs';
 
 // POST /api/image/generate - Generate image for a segment
 export async function POST(request: NextRequest) {
@@ -18,12 +20,28 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Prepare reference image if a preset style is selected (not custom)
+        let referenceImage: string | undefined;
+        if (style && style !== 'custom') {
+            try {
+                const stylePath = path.join(process.cwd(), 'public', 'styles', `${style}.png`);
+                if (fs.existsSync(stylePath)) {
+                    const imageBuffer = fs.readFileSync(stylePath);
+                    referenceImage = imageBuffer.toString('base64');
+                    // console.log(`Loaded reference image for style: ${style}`);
+                }
+            } catch (err) {
+                console.warn(`Failed to load reference image for style ${style}:`, err);
+            }
+        }
+
         // Generate image
         const result = await generateImage({
             prompt: imagePrompt,
             style: style || 'anime',
             aspectRatio: aspectRatio || '16:9',
             resolution: resolution || '2K',
+            referenceImage, // Pass the base64 reference image
         });
 
         // If segmentId provided, update segment

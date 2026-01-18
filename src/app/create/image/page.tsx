@@ -24,6 +24,13 @@ export default function ImagePage() {
         }
     }, [projectId]);
 
+    useEffect(() => {
+        const seg = segments.find(s => s.id === selectedSegmentId);
+        if (seg) {
+            setCustomPrompt(seg.visual_description || '');
+        }
+    }, [selectedSegmentId, segments]);
+
     const fetchSegments = async () => {
         setIsLoading(true);
         const { data, error } = await supabase

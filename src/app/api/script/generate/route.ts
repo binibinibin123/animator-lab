@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
                 project_id: projectId,
                 order_index: index,
                 script_text: seg.text,
+                visual_description: seg.visual || seg.text, // Fallback to text if visual is missing
                 duration_ms: seg.estimatedDurationMs,
             }));
 

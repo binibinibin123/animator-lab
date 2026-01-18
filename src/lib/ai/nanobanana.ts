@@ -11,6 +11,7 @@ export interface ImageGenerationOptions {
     style?: string;
     aspectRatio?: '16:9' | '1:1' | '3:4' | '9:16';
     resolution?: '2K' | '4K';
+    referenceImage?: string; // Base64 encoded image data
 }
 
 export interface ImageResult {
@@ -40,12 +41,28 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
         prompt,
         style = 'anime',
         aspectRatio = '16:9',
+        referenceImage,
     } = options;
 
     const styleModifier = STYLE_PRESETS[style] || '';
 
     // For Gemini 2.5 Flash Image, we use a structured prompt
-    const fullPrompt = `Generate a high-quality ${aspectRatio} image of the following scene: ${prompt}. Style: ${styleModifier}.`;
+    let fullPrompt = `Generate a high-quality ${aspectRatio} image of the following scene: ${prompt}. Style: ${styleModifier}.`;
+
+    if (referenceImage) {
+        fullPrompt += " Please generate the image using the provided image as a style reference. Match the color palette, lighting, and artistic technique of the reference image.";
+    }
+
+    const parts: any[] = [{ text: fullPrompt }];
+
+    if (referenceImage) {
+        parts.push({
+            inlineData: {
+                mimeType: 'image/png',
+                data: referenceImage
+            }
+        });
+    }
 
     try {
         const response = await fetch(`${GEMINI_API_URL}?key=${GOOGLE_AI_API_KEY}`, {
@@ -55,7 +72,7 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
             },
             body: JSON.stringify({
                 contents: [{
-                    parts: [{ text: fullPrompt }]
+                    parts: parts
                 }],
                 generationConfig: {
                     temperature: 0.4,

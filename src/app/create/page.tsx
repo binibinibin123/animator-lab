@@ -13,18 +13,18 @@ const ASPECT_RATIOS: { value: AspectRatio; label: string; icon: string; desc: st
 ];
 
 const STYLES = [
-    { id: 'anime', name: '애니메이션', thumbnail: '/styles/anime.jpg' },
-    { id: 'realistic', name: '실사', thumbnail: '/styles/realistic.jpg' },
-    { id: 'digital-art', name: '디지털아트', thumbnail: '/styles/digital.jpg' },
-    { id: 'illustration', name: '일러스트', thumbnail: '/styles/illustration.jpg' },
-    { id: 'cinematic', name: '시네마틱', thumbnail: '/styles/cinematic.jpg' },
-    { id: 'cartoon', name: '카툰', thumbnail: '/styles/cartoon.jpg' },
-    { id: 'watercolor', name: '수채화', thumbnail: '/styles/watercolor.jpg' },
-    { id: 'minimalist', name: '미니멀', thumbnail: '/styles/minimalist.jpg' },
-    { id: '3d-render', name: '3D 렌더', thumbnail: '/styles/3d.jpg' },
-    { id: 'vintage', name: '빈티지', thumbnail: '/styles/vintage.jpg' },
-    { id: 'neon', name: '네온', thumbnail: '/styles/neon.jpg' },
-    { id: 'sketch', name: '스케치', thumbnail: '/styles/sketch.jpg' },
+    { id: 'anime', name: '애니메이션', thumbnail: '/styles/anime.png' },
+    { id: 'realistic', name: '실사', thumbnail: '/styles/realistic.png' },
+    { id: 'digital-art', name: '디지털아트', thumbnail: '/styles/digital-art.png' },
+    { id: 'illustration', name: '일러스트', thumbnail: '/styles/illustration.png' },
+    { id: 'cinematic', name: '시네마틱', thumbnail: '/styles/cinematic.png' },
+    { id: 'cartoon', name: '카툰', thumbnail: '/styles/cartoon.png' },
+    { id: 'watercolor', name: '수채화', thumbnail: '/styles/watercolor.png' },
+    { id: 'minimalist', name: '미니멀', thumbnail: '/styles/minimalist.png' },
+    { id: '3d-render', name: '3D 렌더', thumbnail: '/styles/3d-render.png' },
+    { id: 'vintage', name: '빈티지', thumbnail: '/styles/vintage.png' },
+    { id: 'neon', name: '네온', thumbnail: '/styles/neon.png' },
+    { id: 'sketch', name: '스케치', thumbnail: '/styles/sketch.png' },
 ];
 
 export default function SettingsPage() {
@@ -109,15 +109,20 @@ export default function SettingsPage() {
                             key={style.id}
                             onClick={() => setSelectedStyle(style.id)}
                             className={`
-                relative aspect-video rounded-lg overflow-hidden border-2 transition-all
+                relative aspect-video rounded-lg overflow-hidden border-2 transition-all group
                 ${selectedStyle === style.id
                                     ? 'border-violet-600 ring-2 ring-violet-200'
                                     : 'border-transparent hover:border-gray-300'
                                 }
               `}
                         >
-                            <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center text-center p-2">
-                                <span className="text-white font-medium text-sm">{style.name}</span>
+                            <img
+                                src={style.thumbnail}
+                                alt={style.name}
+                                className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-105"
+                            />
+                            <div className={`absolute inset-0 bg-black/40 flex items-center justify-center text-center p-2 transition-colors ${selectedStyle === style.id ? 'bg-black/20' : ''}`}>
+                                <span className="text-white font-medium text-sm drop-shadow-md">{style.name}</span>
                             </div>
                         </button>
                     ))}

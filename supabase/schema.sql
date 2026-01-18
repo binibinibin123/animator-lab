@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS segments (
   audio_url TEXT,
   image_url TEXT,
   video_url TEXT,
+  visual_description TEXT, -- AI-generated visual description
   duration_ms INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
