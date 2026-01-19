@@ -6,7 +6,7 @@ import { generateScript } from '@/lib/ai/gemini';
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { topic, duration, style, projectId } = body;
+        const { topic, duration, style, projectId, language, persona } = body;
 
         if (!topic) {
             return NextResponse.json(
@@ -16,7 +16,13 @@ export async function POST(request: NextRequest) {
         }
 
         // Generate script using Gemini
-        const result = await generateScript(topic, duration || 60, style || 'informative');
+        const result = await generateScript(
+            topic,
+            duration || 60,
+            style || 'informative',
+            language || 'ko',
+            persona || 'finance'
+        );
 
         // If projectId provided, save segments to database
         if (projectId) {
