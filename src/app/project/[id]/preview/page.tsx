@@ -26,6 +26,7 @@ export default function PreviewPage() {
     const [logs, setLogs] = useState<LogMessage[]>([]);
     const [renderStatus, setRenderStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
     const [progress, setProgress] = useState(0);
+    const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
 
     useEffect(() => {
         if (projectId) {
@@ -63,6 +64,7 @@ export default function PreviewPage() {
             setRenderStatus('running');
             setLogs([]); // 초기화
             setProgress(0);
+            setRenderedVideoUrl(null);
 
             try {
                 const response = await fetch('/api/render', {
@@ -102,13 +104,9 @@ export default function PreviewPage() {
                                 } else if (eventName === 'progress') {
                                     setProgress(data.progress);
                                 } else if (eventName === 'result') {
-                                    // Base64 download
-                                    const a = document.createElement('a');
-                                    a.href = data.dataUrl;
-                                    a.download = `project-${projectId}.mp4`;
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    document.body.removeChild(a);
+                                    // Filename received, construct download URL
+                                    const downloadUrl = `/api/download?filename=${data.filename}`;
+                                    setRenderedVideoUrl(downloadUrl);
                                 } else if (eventName === 'completed') {
                                     setRenderStatus('completed');
                                 } else if (eventName === 'error') {
@@ -123,7 +121,7 @@ export default function PreviewPage() {
                     }
                 }
 
-                alert('✅ 렌더링 및 다운로드가 완료되었습니다!');
+                // alert('✅ 렌더링 및 다운로드가 완료되었습니다!');
 
             } catch (e: any) {
                 console.error(e);
@@ -294,7 +292,7 @@ export default function PreviewPage() {
 
             {/* Log Viewer for Rendering */}
             {(renderStatus !== 'idle') && (
-                <div className="space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <h3 className="text-lg font-bold text-gray-800">렌더링 로그</h3>
                     <LogViewer
                         logs={logs}
@@ -302,6 +300,33 @@ export default function PreviewPage() {
                         progress={progress}
                         title="remotion-renderer"
                     />
+
+                    {/* Result Video */}
+                    {renderedVideoUrl && (
+                        <div className="bg-white p-6 rounded-2xl border-2 border-green-100 shadow-xl space-y-4 animate-in zoom-in-95 duration-500">
+                            <div className="flex items-center gap-2 text-green-700 font-bold text-lg">
+                                <span>🎉 렌더링 성공!</span>
+                            </div>
+
+                            <div className="overflow-hidden rounded-xl bg-black aspect-video border border-gray-100">
+                                <video
+                                    src={renderedVideoUrl}
+                                    controls
+                                    className="w-full h-full"
+                                />
+                            </div>
+
+                            <div className="flex justify-end">
+                                <a
+                                    href={renderedVideoUrl}
+                                    download={`project-${projectId}.mp4`}
+                                    className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 hover:shadow-lg transition-all flex items-center gap-2"
+                                >
+                                    <span>📥 MP4 파일 저장하기</span>
+                                </a>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

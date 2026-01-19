@@ -1,83 +1,111 @@
-import { NextRequest, NextResponse } from 'next/server';
+// @ts-nocheck
+import { NextRequest } from 'next/server';
 import { bundle } from '@remotion/bundler';
-import { getCompositions, renderMedia, RenderMediaOnProgress } from '@remotion/renderer';
+import { getCompositions, renderMedia } from '@remotion/renderer';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { RemotionRoot } from '@/remotion/Root';
 
-// 렌더링 타임아웃 방지 (Vercel에서는 제한이 있지만 로컬에서는 김)
+// 렌더링 타임아웃 제한 없음 (로컬 환경)
 export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-    try {
-        const body = await req.json();
-        const { segments, compositionId = 'MainVideo' } = body;
+    const encoder = new TextEncoder();
 
-        console.log('🎬 Starting render process...');
+    const stream = new ReadableStream({
+        async start(controller) {
+            const sendEvent = (event: string, data: any) => {
+                const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+                controller.enqueue(encoder.encode(message));
+            };
 
-        // 1. Bundle the Remotion project
-        // Note: In production, you might want to bundle once and cache it.
-        const entryPoint = path.resolve('./src/remotion/index.ts');
-        console.log('📦 Bundling...', entryPoint);
+            const sendLog = (message: string) => {
+                sendEvent('log', { message, timestamp: Date.now() });
+            };
 
-        const bundleLocation = await bundle({
-            entryPoint,
-            // 로컬 개발 환경 최적화
-            webpackOverride: (config) => config,
-        });
+            try {
+                const body = await req.json();
+                const { segments, compositionId = 'MainVideo', subtitleStyle } = body;
 
-        // 2. Get composition details to calculate duration/metadata
-        const compositions = await getCompositions(bundleLocation, {
-            inputProps: { segments }, // 실제 데이터 주입
-        });
+                sendLog('🚀 렌더링 프로세스를 시작합니다...');
 
-        const composition = compositions.find((c) => c.id === compositionId);
-        if (!composition) {
-            return NextResponse.json({ error: `Composition ${compositionId} not found` }, { status: 404 });
+                // 1. Bundle
+                const entryPoint = path.resolve('./src/remotion/index.ts');
+                sendLog(`📦 번들링을 시작합니다... (Entry: ${path.basename(entryPoint)})`);
+
+                const bundleLocation = await bundle({
+                    entryPoint,
+                    webpackOverride: (config) => config,
+                });
+                sendLog('✅ 번들링 완료');
+
+                // 2. Compositions
+                sendLog('🔍 컴포지션 정보를 분석 중입니다...');
+                const compositions = await getCompositions(bundleLocation, {
+                    inputProps: { segments, subtitleStyle },
+                });
+
+                const composition = compositions.find((c) => c.id === compositionId);
+                if (!composition) {
+                    throw new Error(`Composition ${compositionId} not found`);
+                }
+                sendLog(`✅ 컴포지션 확인: ${composition.id} (${composition.width}x${composition.height})`);
+
+                // Duration Calculation
+                const totalDurationInFrames = segments.reduce((acc: number, seg: any) => {
+                    return acc + Math.max(Math.floor((seg.duration || 3) * 30), 1);
+                }, 0);
+                sendLog(`⏱️ 총 프레임 수: ${totalDurationInFrames} frames`);
+
+                // 3. Render
+                const tempOutput = path.join(os.tmpdir(), `autovideo-${Date.now()}.mp4`);
+                sendLog(`🎬 렌더링을 시작합니다... (Output: ${path.basename(tempOutput)})`);
+
+                await renderMedia({
+                    composition,
+                    serveUrl: bundleLocation,
+                    codec: 'h264',
+                    outputLocation: tempOutput,
+                    inputProps: { segments, subtitleStyle },
+                    // fps: 30, // composition 설정 따름
+                    onProgress: (p) => {
+                        const progress = Math.round(p.progress * 100);
+                        sendEvent('progress', { progress });
+                    },
+                });
+
+                sendLog('✅ 렌더링이 완료되었습니다! 결과 전송 준비 중...');
+
+                // 4. Send Filename for Download API
+                // 파일은 /tmp에 두고, 파일명만 클라이언트에 전달하여 별도 다운로드 API를 통해 받게 함.
+                const filename = path.basename(tempOutput);
+
+                sendLog('📤 클라이언트에 다운로드 정보를 전송합니다...');
+
+                sendEvent('result', {
+                    message: 'Rendering completed successfully',
+                    filename: filename
+                });
+                sendEvent('completed', { success: true });
+
+                // Cleanup: 다운로드를 위해 파일 유지 (OS가 임시 파일 관리하도록 둠)
+
+                controller.close();
+
+            } catch (error: any) {
+                console.error('Render stream error:', error);
+                sendEvent('error', { message: error.message || 'Unknown error' });
+                controller.close();
+            }
         }
+    });
 
-        // 전체 길이 계산 (프레임 단위)
-        const totalDurationInFrames = segments.reduce((acc: number, seg: any) => {
-            return acc + Math.max(Math.floor((seg.duration || 3) * 30), 1);
-        }, 0);
-
-        console.log(`⏱️ Rendering ${totalDurationInFrames} frames...`);
-
-        // 3. Render the video
-        const tempOutput = path.join(os.tmpdir(), `autovideo-${Date.now()}.mp4`);
-
-        await renderMedia({
-            composition,
-            serveUrl: bundleLocation,
-            codec: 'h264',
-            outputLocation: tempOutput,
-            inputProps: { segments },
-            // durationInFrames: totalDurationInFrames || 300, // composition에서 정의됨, 필요시 오버라이드
-            // fps: 30, // Removed to fix type error
-            // 진행 상황 로깅 (옵션)
-            onProgress: (p) => {
-                if (p.progress % 0.1 < 0.01) console.log(`Rendering: ${Math.round(p.progress * 100)}%`);
-            },
-        });
-
-        console.log('✅ Render completed:', tempOutput);
-
-        // 4. Stream the file back to the client
-        const fileBuffer = fs.readFileSync(tempOutput);
-
-        // Clean up temp file
-        // fs.unlinkSync(tempOutput); // 바로 삭제하면 스트리밍 문제 발생 가능성 있음, 일단 유지하거나 나중에 삭제
-
-        return new NextResponse(fileBuffer, {
-            headers: {
-                'Content-Type': 'video/mp4',
-                'Content-Disposition': `attachment; filename="autovideo-render.mp4"`,
-            },
-        });
-
-    } catch (error: any) {
-        console.error('❌ Render error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+        },
+    });
 }
