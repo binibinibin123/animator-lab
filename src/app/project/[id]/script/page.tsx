@@ -59,6 +59,7 @@ export default function ScriptPage() {
     const [isLoading, setIsLoading] = useState(false);
     const [hasExistingScript, setHasExistingScript] = useState(false);
     const [segments, setSegments] = useState<Segment[]>([]);
+    const [projectStyle, setProjectStyle] = useState<string>('anime'); // Image style from project
 
     // Load existing data
     useEffect(() => {
@@ -70,15 +71,16 @@ export default function ScriptPage() {
             // Fetch project info
             const { data: projectData, error: projectError } = await supabase
                 .from('projects')
-                .select('title, topic, duration')
+                .select('title, topic, duration, style')
                 .eq('id', projectId)
                 .single();
 
-            const project = projectData as { title: string; topic: string; duration: number } | null;
+            const project = projectData as { title: string; topic: string; duration: number; style: string } | null;
 
             if (project && !projectError) {
                 setTitle(project.title || '');
                 if (project.duration) setDuration(project.duration);
+                if (project.style) setProjectStyle(project.style);
             }
 
             // Fetch existing segments (generated script)
@@ -122,6 +124,7 @@ export default function ScriptPage() {
                     projectId,
                     language,
                     persona,
+                    style: projectStyle, // Pass the image style for visual instructions
                 }),
             });
 

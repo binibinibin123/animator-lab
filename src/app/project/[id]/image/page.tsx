@@ -18,6 +18,7 @@ export default function ImagePage() {
     const [resolution, setResolution] = useState<'2K' | '4K'>('2K');
     const [customPrompt, setCustomPrompt] = useState('');
     const [error, setError] = useState<string | null>(null);
+    const [projectStyle, setProjectStyle] = useState<string>('anime'); // Image style from project
 
     useEffect(() => {
         if (projectId) {
@@ -36,6 +37,18 @@ export default function ImagePage() {
         setIsLoading(true);
         setError(null);
         try {
+            // Fetch project style first
+            const { data: projectData } = await supabase
+                .from('projects')
+                .select('style')
+                .eq('id', projectId)
+                .single();
+
+            const project = projectData as { style?: string } | null;
+            if (project?.style) {
+                setProjectStyle(project.style);
+            }
+
             const { data, error: fetchError } = await supabase
                 .from('segments')
                 .select('*')
@@ -71,6 +84,7 @@ export default function ImagePage() {
                     scriptText: segment.script_text,
                     segmentId: segment.id,
                     resolution,
+                    style: projectStyle, // Pass the image style for reference image loading
                 }),
             });
 

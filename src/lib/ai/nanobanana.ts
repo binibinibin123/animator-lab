@@ -53,18 +53,24 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
     let fullPrompt = `Generate a high-quality ${aspectRatio} image of the following scene: ${prompt}. Style: ${styleModifier}.`;
 
     if (referenceImage) {
-        fullPrompt += " Please generate the image using the provided image as a style reference. Match the color palette, lighting, and artistic technique of the reference image.";
+        fullPrompt += " Please generate the image using the provided image as a **strict character and style reference**. Match the **character design**, color palette, lighting, and artistic technique of the reference image exactly.";
     }
+
+    // Append negative constraints
+    fullPrompt += " Negative constraints: NO text, NO watermarks, NO signatures, NO speech bubbles, NO graphs with numbers, NO complex textures. Keep it clean and vector-like.";
 
     const parts: any[] = [{ text: fullPrompt }];
 
     if (referenceImage) {
+        console.log(`[NanoBanana] Attaching reference image. MimeType: ${referenceMimeType}, Size: ${referenceImage.length}`);
         parts.push({
             inlineData: {
                 mimeType: referenceMimeType,
                 data: referenceImage
             }
         });
+    } else {
+        console.log('[NanoBanana] No reference image provided.');
     }
 
     // Validate API key

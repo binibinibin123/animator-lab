@@ -155,8 +155,25 @@ export async function generateScript(
         ? '- Write the script in Korean (한국어)'
         : '- Write the script in English';
 
+    // Style-specific visual instructions
+    let styleInstruction = '';
+    if (style === 'economy-1') {
+        styleInstruction = `
+VISUAL INSTRUCTION:
+The visual style is a specific corporate/economic cartoon.
+ALL visual descriptions MUST focus on the main character: **'a simple white stickman character with a yellow box hat'**.
+- Do NOT describe realistic people, detailed faces, or complex backgrounds.
+- **NO TEXT**: Do NOT include text, letters, words, or charts with numbers in the visual.
+- **VIDEO READY**: Keep the background simple and static (e.g., solid color or simple gradient) to allow for better video animation.
+- Keep visuals abstract, symbolic, and clean.
+- Example visuals: "The stickman character looking at a rising red arrow on a plain background", "The stickman holding a large gold coin", "A simple magnifying glass over a document".
+`;
+    }
+
     const prompt = `
 ${personaPrompt}
+
+${styleInstruction}
 
 Output format:
 - Natural spoken language for voice-over

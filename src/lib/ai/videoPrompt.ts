@@ -8,6 +8,7 @@ export interface VideoPromptOptions {
     imageUrl: string;        // URL of the generated image
     scriptText?: string;     // Optional script/narration for context
     visualDescription?: string; // Optional visual description used for image gen
+    style?: string;          // Optional style ID (e.g., 'economy-1')
 }
 
 export interface VideoPromptResult {
@@ -21,16 +22,27 @@ export interface VideoPromptResult {
  * Focuses on subtle, static camera movements to avoid AI video artifacts.
  */
 export async function generateVideoPrompt(options: VideoPromptOptions): Promise<VideoPromptResult> {
-    const { imageUrl, scriptText, visualDescription } = options;
+    const { imageUrl, scriptText, visualDescription, style } = options;
 
-    const systemPrompt = `You are an AI video prompt specialist. Your job is to analyze images and create prompts for AI video generation that result in high-quality, artifact-free videos.
+    let systemPrompt = `You are an AI video prompt specialist. Your job is to analyze images and create prompts for AI video generation that result in high-quality, artifact-free videos.
 
 CRITICAL RULES for AI video generation:
 1. CAMERA: Always keep the camera FIXED (no pan, zoom, or tracking shots)
 2. MOTION: Only subtle, gentle movements (slight wind, breathing, ambient motion)
 3. AVOID: Fast movements, complex actions, transformations, or dramatic gestures
 4. FOCUS: Static scenes with minimal, natural micro-movements
+`;
 
+    // Enforce stricter motion rules for economy-1 style to prevent stickman morphing
+    if (style === 'economy-1') {
+        systemPrompt += `
+SPECIAL RULES for Simple/Cartoon Style:
+5. MINIMALISM: This is a stickman/cartoon style. Use EXTREMELY subtle motion.
+6. NO MORPHING: Do NOT ask for character movement (walking, waving). Only background ambiance or static hold.
+`;
+    }
+
+    systemPrompt += `
 Good motion examples:
 - "Subtle wind moving through hair"
 - "Gentle breathing motion"

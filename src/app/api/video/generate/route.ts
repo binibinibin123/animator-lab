@@ -9,7 +9,7 @@ import type { VideoModel } from '@/lib/ai/fal';
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { imageUrl, model, motion, duration, segmentId, scriptText, visualDescription } = body;
+        const { imageUrl, model, motion, duration, segmentId, scriptText, visualDescription, style } = body;
 
         if (!imageUrl) {
             return NextResponse.json(
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
                     imageUrl,
                     scriptText,
                     visualDescription,
+                    style,
                 });
 
                 videoPrompt = promptResult.prompt;
