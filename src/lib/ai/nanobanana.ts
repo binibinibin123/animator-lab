@@ -23,7 +23,7 @@ export interface ImageResult {
 
 // Style presets with their prompt modifiers
 export const STYLE_PRESETS: Record<string, string> = {
-    'economy-1': 'A cute white stickman character with a yellow square hat displaying Won symbol (₩), simple flat vector illustration style, bright cheerful colors, Korean financial and economic theme, educational cartoon for YouTube',
+    'economy-1': 'A cute white stickman character with a yellow square hat displaying Dollar symbol ($), simple flat vector illustration style, bright cheerful colors, minimal background, educational cartoon for YouTube',
     'anime': 'anime style, vibrant colors, detailed illustration',
     'realistic': 'photorealistic, high detail, 8k, professional photography',
     'digital-art': 'digital art, concept art, artstation trending',
