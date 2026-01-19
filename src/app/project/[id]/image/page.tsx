@@ -108,18 +108,33 @@ export default function ImagePage() {
     };
 
     const handleGenerateAll = async () => {
-        setIsGenerating(true); // Global loading for button
+        setIsGenerating(true);
         for (const segment of segments) {
             if (!segment.image_url) {
-                // Must manually manage currentId here if handleGenerateImage resets it too fast or if we want to be safe
-                // Actually handleGenerateImage manages it, which is fine.
-                // But handleGenerateImage resets isGenerating to false at end.
-                // We need isGenerating to stay true for the button? 
-                // Let's rely on handleGenerateImage setting it true/false for each item.
-                // The "Generate All" button might flicker.
-                // Better to separate global "batch processing" state if needed.
-                // For now, let's just await.
-                await handleGenerateImage(segment);
+                setCurrentGeneratingId(segment.id);
+                try {
+                    const response = await fetch('/api/image/generate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            prompt: segment.visual_description || undefined, // Use EACH segment's visual_description
+                            scriptText: segment.script_text,
+                            segmentId: segment.id,
+                            resolution,
+                            style: projectStyle,
+                        }),
+                    });
+
+                    if (!response.ok) throw new Error('Failed to generate image');
+                    const data = await response.json();
+
+                    setSegments(prev => prev.map(s =>
+                        s.id === segment.id ? { ...s, image_url: data.imageUrl } : s
+                    ));
+                } catch (error) {
+                    console.error('Image Error for segment:', segment.id, error);
+                }
+                setCurrentGeneratingId(null);
             }
         }
         setIsGenerating(false);
