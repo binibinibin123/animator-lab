@@ -17,6 +17,7 @@ export default function PreviewPage() {
     const [project, setProject] = useState<Project | null>(null);
     const [segments, setSegments] = useState<Segment[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isRendering, setIsRendering] = useState(false);
 
     useEffect(() => {
         if (projectId) {
@@ -50,8 +51,36 @@ export default function PreviewPage() {
 
     const handleDownload = async (type: 'mp4' | 'srt' | 'thumbnail') => {
         if (type === 'mp4') {
-            // TODO: 서버 사이드 렌더링 구현 필요
-            alert(`MP4 렌더링 기능은 서버 설정이 필요합니다.\n현재는 미리보기만 가능합니다.`);
+            try {
+                setIsRendering(true);
+                const response = await fetch('/api/render', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ segments: remotionSegments })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Render failed');
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `project-${projectId}.mp4`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                alert('✅ 다운로드가 완료되었습니다!');
+            } catch (e: any) {
+                console.error(e);
+                alert('❌ 렌더링 실패: ' + e.message);
+            } finally {
+                setIsRendering(false);
+            }
         } else if (type === 'thumbnail' && segments[0]?.image_url) {
             window.open(segments[0].image_url, '_blank');
         } else {
@@ -139,14 +168,25 @@ export default function PreviewPage() {
                 <h3 className="text-lg font-bold text-gray-800">결과물 내보내기</h3>
                 <div className="grid grid-cols-3 gap-6">
                     <button
-                        onClick={() => handleDownload('mp4')}
-                        className="group p-6 bg-white border-2 rounded-2xl hover:border-violet-600 hover:bg-violet-50 transition-all text-left"
+                        onClick={() => !isRendering && handleDownload('mp4')}
+                        disabled={isRendering}
+                        className={`group p-6 bg-white border-2 rounded-2xl transition-all text-left relative overflow-hidden
+                            ${isRendering ? 'border-violet-300 bg-violet-50 cursor-wait' : 'hover:border-violet-600 hover:bg-violet-50'}
+                        `}
                     >
+                        {isRendering && (
+                            <div className="absolute inset-0 bg-white/50 flex items-center justify-center z-10">
+                                <div className="text-center">
+                                    <div className="w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                                    <p className="text-xs font-bold text-violet-700">렌더링 중...</p>
+                                </div>
+                            </div>
+                        )}
                         <div className="w-12 h-12 bg-violet-100 rounded-xl flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform">
                             🎬
                         </div>
                         <p className="font-bold text-gray-900 group-hover:text-violet-700">MP4 고화질 영상</p>
-                        <p className="text-sm text-gray-500 mt-1">SNS 및 유튜브 업로드용 (서버 렌더링 필요)</p>
+                        <p className="text-sm text-gray-500 mt-1">SNS 및 유튜브 업로드용 (서버 렌더링)</p>
                     </button>
                     <button
                         onClick={() => handleDownload('srt')}
