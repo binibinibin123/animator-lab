@@ -19,7 +19,8 @@ export async function POST(request: NextRequest) {
             scriptText,
             visualDescription,
             style,
-            provider: requestedProvider
+            provider: requestedProvider,
+            workflowId
         } = body;
 
         if (!imageUrl) {
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest) {
             duration: duration || 6,
             segmentId: segmentId || '',
             style,
+            workflowId: providerType === 'comfyui' ? workflowId : undefined // Only pass workflowId for comfyui
         });
 
         // Update job record with external ID
@@ -147,110 +149,150 @@ export async function POST(request: NextRequest) {
     } catch (error) {
         console.error('Video generation error:', error);
         return NextResponse.json(
-            { error: 'Failed to generate video' },
+            { error: error instanceof Error ? error.message : 'Failed to generate video' },
             { status: 500 }
         );
     }
 }
 
-// GET /api/video/generate?jobId=xxx OR ?segmentId=xxx - Check video status
+// GET /api/video/generate?jobId=xxx OR ?segmentId=xxx OR ?requestId=xxx&provider=xxx - Check video status
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const jobId = searchParams.get('jobId');
         const segmentId = searchParams.get('segmentId');
-        const requestId = searchParams.get('requestId'); // Legacy support
+        const requestId = searchParams.get('requestId'); // External job ID (ComfyUI prompt_id or fal request_id)
+        const providerParam = searchParams.get('provider') || 'comfyui'; // Default to comfyui for legacy
 
         const supabase = createServerClient();
         let job: any = null;
 
-        if (jobId) {
-            const { data } = await supabase
-                .from('video_jobs')
-                .select('*')
-                .eq('id', jobId)
-                .single();
-            job = data;
-        } else if (segmentId) {
-            // Get most recent job for segment
-            const { data } = await supabase
-                .from('video_jobs')
-                .select('*')
-                .eq('segment_id', segmentId)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .single();
-            job = data;
-        } else if (requestId) {
-            // Legacy: lookup by external_job_id
-            const { data } = await supabase
-                .from('video_jobs')
-                .select('*')
-                .eq('external_job_id', requestId)
-                .single();
-            job = data;
+        // Try to find job in video_jobs table first
+        try {
+            if (jobId) {
+                const { data } = await supabase
+                    .from('video_jobs')
+                    .select('*')
+                    .eq('id', jobId)
+                    .single();
+                job = data;
+            } else if (segmentId && !requestId) {
+                // Get most recent job for segment
+                const { data } = await supabase
+                    .from('video_jobs')
+                    .select('*')
+                    .eq('segment_id', segmentId)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+                job = data;
+            } else if (requestId) {
+                // Try lookup by external_job_id
+                const { data } = await supabase
+                    .from('video_jobs')
+                    .select('*')
+                    .eq('external_job_id', requestId)
+                    .single();
+                job = data;
+            }
+        } catch (dbError) {
+            // video_jobs table might not exist, continue with direct provider check
+            console.log('[VideoAPI] video_jobs lookup failed, falling back to direct provider check');
         }
 
-        if (!job) {
-            return NextResponse.json(
-                { error: 'Job not found' },
-                { status: 404 }
-            );
+        // If job found in DB, use it
+        if (job) {
+            // If job is not in final state, check with provider
+            if (job.status !== 'succeeded' && job.status !== 'failed') {
+                const provider = getVideoProvider(job.provider);
+                const statusResult = await provider.checkStatus(job.external_job_id);
+
+                console.log(`[VideoAPI] Provider status:`, statusResult);
+
+                // Update job record
+                const updateData: any = {
+                    status: statusResult.status,
+                    progress: statusResult.progress,
+                };
+
+                if (statusResult.videoUrl) {
+                    updateData.output_url = statusResult.videoUrl;
+                }
+                if (statusResult.error) {
+                    updateData.error = statusResult.error;
+                }
+                if (statusResult.status === 'succeeded' || statusResult.status === 'failed') {
+                    updateData.finished_at = new Date().toISOString();
+                }
+
+                await supabase
+                    .from('video_jobs')
+                    .update(updateData)
+                    .eq('id', job.id);
+
+                // Update segment with video URL if completed
+                if (statusResult.status === 'succeeded' && statusResult.videoUrl && job.segment_id) {
+                    await supabase
+                        .from('segments')
+                        .update({ video_url: statusResult.videoUrl })
+                        .eq('id', job.segment_id);
+                }
+
+                job = { ...job, ...updateData };
+            }
+
+            return NextResponse.json({
+                success: true,
+                jobId: job.id,
+                externalJobId: job.external_job_id,
+                provider: job.provider,
+                status: job.status,
+                progress: job.progress,
+                videoUrl: job.output_url,
+                error: job.error,
+                debug: {
+                    rawStatus: job.status,
+                    hasVideoUrl: !!job.output_url,
+                }
+            });
         }
 
-        // If job is not in final state, check with provider
-        if (job.status !== 'succeeded' && job.status !== 'failed') {
-            const provider = getVideoProvider(job.provider);
-            const statusResult = await provider.checkStatus(job.external_job_id);
+        // Fallback: Direct provider check without video_jobs table
+        if (requestId) {
+            console.log(`[VideoAPI] Direct provider check for requestId: ${requestId}`);
+            const provider = getVideoProvider(providerParam as VideoProviderType);
+            const statusResult = await provider.checkStatus(requestId);
 
-            console.log(`[VideoAPI] Provider status:`, statusResult);
+            console.log(`[VideoAPI] Direct provider status:`, statusResult);
 
-            // Update job record
-            const updateData: any = {
-                status: statusResult.status,
-                progress: statusResult.progress,
-            };
-
-            if (statusResult.videoUrl) {
-                updateData.output_url = statusResult.videoUrl;
-            }
-            if (statusResult.error) {
-                updateData.error = statusResult.error;
-            }
-            if (statusResult.status === 'succeeded' || statusResult.status === 'failed') {
-                updateData.finished_at = new Date().toISOString();
-            }
-
-            await supabase
-                .from('video_jobs')
-                .update(updateData)
-                .eq('id', job.id);
-
-            // Update segment with video URL if completed
-            if (statusResult.status === 'succeeded' && statusResult.videoUrl && job.segment_id) {
+            // Update segment with video URL if completed and segmentId provided
+            if ((statusResult.status === 'succeeded') && statusResult.videoUrl && segmentId) {
                 await supabase
                     .from('segments')
                     .update({ video_url: statusResult.videoUrl })
-                    .eq('id', job.segment_id);
+                    .eq('id', segmentId);
             }
 
-            job = { ...job, ...updateData };
+            return NextResponse.json({
+                success: true,
+                externalJobId: requestId,
+                provider: providerParam,
+                status: statusResult.status,
+                progress: statusResult.progress,
+                videoUrl: statusResult.videoUrl,
+                error: statusResult.error,
+                debug: {
+                    rawStatus: statusResult.status,
+                    hasVideoUrl: !!statusResult.videoUrl,
+                    directCheck: true,
+                }
+            });
         }
 
-        return NextResponse.json({
-            success: true,
-            jobId: job.id,
-            externalJobId: job.external_job_id,
-            provider: job.provider,
-            status: job.status,
-            progress: job.progress,
-            videoUrl: job.output_url,
-            error: job.error,
-            debug: {
-                rawStatus: job.status,
-                hasVideoUrl: !!job.output_url,
-            }
-        });
+        return NextResponse.json(
+            { error: 'Job not found - provide requestId for direct provider check' },
+            { status: 404 }
+        );
     } catch (error) {
         console.error('Status check error:', error);
         return NextResponse.json(

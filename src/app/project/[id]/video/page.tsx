@@ -16,8 +16,11 @@ export default function VideoPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
     const [selectedModel, setSelectedModel] = useState<'hailuo' | 'kling'>('hailuo');
-    const [selectedProvider, setSelectedProvider] = useState<'fal' | 'comfyui'>('fal');
+    const [selectedProvider, setSelectedProvider] = useState<'fal' | 'comfyui'>('comfyui');
+    const [selectedWorkflow, setSelectedWorkflow] = useState<string>('rapid-aio-mega-sage');
     const [videoPrompt, setVideoPrompt] = useState('');
+
+    // ...
     const [logs, setLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
     const [showLogs, setShowLogs] = useState(true);
     const logsEndRef = useRef<HTMLDivElement>(null);
@@ -80,30 +83,51 @@ export default function VideoPage() {
         setIsLoading(false);
     };
 
-    const startPolling = (segmentId: string, requestId: string) => {
-        if (pollingIntervals.current[segmentId]) return;
-        addLog('info', `폴링 시작: ${requestId.slice(0, 8)}...`);
-        addLog('warn', `⏳ 영상 생성 대기 중 (약 1-2분 소요)...`);
+    const startPolling = (segmentId: string, requestId: string): Promise<boolean> => {
+        return new Promise((resolve) => {
+            if (pollingIntervals.current[segmentId]) {
+                resolve(false);
+                return;
+            }
+            addLog('info', `폴링 시작: ${requestId.slice(0, 8)}...`);
+            addLog('warn', `⏳ 영상 생성 대기 중 (약 1-2분 소요)...`);
 
-        let retryCount = 0;
-        const maxRetries = 30; // 10초 간격 x 30회 = 최대 5분
+            let retryCount = 0;
+            const maxRetries = 60; // 10초 간격 x 60회 = 최대 10분
 
-        // 첫 폴링 전 10초 대기
-        const initialDelay = setTimeout(() => {
-            addLog('info', `첫 상태 확인 시작...`);
+            // 첫 폴링 전 10초 대기
+            const initialDelay = setTimeout(() => {
+                addLog('info', `첫 상태 확인 시작...`);
 
-            const interval = setInterval(async () => {
-                try {
-                    addLog('info', `상태 확인 중...`);
-                    const res = await fetch(`/api/video/generate?requestId=${requestId}&segmentId=${segmentId}`);
+                const interval = setInterval(async () => {
+                    try {
+                        addLog('info', `상태 확인 중...`);
+                        const res = await fetch(`/api/video/generate?requestId=${requestId}&segmentId=${segmentId}&provider=${selectedProvider}`);
 
-                    if (!res.ok) {
-                        retryCount++;
-                        const errorText = await res.text();
-                        addLog('warn', `상태 확인 실패 (${res.status}), 재시도 ${retryCount}/${maxRetries}`);
+                        if (!res.ok) {
+                            retryCount++;
+                            const errorText = await res.text();
+                            addLog('warn', `상태 확인 실패 (${res.status}), 재시도 ${retryCount}/${maxRetries}`);
 
-                        if (retryCount >= maxRetries) {
-                            addLog('error', `최대 재시도 횟수 초과: ${errorText.slice(0, 100)}`);
+                            if (retryCount >= maxRetries) {
+                                addLog('error', `최대 재시도 횟수 초과: ${errorText.slice(0, 100)}`);
+                                clearInterval(interval);
+                                delete pollingIntervals.current[segmentId];
+                                setGeneratingIds(prev => {
+                                    const next = new Set(prev);
+                                    next.delete(segmentId);
+                                    return next;
+                                });
+                                resolve(false);
+                            }
+                            return; // 재시도
+                        }
+
+                        retryCount = 0; // 성공하면 리셋
+                        const data = await res.json();
+                        addLog('info', `응답: status=${data.status}, rawStatus=${data.debug?.rawStatus}, videoUrl=${data.videoUrl ? '있음' : '없음'}`);
+
+                        if (data.status === 'completed' || data.status === 'failed' || data.status === 'succeeded') {
                             clearInterval(interval);
                             delete pollingIntervals.current[segmentId];
                             setGeneratingIds(prev => {
@@ -111,96 +135,101 @@ export default function VideoPage() {
                                 next.delete(segmentId);
                                 return next;
                             });
-                        }
-                        return; // 재시도
-                    }
 
-                    retryCount = 0; // 성공하면 리셋
-                    const data = await res.json();
-                    addLog('info', `응답: status=${data.status}, rawStatus=${data.debug?.rawStatus}, videoUrl=${data.videoUrl ? '있음' : '없음'}`);
-
-                    if (data.status === 'completed' || data.status === 'failed') {
-                        clearInterval(interval);
-                        delete pollingIntervals.current[segmentId];
-                        setGeneratingIds(prev => {
-                            const next = new Set(prev);
-                            next.delete(segmentId);
-                            return next;
-                        });
-
-                        if (data.status === 'completed') {
-                            addLog('success', `✅ 영상 생성 완료!`);
-                            setSegments(prev => prev.map(s =>
-                                s.id === segmentId ? {
-                                    ...s,
-                                    video_url: data.videoUrl,
-                                    video_prompt: data.generatedPrompt // Update prompt if auto-generated
-                                } : s
-                            ));
-                            // If this is the currently selected segment, update the textarea too
-                            if (selectedSegmentId === segmentId) {
-                                setVideoPrompt(data.generatedPrompt || '');
+                            if (data.status === 'completed' || data.status === 'succeeded') {
+                                addLog('success', `✅ 영상 생성 완료!`);
+                                setSegments(prev => prev.map(s =>
+                                    s.id === segmentId ? {
+                                        ...s,
+                                        video_url: data.videoUrl,
+                                        video_prompt: data.generatedPrompt
+                                    } : s
+                                ));
+                                if (selectedSegmentId === segmentId) {
+                                    setVideoPrompt(data.generatedPrompt || '');
+                                }
+                                resolve(true);
+                            } else {
+                                addLog('error', `❌ 영상 생성 실패`);
+                                resolve(false);
                             }
-                        } else {
-                            addLog('error', `❌ 영상 생성 실패`);
+                        }
+                    } catch (error) {
+                        console.error('Polling error:', error);
+                        retryCount++;
+                        addLog('warn', `폴링 에러, 재시도 ${retryCount}/${maxRetries}: ${error}`);
+
+                        if (retryCount >= maxRetries) {
+                            clearInterval(interval);
+                            delete pollingIntervals.current[segmentId];
+                            setGeneratingIds(prev => {
+                                const next = new Set(prev);
+                                next.delete(segmentId);
+                                return next;
+                            });
+                            resolve(false);
                         }
                     }
-                } catch (error) {
-                    console.error('Polling error:', error);
-                    retryCount++;
-                    addLog('warn', `폴링 에러, 재시도 ${retryCount}/${maxRetries}: ${error}`);
+                }, 10000); // 10초 간격으로 폴링
 
-                    if (retryCount >= maxRetries) {
-                        clearInterval(interval);
-                        delete pollingIntervals.current[segmentId];
-                        setGeneratingIds(prev => {
-                            const next = new Set(prev);
-                            next.delete(segmentId);
-                            return next;
-                        });
-                    }
-                }
-            }, 10000); // 10초 간격으로 폴링
+                pollingIntervals.current[segmentId] = interval;
+            }, 10000); // 첫 폴링 전 10초 대기
 
-            pollingIntervals.current[segmentId] = interval;
-        }, 10000); // 첫 폴링 전 10초 대기
-
-        // 초기 타임아웃도 저장 (cleanup용)
-        pollingIntervals.current[segmentId] = initialDelay as unknown as NodeJS.Timeout;
+            // 초기 타임아웃도 저장 (cleanup용)
+            pollingIntervals.current[segmentId] = initialDelay as unknown as NodeJS.Timeout;
+        });
     };
 
-    const handleGenerateVideo = async (segment: Segment) => {
+    const handleGenerateVideo = async (segment: Segment, waitForCompletion = false): Promise<boolean> => {
         if (!segment.image_url) {
             alert('이미지를 먼저 생성해 주세요.');
-            return;
+            return false;
         }
 
+        const logLabel = selectedProvider === 'comfyui' ? selectedWorkflow : selectedModel;
         setGeneratingIds(prev => new Set(prev).add(segment.id));
-        addLog('info', `🎬 영상 생성 시작 (${selectedModel})`);
+        addLog('info', `🎬 영상 생성 시작 (${logLabel})`);
         try {
             addLog('info', `이미지 분석 및 프롬프트 생성 중...`);
             const response = await fetch('/api/video/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    imageUrl: segment.image_url,
                     model: selectedModel,
                     scriptText: segment.script_text,
                     visualDescription: segment.visual_description,
                     provider: selectedProvider,
-                    motion: videoPrompt || 'auto', // Pass custom prompt or 'auto'
+                    motion: videoPrompt || 'auto',
+                    workflowId: selectedProvider === 'comfyui' ? selectedWorkflow : undefined
                 }),
             });
 
-            if (!response.ok) throw new Error('Failed to start video generation');
+            if (!response.ok) {
+                const errorText = await response.text();
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    throw new Error(errorJson.error || errorText);
+                } catch (e) {
+                    throw new Error(`Failed to start generation: ${response.status} ${errorText}`);
+                }
+            }
             const data = await response.json();
             addLog('info', `프롬프트: ${data.generatedPrompt?.slice(0, 50)}...`);
-            addLog('info', `requestId: ${data.requestId?.slice(0, 8)}...`);
+            addLog('info', `requestId: ${data.externalJobId?.slice(0, 8)}...`);
             addLog('info', `초기 상태: ${data.status}`);
 
-            if (data.status === 'in_progress') {
+            if (data.status === 'running' || data.status === 'in_progress') {
                 addLog('warn', `⏳ 비동기 생성 시작, 폴링 대기...`);
-                startPolling(segment.id, data.requestId);
-            } else if (data.status === 'completed' && data.videoUrl) {
+                if (waitForCompletion) {
+                    // 순차 실행 모드: 완료될 때까지 기다림
+                    return await startPolling(segment.id, data.externalJobId);
+                } else {
+                    // 개별 실행 모드: 폴링 시작하고 바로 리턴
+                    startPolling(segment.id, data.externalJobId);
+                    return true;
+                }
+            } else if ((data.status === 'completed' || data.status === 'succeeded') && data.videoUrl) {
                 addLog('success', `✅ 즉시 완료!`);
                 setSegments(prev => prev.map(s =>
                     s.id === segment.id ? {
@@ -217,7 +246,9 @@ export default function VideoPage() {
                     next.delete(segment.id);
                     return next;
                 });
+                return true;
             }
+            return false;
         } catch (error) {
             console.error('Video Generation Error:', error);
             addLog('error', `❌ 에러: ${error}`);
@@ -227,14 +258,47 @@ export default function VideoPage() {
                 next.delete(segment.id);
                 return next;
             });
+            return false;
         }
     };
 
     const handleGenerateAll = async () => {
-        for (const segment of segments) {
-            if (!segment.video_url && !generatingIds.has(segment.id)) {
-                await handleGenerateVideo(segment);
+        addLog('info', `🚀 전체 생성 시작 (순차 실행 모드)`);
+        const pendingSegments = segments.filter(seg => !seg.video_url && seg.image_url);
+        addLog('info', `생성할 세그먼트: ${pendingSegments.length}개`);
+
+        for (let i = 0; i < pendingSegments.length; i++) {
+            const segment = pendingSegments[i];
+            addLog('info', `--- [${i + 1}/${pendingSegments.length}] 세그먼트 생성 시작 ---`);
+            const success = await handleGenerateVideo(segment, true); // waitForCompletion = true
+            if (success) {
+                addLog('success', `[${i + 1}/${pendingSegments.length}] 완료!`);
+            } else {
+                addLog('error', `[${i + 1}/${pendingSegments.length}] 실패, 다음으로 진행`);
             }
+        }
+        addLog('success', `🎉 전체 생성 완료!`);
+    };
+
+    const handleDeleteVideo = async (segmentId: string) => {
+        if (!confirm('정말로 이 영상을 삭제하시겠습니까?')) return;
+
+        try {
+            const supabase = (await import('@/lib/supabase')).createBrowserClient();
+            const { error } = await supabase
+                .from('segments')
+                .update({ video_url: null })
+                .eq('id', segmentId);
+
+            if (error) throw error;
+
+            setSegments(prev => prev.map(s =>
+                s.id === segmentId ? { ...s, video_url: null } : s
+            ));
+            addLog('info', `🗑️ 영상 삭제 완료`);
+        } catch (error) {
+            console.error('Delete video error:', error);
+            alert('영상 삭제에 실패했습니다.');
         }
     };
 
@@ -272,22 +336,27 @@ export default function VideoPage() {
 
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">비디오 모델:</span>
-                    <select
-                        value={selectedModel}
-                        onChange={(e) => setSelectedModel(e.target.value as 'hailuo' | 'kling')}
-                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
-                        disabled={selectedProvider === 'comfyui'}
-                    // ComfyUI uses workflow-defined model
-                    >
-                        {selectedProvider === 'comfyui' ? (
-                            <option value="custom">💻 Workflow Default</option>
-                        ) : (
-                            <>
-                                <option value="hailuo">🎬 Hailuo 2.3 (빠름/고품질)</option>
-                                <option value="kling">🎬 Kling 2.6 (정교함)</option>
-                            </>
-                        )}
-                    </select>
+                    {selectedProvider === 'comfyui' ? (
+                        <select
+                            value={selectedWorkflow}
+                            onChange={(e) => setSelectedWorkflow(e.target.value)}
+                            className="px-3 py-1.5 border rounded-lg text-sm bg-white max-w-[300px]"
+                        >
+                            <option value="lf-i2v-v1.1">LF i2v (Batch) v1.1</option>
+                            <option value="rapid-aio-mega">Rapid AIO Mega</option>
+                            <option value="rapid-aio-mega-sage">Rapid AIO Mega + Sage</option>
+                            <option value="ltx-video-default">LTX Video (Fast)</option>
+                        </select>
+                    ) : (
+                        <select
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value as 'hailuo' | 'kling')}
+                            className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+                        >
+                            <option value="hailuo">🎬 Hailuo 2.3 (빠름/고품질)</option>
+                            <option value="kling">🎬 Kling 2.6 (정교함)</option>
+                        </select>
+                    )}
                 </div>
                 <div className="flex items-center gap-4 text-sm text-gray-500 bg-white px-4 py-1.5 border rounded-lg">
                     <span>형식: <span className="text-gray-900 font-medium">MP4</span></span>
@@ -343,13 +412,22 @@ export default function VideoPage() {
                         <div className="space-y-4">
                             <div className="aspect-video bg-gray-900 rounded-2xl overflow-hidden border flex items-center justify-center relative shadow-2xl">
                                 {selectedSegment.video_url ? (
-                                    <video
-                                        src={selectedSegment.video_url}
-                                        className="w-full h-full object-contain"
-                                        controls
-                                        autoPlay
-                                        loop
-                                    />
+                                    <>
+                                        <video
+                                            src={selectedSegment.video_url}
+                                            className="w-full h-full object-contain"
+                                            controls
+                                            autoPlay
+                                            loop
+                                        />
+                                        <button
+                                            onClick={() => handleDeleteVideo(selectedSegment.id)}
+                                            className="absolute top-3 right-3 p-2 bg-red-500/80 hover:bg-red-600 text-white rounded-full transition-colors"
+                                            title="영상 삭제"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </>
                                 ) : generatingIds.has(selectedSegment.id) ? (
                                     <div className="flex flex-col items-center gap-4 text-white">
                                         <div className="w-12 h-12 border-4 border-violet-500 border-t-transparent rounded-full animate-spin"></div>

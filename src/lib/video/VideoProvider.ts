@@ -11,6 +11,7 @@ export interface VideoGenerationRequest {
     duration?: number;
     segmentId: string;
     style?: string;
+    workflowId?: string;
 }
 
 export interface VideoGenerationResult {
