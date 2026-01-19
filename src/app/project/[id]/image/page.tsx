@@ -113,8 +113,34 @@ export default function ImagePage() {
         setIsGenerating(false);
     };
 
+    const handleDeleteImage = async (segmentId: string) => {
+        if (!confirm('이미지를 삭제하시겠습니까?')) return;
+
+        try {
+            const response = await fetch('/api/segment/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    segmentId,
+                    image_url: null
+                }),
+            });
+
+            if (!response.ok) throw new Error('Failed to delete image');
+
+            setSegments(prev => prev.map(s =>
+                s.id === segmentId ? { ...s, image_url: null } : s
+            ));
+        } catch (error) {
+            console.error('Delete Image Error:', error);
+            alert('이미지 삭제에 실패했습니다.');
+        }
+    };
+
     return (
         <div className="space-y-6">
+            {/* ... (Previous UI code remains same until Main Edit Area) ... */}
+
             <div className="flex justify-between items-end">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900">이미지 생성</h2>
@@ -206,9 +232,18 @@ export default function ImagePage() {
                 <div className="col-span-2 space-y-6">
                     {selectedSegment ? (
                         <div className="space-y-6">
-                            <div className="aspect-video bg-gray-100 rounded-2xl overflow-hidden border relative">
+                            <div className="aspect-video bg-gray-100 rounded-2xl overflow-hidden border relative group">
                                 {selectedSegment.image_url ? (
-                                    <img src={selectedSegment.image_url} alt="Preview" className="w-full h-full object-contain" />
+                                    <>
+                                        <img src={selectedSegment.image_url} alt="Preview" className="w-full h-full object-contain" />
+                                        <button
+                                            onClick={() => handleDeleteImage(selectedSegment.id)}
+                                            className="absolute top-4 right-4 p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors opacity-0 group-hover:opacity-100"
+                                            title="이미지 삭제"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </>
                                 ) : (
                                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 gap-3">
                                         <span className="text-4xl">📸</span>
@@ -240,13 +275,23 @@ export default function ImagePage() {
                                     <p className="text-xs text-gray-500">
                                         💡 대본: "{selectedSegment.script_text.slice(0, 50)}..."
                                     </p>
-                                    <button
-                                        onClick={() => handleGenerateImage(selectedSegment)}
-                                        disabled={isGenerating}
-                                        className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
-                                    >
-                                        {selectedSegment.image_url ? '다시 생성하기' : '이미지 생성'}
-                                    </button>
+                                    <div className="flex gap-2">
+                                        {selectedSegment.image_url && (
+                                            <button
+                                                onClick={() => handleDeleteImage(selectedSegment.id)}
+                                                className="px-4 py-2 border border-red-200 text-red-500 rounded-lg hover:bg-red-50 transition-colors"
+                                            >
+                                                삭제
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => handleGenerateImage(selectedSegment)}
+                                            disabled={isGenerating}
+                                            className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
+                                        >
+                                            {selectedSegment.image_url ? '다시 생성하기' : '이미지 생성'}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

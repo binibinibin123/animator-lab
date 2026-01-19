@@ -26,7 +26,7 @@ Your writing style should resemble popular no-fluff finance creators (e.g., Bob 
 - Respect the viewer's intelligence
 
 Core principles:
-1. Start with a sharp, relatable problem or contradiction (within the first 10 seconds).
+1. **HOOK MUST BE PROVOCATIVE**: Do NOT start with definitions like "AI is...". Start with a shocking fact, a direct challenge to the viewer, or a scary reality. (e.g., "Your retirement fund is bleeding, and you don't even know it.")
 2. Clearly state what most people misunderstand about the topic.
 3. Break the issue down into simple mental models, numbers, or mechanisms.
 4. Use concrete examples (realistic scenarios, not vague metaphors).
@@ -41,7 +41,7 @@ Writing rules:
 - Do NOT use emojis, slang, or clickbait language.
 
 Structure the script as:
-1. Hook (problem / tension)
+1. **Killer Hook**: The first sentence MUST stop the scroll. No greetings. No "In this video...". Jump straight into the conflict.
 2. Context (why this matters now)
 3. Core analysis (step-by-step reasoning)
 4. Implications (what changes because of this)
@@ -147,13 +147,16 @@ export async function generateScript(
     language: string = 'ko',
     persona: string = 'finance'
 ): Promise<ScriptGenerationResult> {
-    // 3~5 seconds per segment for fast pacing
-    const segmentCount = Math.ceil(durationSeconds / 5);
+    // Revert to fixed 4s pacing as requested
+    const calculatedPacing = 4;
+    const segmentCount = Math.ceil(durationSeconds / calculatedPacing);
+
+    console.log(`[ScriptGen] Duration: ${durationSeconds}s, Pacing: ${calculatedPacing}s, Target Segments: ${segmentCount}`);
 
     const personaPrompt = PERSONA_PROMPTS[persona] || PERSONA_PROMPTS.finance;
     const languageInstruction = language === 'ko'
-        ? '- Write the script in Korean (한국어)'
-        : '- Write the script in English';
+        ? 'IMPORTANT: You MUST write the entire script in KOREAN (한국어).'
+        : 'IMPORTANT: You MUST write the entire script in ENGLISH.';
 
     // Style-specific visual instructions
     let styleInstruction = '';
@@ -179,16 +182,27 @@ Output format:
 - Natural spoken language for voice-over
 - No section headers in the final script
 ${languageInstruction}
+- If the search results or topic are in a different language, TRANSLATE obtained information into ${language === 'ko' ? 'Korean' : 'English'} for the script.
+
+CRITICAL RULES FOR PACING (Follow strictly):
+1. **KILLER HOOK**: The FIRST segment MUST be a specific, provocative statement. 
+   - BAD: "Artificial Intelligence is very convenient."
+   - GOOD: "Half of your electricity bill might be paying for ChatGPT's server costs."
+2. **EXTREME BREVITY**: Each segment MUST be very short. Max 15 words (English) or 40 characters (Korean).
+3. **SPLIT SENTENCES**: If a sentence is long, SPLIT it into multiple segments.
+   - Bad: "The economy is crashing because interest rates are rising." (1 segment)
+   - Good: "The economy is crashing." (Segment 1) + "Why? Because interest rates are rising." (Segment 2)
+3. **VISUAL VARIETY**: Every segment needs a NEW visual description. Do not repeat the same visual for consecutive segments.
 
 ---
 
 Topic: ${topic}
 Target length: ${durationSeconds} seconds (approximately ${Math.round(durationSeconds / 60)} minutes)
-Recommended segments: ~${segmentCount} cuts (3~7 seconds each)
+Recommended segments: ~${segmentCount} cuts (3~5 seconds each)
 
 Additional requirements:
 1. **Visual descriptions**: For each segment, provide a detailed visual description in English for AI image generation. (e.g., "Close-up of a stock chart with red arrows pointing down")
-2. **Segment pacing**: Keep each segment 3~7 seconds for fast-paced editing.
+2. **Segment pacing**: Keep each segment 3~5 seconds for fast-paced editing.
 3. **Logical flow**: Ensure smooth transitions between cuts.
 
 Respond in JSON format:
@@ -196,16 +210,17 @@ Respond in JSON format:
   "title": "Video title${language === 'ko' ? ' (in Korean)' : ''}",
   "segments": [
     { 
-      "text": "Narration script${language === 'ko' ? ' (in Korean)' : ''}...", 
+      "text": "Short narration script...", 
       "visual": "Detailed visual description for AI Image Gen (English)...",
-      "estimatedDurationMs": 5000 
+      "estimatedDurationMs": 4000 
     },
-    { "text": "...", "visual": "...", "estimatedDurationMs": 4000 }
+    { "text": "...", "visual": "...", "estimatedDurationMs": 3000 }
   ]
 }
 `;
 
     try {
+        console.log('[ScriptGen] Sending request to Gemini...');
         const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
             method: 'POST',
             headers: {
@@ -218,31 +233,54 @@ Respond in JSON format:
                     topP: 0.9,
                     maxOutputTokens: 8192,
                 },
+                tools: [
+                    { googleSearch: {} }
+                ],
             }),
         });
 
         if (!response.ok) {
-            throw new Error(`Gemini API error: ${response.status}`);
+            const errorText = await response.text();
+            console.error(`[ScriptGen] Gemini API Error: ${response.status}`, errorText);
+            throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
         }
 
         const data = await response.json();
+        console.log('[ScriptGen] Received response from Gemini');
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        // Parse JSON from response
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
+        if (!text) {
+            console.error('[ScriptGen] No text in response:', JSON.stringify(data));
+            throw new Error('No text returned from Gemini');
+        }
+
+        // Improve JSON parsing - Find first '{' and last '}'
+        const firstOpen = text.indexOf('{');
+        const lastClose = text.lastIndexOf('}');
+
+        if (firstOpen === -1 || lastClose === -1) {
+            console.error('[ScriptGen] JSON format not found in text:', text);
+            throw new Error('Failed to find JSON in Gemini response');
+        }
+
+        const jsonString = text.substring(firstOpen, lastClose + 1);
+
+        try {
+            const result = JSON.parse(jsonString) as ScriptGenerationResult;
+
+            // Calculate total duration
+            result.totalDurationMs = result.segments.reduce(
+                (sum, seg) => sum + (seg.estimatedDurationMs || 3000),
+                0
+            );
+
+            return result;
+        } catch (e) {
+            console.error('[ScriptGen] JSON Parse Error:', e);
+            console.error('[ScriptGen] Problematic JSON string:', jsonString);
             throw new Error('Failed to parse JSON from Gemini response');
         }
 
-        const result = JSON.parse(jsonMatch[0]) as ScriptGenerationResult;
-
-        // Calculate total duration
-        result.totalDurationMs = result.segments.reduce(
-            (sum, seg) => sum + (seg.estimatedDurationMs || 3000), // Default 3000ms if missing
-            0
-        );
-
-        return result;
     } catch (error) {
         console.error('Gemini API error:', error);
         throw error;

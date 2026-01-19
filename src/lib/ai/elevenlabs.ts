@@ -1,5 +1,6 @@
 // ElevenLabs API for TTS generation
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
+import { getMp3Duration } from '@/lib/audio/mp3';
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
 
@@ -45,12 +46,13 @@ export async function generateTTS(
 
         console.log('[ElevenLabs] Generated audio buffer size:', audioBuffer.length);
 
-        const charCount = text.length;
-        const estimatedDurationMs = Math.round((charCount / 3) * 1000);
+        // Accurate duration calculation using manual MP3 parser
+        const durationMs = getMp3Duration(audioBuffer);
+        console.log(`[ElevenLabs] Calculated accurate duration: ${durationMs}ms`);
 
         return {
             audioBuffer,
-            durationMs: estimatedDurationMs,
+            durationMs,
         };
     } catch (error: any) {
         console.error('[ElevenLabs] SDK error:', error?.message || error);
