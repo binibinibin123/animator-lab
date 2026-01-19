@@ -23,7 +23,7 @@ export interface ImageResult {
 
 // Style presets with their prompt modifiers
 export const STYLE_PRESETS: Record<string, string> = {
-    'economy-1': 'A cute white stickman character with a yellow square hat displaying Dollar symbol ($), simple flat vector illustration style, bright cheerful colors, minimal background, educational cartoon for YouTube',
+    'economy-1': 'Simple flat vector illustration style, clean background.',
     'anime': 'anime style, vibrant colors, detailed illustration',
     'realistic': 'photorealistic, high detail, 8k, professional photography',
     'digital-art': 'digital art, concept art, artstation trending',
@@ -49,15 +49,18 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
 
     const styleModifier = STYLE_PRESETS[style] || '';
 
-    // For Gemini 2.5 Flash Image, we use a structured prompt
-    let fullPrompt = `Generate a high-quality ${aspectRatio} image of the following scene: ${prompt}. Style: ${styleModifier}.`;
+    // Build prompt
+    let fullPrompt = `${prompt}`;
 
     if (referenceImage) {
-        fullPrompt += " Please generate the image using the provided image as a **strict character and style reference**. Match the **character design**, color palette, lighting, and artistic technique of the reference image exactly.";
+        fullPrompt += "\n\nIMPORTANT: Keep the character's identity from the reference image. Follow the scene description above for action and pose.";
     }
 
-    // Append negative constraints
-    fullPrompt += " Negative constraints: NO text, NO watermarks, NO signatures, NO speech bubbles, NO graphs with numbers, NO complex textures. Keep it clean and vector-like.";
+    if (styleModifier) {
+        fullPrompt += `\n\nStyle: ${styleModifier}`;
+    }
+
+    fullPrompt += "\n\nNO text, NO watermarks.";
 
     const parts: any[] = [{ text: fullPrompt }];
 
