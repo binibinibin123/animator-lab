@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
             style: body.style || 'anime',
             duration: body.duration || 60,
             status: 'settings',
+            video_provider: body.videoProvider || 'fal',
         };
 
         const { data, error } = await supabase

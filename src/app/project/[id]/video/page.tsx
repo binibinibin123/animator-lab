@@ -16,6 +16,8 @@ export default function VideoPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
     const [selectedModel, setSelectedModel] = useState<'hailuo' | 'kling'>('hailuo');
+    const [selectedProvider, setSelectedProvider] = useState<'fal' | 'comfyui'>('fal');
+    const [videoPrompt, setVideoPrompt] = useState('');
     const [logs, setLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
     const [showLogs, setShowLogs] = useState(true);
     const logsEndRef = useRef<HTMLDivElement>(null);
@@ -37,6 +39,14 @@ export default function VideoPage() {
         };
     }, [projectId]);
 
+    // Update video prompt when selected segment changes
+    useEffect(() => {
+        const seg = segments.find(s => s.id === selectedSegmentId);
+        if (seg) {
+            setVideoPrompt(seg.video_prompt || '');
+        }
+    }, [selectedSegmentId, segments]);
+
     const fetchSegments = async () => {
         setIsLoading(true);
         const { data, error } = await supabase
@@ -48,7 +58,23 @@ export default function VideoPage() {
         if (!error && data) {
             setSegments(data as Segment[]);
             if (data.length > 0 && !selectedSegmentId) {
-                setSelectedSegmentId((data as Segment[])[0].id);
+                const firstSeg = (data as Segment[])[0];
+                setSelectedSegmentId(firstSeg.id);
+                setVideoPrompt(firstSeg.video_prompt || '');
+            }
+
+            // Fetch project provider default
+            const { data: project } = await supabase
+                .from('projects')
+                .select('video_provider')
+                .eq('id', projectId)
+                .single();
+
+            if (project) {
+                const projectData = project as { video_provider?: string };
+                if (projectData.video_provider) {
+                    setSelectedProvider(projectData.video_provider as any);
+                }
             }
         }
         setIsLoading(false);
@@ -105,8 +131,16 @@ export default function VideoPage() {
                         if (data.status === 'completed') {
                             addLog('success', `✅ 영상 생성 완료!`);
                             setSegments(prev => prev.map(s =>
-                                s.id === segmentId ? { ...s, video_url: data.videoUrl } : s
+                                s.id === segmentId ? {
+                                    ...s,
+                                    video_url: data.videoUrl,
+                                    video_prompt: data.generatedPrompt // Update prompt if auto-generated
+                                } : s
                             ));
+                            // If this is the currently selected segment, update the textarea too
+                            if (selectedSegmentId === segmentId) {
+                                setVideoPrompt(data.generatedPrompt || '');
+                            }
                         } else {
                             addLog('error', `❌ 영상 생성 실패`);
                         }
@@ -149,11 +183,11 @@ export default function VideoPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    imageUrl: segment.image_url,
-                    segmentId: segment.id,
                     model: selectedModel,
                     scriptText: segment.script_text,
                     visualDescription: segment.visual_description,
+                    provider: selectedProvider,
+                    motion: videoPrompt || 'auto', // Pass custom prompt or 'auto'
                 }),
             });
 
@@ -169,8 +203,15 @@ export default function VideoPage() {
             } else if (data.status === 'completed' && data.videoUrl) {
                 addLog('success', `✅ 즉시 완료!`);
                 setSegments(prev => prev.map(s =>
-                    s.id === segment.id ? { ...s, video_url: data.videoUrl } : s
+                    s.id === segment.id ? {
+                        ...s,
+                        video_url: data.videoUrl,
+                        video_prompt: data.generatedPrompt
+                    } : s
                 ));
+                if (selectedSegmentId === segment.id) {
+                    setVideoPrompt(data.generatedPrompt || '');
+                }
                 setGeneratingIds(prev => {
                     const next = new Set(prev);
                     next.delete(segment.id);
@@ -216,22 +257,42 @@ export default function VideoPage() {
             </div>
 
             {/* Toolbar */}
-            <div className="flex items-center gap-6 p-4 bg-gray-50 border rounded-xl">
+            <div className="flex items-center gap-6 p-4 bg-gray-50 border rounded-xl flex-wrap">
+                <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700">생성기(Provider):</span>
+                    <select
+                        value={selectedProvider}
+                        onChange={(e) => setSelectedProvider(e.target.value as any)}
+                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+                    >
+                        <option value="fal">☁️ fal.ai (클라우드)</option>
+                        <option value="comfyui">💻 ComfyUI (로컬)</option>
+                    </select>
+                </div>
+
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">비디오 모델:</span>
                     <select
                         value={selectedModel}
                         onChange={(e) => setSelectedModel(e.target.value as 'hailuo' | 'kling')}
                         className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+                        disabled={selectedProvider === 'comfyui'}
+                    // ComfyUI uses workflow-defined model
                     >
-                        <option value="hailuo">🎬 Hailuo 2.3 (빠름/고품질)</option>
-                        <option value="kling">🎬 Kling 2.6 (정교함)</option>
+                        {selectedProvider === 'comfyui' ? (
+                            <option value="custom">💻 Workflow Default</option>
+                        ) : (
+                            <>
+                                <option value="hailuo">🎬 Hailuo 2.3 (빠름/고품질)</option>
+                                <option value="kling">🎬 Kling 2.6 (정교함)</option>
+                            </>
+                        )}
                     </select>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-gray-500 bg-white px-4 py-1.5 border rounded-lg">
                     <span>형식: <span className="text-gray-900 font-medium">MP4</span></span>
                     <span className="w-px h-3 bg-gray-200"></span>
-                    <span>러닝타임: <span className="text-gray-900 font-medium">컷당 5~10초</span></span>
+                    <span>러닝타임: <span className="text-gray-900 font-medium">컷당 6초</span></span>
                     <span className="w-px h-3 bg-gray-200"></span>
                     <span>FPS: <span className="text-gray-900 font-medium">24</span></span>
                 </div>
@@ -308,8 +369,23 @@ export default function VideoPage() {
                                     </div>
                                 )}
                             </div>
-                            <div className="bg-white p-4 border rounded-xl text-sm text-gray-600">
-                                💡 <span className="font-semibold">대본:</span> {selectedSegment.script_text}
+                            <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-semibold text-gray-700 block">
+                                        비디오 모션 프롬프트
+                                        <span className="text-xs font-normal text-gray-500 ml-2">(비어두면 AI가 자동으로 생성합니다)</span>
+                                    </label>
+                                    <textarea
+                                        value={videoPrompt}
+                                        onChange={(e) => setVideoPrompt(e.target.value)}
+                                        placeholder="예: 천천히 줌인하면서 주인공의 표정을 클로즈업..."
+                                        rows={3}
+                                        className="w-full p-4 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-violet-500"
+                                    />
+                                </div>
+                                <div className="p-3 bg-violet-50 rounded-lg text-sm text-gray-600">
+                                    💡 <span className="font-semibold text-violet-700">대본:</span> {selectedSegment.script_text}
+                                </div>
                             </div>
                         </div>
                     ) : (

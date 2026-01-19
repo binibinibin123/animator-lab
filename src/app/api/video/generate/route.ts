@@ -1,15 +1,26 @@
 // @ts-nocheck
+// Video Generation API with Provider Abstraction
+// Supports fal.ai and local ComfyUI providers
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
-import { generateVideo, checkVideoStatus } from '@/lib/ai/fal';
 import { generateVideoPrompt } from '@/lib/ai/videoPrompt';
-import type { VideoModel } from '@/lib/ai/fal';
+import { getVideoProvider, VideoProviderType } from '@/lib/video';
 
-// POST /api/video/generate - Generate video from image
+// POST /api/video/generate - Submit video generation job
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { imageUrl, model, motion, duration, segmentId, scriptText, visualDescription, style } = body;
+        const {
+            imageUrl,
+            motion,
+            duration,
+            segmentId,
+            scriptText,
+            visualDescription,
+            style,
+            provider: requestedProvider
+        } = body;
 
         if (!imageUrl) {
             return NextResponse.json(
@@ -17,6 +28,38 @@ export async function POST(request: NextRequest) {
                 { status: 400 }
             );
         }
+
+        const supabase = createServerClient();
+
+        // Determine which provider to use
+        let providerType: VideoProviderType = 'fal';
+
+        if (requestedProvider) {
+            providerType = requestedProvider as VideoProviderType;
+        } else if (segmentId) {
+            // Check segment override first, then project default
+            const { data: segment } = await supabase
+                .from('segments')
+                .select('video_provider_override, project_id')
+                .eq('id', segmentId)
+                .single();
+
+            if (segment?.video_provider_override) {
+                providerType = segment.video_provider_override as VideoProviderType;
+            } else if (segment?.project_id) {
+                const { data: project } = await supabase
+                    .from('projects')
+                    .select('video_provider')
+                    .eq('id', segment.project_id)
+                    .single();
+
+                if (project?.video_provider) {
+                    providerType = project.video_provider as VideoProviderType;
+                }
+            }
+        }
+
+        console.log(`[VideoAPI] Using provider: ${providerType}`);
 
         // Generate optimized video prompt from image analysis
         let videoPrompt = motion;
@@ -45,39 +88,59 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Generate video with the optimized prompt
-        const result = await generateVideo({
-            imageUrl,
-            model: (model as VideoModel) || 'hailuo',
-            motion: videoPrompt,
-            duration: duration || 5,
-        });
+        // Create job record in video_jobs table
+        const { data: jobRecord, error: jobError } = await supabase
+            .from('video_jobs')
+            .insert({
+                segment_id: segmentId || null,
+                provider: providerType,
+                status: 'queued',
+                progress: 0,
+            })
+            .select()
+            .single();
 
-        // If segmentId provided, update segment with video URL and generated prompt
+        if (jobError) {
+            console.error('Failed to create job record:', jobError);
+            // Continue without job tracking for backward compatibility
+        }
+
+        // Update segment with generated prompt if segmentId is present
         if (segmentId) {
-            const supabase = createServerClient();
-            // NOTE: We intentionally DO NOT update duration_ms here.
-            // The duration should come from TTS audio, not video.
-            // Video may be shorter than audio; Remotion will loop it.
-            const updateData: Record<string, unknown> = {
-                video_url: result.videoUrl,
-            };
-
-            // Store the generated prompt for reference (optional, if column exists)
-            // updateData.video_prompt = videoPrompt;
-
             await supabase
                 .from('segments')
-                .update(updateData as never)
+                .update({ video_prompt: videoPrompt })
                 .eq('id', segmentId);
+        }
+
+        // Get provider and submit job
+        const provider = getVideoProvider(providerType);
+        const { externalJobId } = await provider.submitJob({
+            imageUrl,
+            motionPrompt: videoPrompt,
+            duration: duration || 6,
+            segmentId: segmentId || '',
+            style,
+        });
+
+        // Update job record with external ID
+        if (jobRecord) {
+            await supabase
+                .from('video_jobs')
+                .update({
+                    external_job_id: externalJobId,
+                    status: 'running',
+                    started_at: new Date().toISOString(),
+                })
+                .eq('id', jobRecord.id);
         }
 
         return NextResponse.json({
             success: true,
-            videoUrl: result.videoUrl,
-            durationMs: result.durationMs,
-            status: result.status,
-            requestId: result.requestId,
+            jobId: jobRecord?.id || externalJobId,
+            externalJobId,
+            provider: providerType,
+            status: 'running',
             generatedPrompt: videoPrompt,
             promptAnalysis,
         });
@@ -90,47 +153,102 @@ export async function POST(request: NextRequest) {
     }
 }
 
-// GET /api/video/generate?requestId=xxx&model=hailuo&segmentId=xxx - Check video status
+// GET /api/video/generate?jobId=xxx OR ?segmentId=xxx - Check video status
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
-        const requestId = searchParams.get('requestId');
+        const jobId = searchParams.get('jobId');
         const segmentId = searchParams.get('segmentId');
-        const model = (searchParams.get('model') as VideoModel) || 'hailuo';
+        const requestId = searchParams.get('requestId'); // Legacy support
 
-        if (!requestId) {
+        const supabase = createServerClient();
+        let job: any = null;
+
+        if (jobId) {
+            const { data } = await supabase
+                .from('video_jobs')
+                .select('*')
+                .eq('id', jobId)
+                .single();
+            job = data;
+        } else if (segmentId) {
+            // Get most recent job for segment
+            const { data } = await supabase
+                .from('video_jobs')
+                .select('*')
+                .eq('segment_id', segmentId)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single();
+            job = data;
+        } else if (requestId) {
+            // Legacy: lookup by external_job_id
+            const { data } = await supabase
+                .from('video_jobs')
+                .select('*')
+                .eq('external_job_id', requestId)
+                .single();
+            job = data;
+        }
+
+        if (!job) {
             return NextResponse.json(
-                { error: 'Request ID is required' },
-                { status: 400 }
+                { error: 'Job not found' },
+                { status: 404 }
             );
         }
 
-        console.log(`Checking video status for requestId: ${requestId}`);
-        const result = await checkVideoStatus(requestId, model);
-        console.log(`Status check result:`, JSON.stringify(result, null, 2));
+        // If job is not in final state, check with provider
+        if (job.status !== 'succeeded' && job.status !== 'failed') {
+            const provider = getVideoProvider(job.provider);
+            const statusResult = await provider.checkStatus(job.external_job_id);
 
-        // If completed and segmentId provided, update DB
-        if (result.status === 'completed' && result.videoUrl && segmentId) {
-            console.log(`Updating segment ${segmentId} with video URL: ${result.videoUrl}`);
-            const supabase = createServerClient();
+            console.log(`[VideoAPI] Provider status:`, statusResult);
+
+            // Update job record
+            const updateData: any = {
+                status: statusResult.status,
+                progress: statusResult.progress,
+            };
+
+            if (statusResult.videoUrl) {
+                updateData.output_url = statusResult.videoUrl;
+            }
+            if (statusResult.error) {
+                updateData.error = statusResult.error;
+            }
+            if (statusResult.status === 'succeeded' || statusResult.status === 'failed') {
+                updateData.finished_at = new Date().toISOString();
+            }
+
             await supabase
-                .from('segments')
-                .update({
-                    video_url: result.videoUrl,
-                    duration_ms: result.durationMs || 6000,
-                } as never)
-                .eq('id', segmentId);
+                .from('video_jobs')
+                .update(updateData)
+                .eq('id', job.id);
+
+            // Update segment with video URL if completed
+            if (statusResult.status === 'succeeded' && statusResult.videoUrl && job.segment_id) {
+                await supabase
+                    .from('segments')
+                    .update({ video_url: statusResult.videoUrl })
+                    .eq('id', job.segment_id);
+            }
+
+            job = { ...job, ...updateData };
         }
 
         return NextResponse.json({
             success: true,
-            videoUrl: result.videoUrl,
-            durationMs: result.durationMs,
-            status: result.status,
-            requestId: result.requestId,
+            jobId: job.id,
+            externalJobId: job.external_job_id,
+            provider: job.provider,
+            status: job.status,
+            progress: job.progress,
+            videoUrl: job.output_url,
+            error: job.error,
             debug: {
-                rawStatus: result.status,
-                hasVideoUrl: !!result.videoUrl,
+                rawStatus: job.status,
+                hasVideoUrl: !!job.output_url,
             }
         });
     } catch (error) {
@@ -141,4 +259,3 @@ export async function GET(request: NextRequest) {
         );
     }
 }
-

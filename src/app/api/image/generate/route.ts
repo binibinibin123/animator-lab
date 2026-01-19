@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
 import { generateImage, scriptToImagePrompt } from '@/lib/ai/nanobanana';
+import { generateVideoPrompt } from '@/lib/ai/videoPrompt';
 import path from 'path';
 import fs from 'fs';
 
@@ -60,18 +61,56 @@ export async function POST(request: NextRequest) {
             referenceMimeType, // Pass the detected mime type
         });
 
-        // If segmentId provided, update segment
+        // Generate video prompt from the new image
+        let generatedVideoPrompt = null;
+        try {
+            console.log('[Image API] Generating video prompt...');
+            const videoPromptResult = await generateVideoPrompt({
+                imageUrl: result.imageUrl,
+                scriptText: scriptText,
+                visualDescription: prompt, // proper visual description is passed as 'prompt' in body
+                style: style,
+            });
+            generatedVideoPrompt = videoPromptResult.prompt;
+            console.log('[Image API] Video prompt generated:', generatedVideoPrompt);
+        } catch (vpError) {
+            console.error('[Image API] Failed to generate video prompt:', vpError);
+            // Fallback to simpler prompt if Gemini analysis fails
+            generatedVideoPrompt = 'Static scene. Fixed camera. Subtle ambient motion.';
+        }
+
+        // If segmentId provided, update segment with image AND video prompt
         if (segmentId) {
             const supabase = createServerClient();
-            await supabase
+
+            // 1. Update image_url (Critical)
+            const { error: imageError } = await supabase
                 .from('segments')
                 .update({ image_url: result.imageUrl } as never)
                 .eq('id', segmentId);
+
+            if (imageError) {
+                console.error('[Image API] Failed to update image_url:', imageError);
+                throw new Error('Failed to save image URL to database');
+            }
+
+            // 2. Update video_prompt (Optional - failure shouldn't fail the request)
+            if (generatedVideoPrompt) {
+                const { error: promptError } = await supabase
+                    .from('segments')
+                    .update({ video_prompt: generatedVideoPrompt } as never)
+                    .eq('id', segmentId);
+
+                if (promptError) {
+                    console.warn('[Image API] Failed to update video_prompt (likely missing column):', promptError.message);
+                }
+            }
         }
 
         return NextResponse.json({
             success: true,
             imageUrl: result.imageUrl,
+            videoPrompt: generatedVideoPrompt, // Return this so frontend can update state if needed
             width: result.width,
             height: result.height,
         });

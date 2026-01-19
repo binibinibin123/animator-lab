@@ -28,10 +28,16 @@ const STYLES = [
     { id: 'sketch', name: '스케치', thumbnail: '/styles/sketch.png' },
 ];
 
+const VIDEO_PROVIDERS = [
+    { id: 'fal', name: 'fal.ai (클라우드)', icon: '☁️', desc: '빠르고 안정적, 유료 API' },
+    { id: 'comfyui', name: 'ComfyUI (로컬)', icon: '💻', desc: '무료, 로컬 GPU 필요' },
+];
+
 export default function NewProjectPage() {
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
     const [selectedStyle, setSelectedStyle] = useState<string>('anime');
     const [customStyle, setCustomStyle] = useState<string>('');
+    const [videoProvider, setVideoProvider] = useState<string>('fal');
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const router = useRouter();
@@ -53,6 +59,7 @@ export default function NewProjectPage() {
                 body: JSON.stringify({
                     aspectRatio,
                     style: styleToUse,
+                    videoProvider,
                 }),
             });
 

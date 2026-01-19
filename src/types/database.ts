@@ -21,6 +21,7 @@ export type Database = {
                     style: string;
                     status: string;
                     duration: number;
+                    video_provider: string;
                     video_url: string | null;
                     thumbnail_url: string | null;
                     autopilot_status: string | null;
@@ -36,6 +37,7 @@ export type Database = {
                     style?: string;
                     status?: string;
                     duration?: number;
+                    video_provider?: string;
                     video_url?: string | null;
                     thumbnail_url?: string | null;
                     autopilot_status?: string | null;
@@ -51,6 +53,7 @@ export type Database = {
                     style?: string;
                     status?: string;
                     duration?: number;
+                    video_provider?: string;
                     video_url?: string | null;
                     thumbnail_url?: string | null;
                     autopilot_status?: string | null;
@@ -70,6 +73,8 @@ export type Database = {
                     video_url: string | null;
                     visual_description: string | null;
                     duration_ms: number | null;
+                    video_provider_override: string | null;
+                    video_prompt: string | null;
                     created_at: string;
                 };
                 Insert: {
@@ -82,6 +87,8 @@ export type Database = {
                     video_url?: string | null;
                     visual_description?: string | null;
                     duration_ms?: number | null;
+                    video_provider_override?: string | null;
+                    video_prompt?: string | null;
                     created_at?: string;
                 };
                 Update: {
@@ -94,6 +101,8 @@ export type Database = {
                     video_url?: string | null;
                     visual_description?: string | null;
                     duration_ms?: number | null;
+                    video_provider_override?: string | null;
+                    video_prompt?: string | null;
                     created_at?: string;
                 };
             };
