@@ -64,50 +64,69 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
         });
     }
 
+    // Validate API key
+    if (!GOOGLE_AI_API_KEY) {
+        throw new Error('GOOGLE_AI_API_KEY is not configured. Please set the environment variable.');
+    }
+
+    console.log('Calling Gemini Image API with prompt:', fullPrompt.slice(0, 100) + '...');
+
     try {
         const response = await fetch(`${GEMINI_API_URL}?key=${GOOGLE_AI_API_KEY}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'x-goog-api-key': GOOGLE_AI_API_KEY,
             },
             body: JSON.stringify({
                 contents: [{
                     parts: parts
                 }],
                 generationConfig: {
-                    temperature: 0.4,
-                    topP: 0.9,
+                    responseModalities: ["IMAGE", "TEXT"],
                 },
             }),
         });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(`Gemini Image API error: ${response.status} ${JSON.stringify(errorData)}`);
+            console.error('Gemini API error response:', {
+                status: response.status,
+                statusText: response.statusText,
+                error: errorData
+            });
+            throw new Error(`Gemini Image API error: ${response.status} - ${errorData.error?.message || JSON.stringify(errorData)}`);
         }
 
-        const data = await response.json();
-        const part = data.candidates?.[0]?.content?.parts?.[0];
+        const responseData = await response.json();
+        console.log('[Gemini] Full response:', JSON.stringify(responseData, null, 2).slice(0, 1000));
 
-        if (!part) {
-            throw new Error('Invalid response from Gemini Image API');
+        const candidate = responseData.candidates?.[0];
+        const responseParts = candidate?.content?.parts || [];
+
+        console.log('[Gemini] Response parts count:', responseParts.length);
+
+        // Look for image data in any part
+        for (const part of responseParts) {
+            if (part.inlineData && part.inlineData.data) {
+                const base64Data = part.inlineData.data;
+                const mimeType = part.inlineData.mimeType || 'image/jpeg';
+                const imageUrl = `data:${mimeType};base64,${base64Data}`;
+
+                console.log('[Gemini] Found image data, mimeType:', mimeType, 'size:', base64Data.length);
+                return {
+                    imageUrl,
+                    width: 1024,
+                    height: 1024,
+                };
+            } else if (part.text) {
+                console.log('[Gemini] Found text part:', part.text.slice(0, 200));
+            }
         }
 
-        // Gemini image models return the image as binary data in inlineData
-        if (part.inlineData && part.inlineData.data) {
-            const base64Data = part.inlineData.data;
-            const mimeType = part.inlineData.mimeType || 'image/jpeg';
-            const imageUrl = `data:${mimeType};base64,${base64Data}`;
-
-            return {
-                imageUrl,
-                width: 1024,
-                height: 1024,
-            };
-        } else {
-            console.warn('Gemini returned text instead of image data:', part.text);
-            throw new Error('Gemini did not return image data');
-        }
+        // No image found in any part
+        console.error('[Gemini] No image data found in response. Prompt safety or model limitation?');
+        throw new Error('Gemini did not return image data. Model may not support image generation for this prompt.');
     } catch (error) {
         console.error('Gemini image generation error:', error);
         throw error;

@@ -6,9 +6,11 @@ import fs from 'fs';
 
 // POST /api/image/generate - Generate image for a segment
 export async function POST(request: NextRequest) {
+    console.log('[Image API] Received request');
     try {
         const body = await request.json();
         const { prompt, scriptText, style, aspectRatio, resolution, segmentId } = body;
+        console.log('[Image API] Request body:', { prompt: prompt?.slice(0, 50), scriptText: scriptText?.slice(0, 50), style, aspectRatio, resolution, segmentId });
 
         // Use provided prompt or generate from script
         const imagePrompt = prompt || scriptToImagePrompt(scriptText || '', style || 'anime');
@@ -20,6 +22,8 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        console.log('[Image API] Generated prompt:', imagePrompt.slice(0, 100));
+
         // Prepare reference image if a preset style is selected (not custom)
         let referenceImage: string | undefined;
         if (style && style !== 'custom') {
@@ -28,13 +32,16 @@ export async function POST(request: NextRequest) {
                 if (fs.existsSync(stylePath)) {
                     const imageBuffer = fs.readFileSync(stylePath);
                     referenceImage = imageBuffer.toString('base64');
-                    // console.log(`Loaded reference image for style: ${style}`);
+                    console.log(`[Image API] Loaded reference image for style: ${style}, size: ${referenceImage.length} chars`);
+                } else {
+                    console.log(`[Image API] No reference image found for style: ${style}`);
                 }
             } catch (err) {
-                console.warn(`Failed to load reference image for style ${style}:`, err);
+                console.warn(`[Image API] Failed to load reference image for style ${style}:`, err);
             }
         }
 
+        console.log('[Image API] Calling generateImage...');
         // Generate image
         const result = await generateImage({
             prompt: imagePrompt,

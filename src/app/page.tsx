@@ -62,7 +62,7 @@ export default function Home() {
         {/* Create New Project Card */}
         <div className="max-w-md mx-auto mb-16">
           <Link
-            href="/create"
+            href="/create/new"
             className="block p-8 bg-white rounded-2xl shadow-lg border-2 border-transparent hover:border-violet-600 transition-all group"
           >
             <div className="text-center">
@@ -98,7 +98,7 @@ export default function Home() {
               {projects.map((project) => (
                 <Link
                   key={project.id}
-                  href={`/create/preview?projectId=${project.id}`}
+                  href={`/project/${project.id}/script`}
                   className="group bg-white p-5 rounded-2xl border hover:border-violet-300 hover:shadow-md transition-all flex flex-col"
                 >
                   <div className="aspect-video bg-gray-100 rounded-xl mb-4 overflow-hidden relative">
