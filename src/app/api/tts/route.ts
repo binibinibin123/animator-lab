@@ -1,15 +1,19 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
-import { generateTTS, getAvailableVoices, DEFAULT_VOICES } from '@/lib/ai/elevenlabs';
+import { generateTTS, DEFAULT_VOICES } from '@/lib/ai/elevenlabs';
 
-// POST /api/tts/generate - Generate TTS audio
+// POST /api/tts - Generate TTS audio
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
         const { text, voiceId, segmentId } = body;
 
-        console.log('[TTS] Request:', { text: text?.substring(0, 50), voiceId, segmentId });
+        console.log('[API /tts] Request:', {
+            textLength: text?.length,
+            voiceId,
+            segmentId
+        });
 
         if (!text) {
             return NextResponse.json(
@@ -18,18 +22,23 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Generate TTS - use provided voiceId or default
-        const voice = voiceId || DEFAULT_VOICES[0].voice_id;
-        console.log('[TTS] Using voice:', voice);
+        if (!voiceId) {
+            return NextResponse.json(
+                { error: 'Voice ID is required' },
+                { status: 400 }
+            );
+        }
 
-        const result = await generateTTS(text, voice);
-        console.log('[TTS] Generation result:', { durationMs: result.durationMs, bufferSize: result.audioBuffer?.length });
+        // Generate TTS
+        console.log('[API /tts] Generating audio...');
+        const result = await generateTTS(text, voiceId);
+        console.log('[API /tts] Audio generated, size:', result.audioBuffer.length);
 
         // Upload audio to Supabase Storage
         const supabase = createServerClient();
         const fileName = `audio_${Date.now()}.mp3`;
 
-        console.log('[TTS] Uploading to Supabase:', fileName);
+        console.log('[API /tts] Uploading to Supabase:', fileName);
 
         const { data: uploadData, error: uploadError } = await supabase
             .storage
@@ -39,8 +48,8 @@ export async function POST(request: NextRequest) {
             });
 
         if (uploadError) {
-            console.error('[TTS] Upload error:', uploadError);
-            throw uploadError;
+            console.error('[API /tts] Supabase upload error:', uploadError);
+            throw new Error(`Upload failed: ${uploadError.message}`);
         }
 
         // Get public URL
@@ -50,17 +59,18 @@ export async function POST(request: NextRequest) {
             .getPublicUrl(`audio/${fileName}`);
 
         const audioUrl = urlData.publicUrl;
-        console.log('[TTS] Audio URL:', audioUrl);
+        console.log('[API /tts] Audio URL:', audioUrl);
 
         // If segmentId provided, update segment
         if (segmentId) {
+            console.log('[API /tts] Updating segment:', segmentId);
             const { error: updateError } = await supabase
                 .from('segments')
                 .update({ audio_url: audioUrl, duration_ms: result.durationMs })
                 .eq('id', segmentId);
 
             if (updateError) {
-                console.error('[TTS] Segment update error:', updateError);
+                console.error('[API /tts] Segment update error:', updateError);
             }
         }
 
@@ -70,24 +80,10 @@ export async function POST(request: NextRequest) {
             durationMs: result.durationMs,
         });
     } catch (error: any) {
-        console.error('[TTS] Generation error:', error);
-        console.error('[TTS] Error details:', error?.message, error?.stack);
+        console.error('[API /tts] Error:', error?.message || error);
         return NextResponse.json(
             { error: 'Failed to generate TTS', details: error?.message },
             { status: 500 }
         );
-    }
-}
-
-// GET /api/tts/generate - Get available voices (dynamic from ElevenLabs)
-export async function GET() {
-    try {
-        console.log('[TTS] Fetching voices...');
-        const voices = await getAvailableVoices();
-        console.log('[TTS] Fetched', voices.length, 'voices');
-        return NextResponse.json({ voices });
-    } catch (error) {
-        console.error('[TTS] Failed to fetch voices:', error);
-        return NextResponse.json({ voices: DEFAULT_VOICES });
     }
 }
