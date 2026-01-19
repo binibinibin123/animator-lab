@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-// 기존 /create/voice?projectId=xxx URL을 /project/xxx/voice로 리다이렉트
-export default function VoiceRedirect() {
+function VoiceRedirectContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const projectId = searchParams.get('projectId');
@@ -24,5 +23,13 @@ export default function VoiceRedirect() {
                 <p className="text-gray-500">리다이렉트 중...</p>
             </div>
         </div>
+    );
+}
+
+export default function VoiceRedirect() {
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <VoiceRedirectContent />
+        </Suspense>
     );
 }

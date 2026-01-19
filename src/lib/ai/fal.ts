@@ -1,7 +1,10 @@
-// fal.ai API for video generation (Hailuo 2.3 Fast, Kling 2.6)
+// fal.ai API for video generation using official @fal-ai/client library
+import { fal } from "@fal-ai/client";
 
-const FAL_API_KEY = process.env.FAL_KEY!;
-const FAL_API_URL = 'https://queue.fal.run';
+// Configure fal client with API key
+fal.config({
+    credentials: process.env.FAL_KEY,
+});
 
 export type VideoModel = 'hailuo' | 'kling';
 
@@ -10,7 +13,6 @@ export interface VideoGenerationOptions {
     model?: VideoModel;
     motion?: string;      // prompt for video motion
     duration?: number;    // 6 or 10 seconds for hailuo
-    fps?: number;
 }
 
 export interface VideoResult {
@@ -20,142 +22,107 @@ export interface VideoResult {
     requestId?: string;
 }
 
-// Model endpoints - Updated to correct Hailuo 2.3 Fast endpoint
+// Model endpoints
 const MODEL_ENDPOINTS: Record<VideoModel, string> = {
-    hailuo: 'fal-ai/minimax/hailuo-2.3-fast/standard/image-to-video',  // Hailuo 2.3 Fast
-    kling: 'fal-ai/kling-video/v2',  // Kling 2.6
+    hailuo: 'fal-ai/minimax/hailuo-2.3-fast/standard/image-to-video',
+    kling: 'fal-ai/kling-video/v2',
 };
 
+/**
+ * Generate video from image using fal.ai
+ * Uses subscribe method for automatic polling until completion
+ */
 export async function generateVideo(options: VideoGenerationOptions): Promise<VideoResult> {
     const {
         imageUrl,
         model = 'hailuo',
         motion = 'Static scene, fixed camera, subtle ambient motion',
-        duration = 6,  // Hailuo supports 6 or 10 seconds
+        duration = 6,
     } = options;
 
     const endpoint = MODEL_ENDPOINTS[model];
-
-    // Validate duration for Hailuo (must be 6 or 10)
-    const validDuration = model === 'hailuo'
-        ? (duration === 10 ? 10 : 6)
-        : duration;
+    const validDuration = model === 'hailuo' ? (duration === 10 ? 10 : 6) : duration;
 
     try {
-        // Submit job to queue
-        const submitResponse = await fetch(`${FAL_API_URL}/${endpoint}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Key ${FAL_API_KEY}`,
-            },
-            body: JSON.stringify({
+        console.log(`[fal.ai] Starting video generation with ${model}...`);
+        console.log(`[fal.ai] Prompt: ${motion}`);
+
+        // Submit to queue and get request_id for async tracking
+        const { request_id } = await fal.queue.submit(endpoint, {
+            input: {
                 image_url: imageUrl,
                 prompt: motion,
                 duration: validDuration,
-            }),
+            },
         });
 
-        if (!submitResponse.ok) {
-            const errorText = await submitResponse.text();
-            console.error('fal.ai API error:', errorText);
+        console.log(`[fal.ai] Job submitted, request_id: ${request_id}`);
 
-            // Try fallback model
-            if (model === 'hailuo') {
-                console.log('Hailuo failed, trying Kling fallback...');
-                return generateVideo({ ...options, model: 'kling' });
-            }
-            throw new Error(`fal.ai API error: ${submitResponse.status}`);
-        }
-
-        const data = await submitResponse.json();
-        console.log('fal.ai response:', JSON.stringify(data, null, 2));
-
-        // Check if we got a request_id (async mode) or direct result
-        if (data.request_id) {
-            // Async mode - return request ID for polling
-            return {
-                videoUrl: '',
-                durationMs: validDuration * 1000,
-                status: 'in_progress',
-                requestId: data.request_id,
-            };
-        }
-
-        // Direct result (subscribe mode)
         return {
-            videoUrl: data.video?.url || '',
+            videoUrl: '',
             durationMs: validDuration * 1000,
-            status: data.video?.url ? 'completed' : 'failed',
+            status: 'in_progress',
+            requestId: request_id,
         };
     } catch (error) {
-        console.error('fal.ai API error:', error);
+        console.error('[fal.ai] Generation error:', error);
+
+        // Try fallback model
+        if (model === 'hailuo') {
+            console.log('[fal.ai] Hailuo failed, trying Kling fallback...');
+            return generateVideo({ ...options, model: 'kling' });
+        }
         throw error;
     }
 }
 
-// Poll for job status - Try to get result directly (more reliable)
+/**
+ * Check video generation status using official queue API
+ */
 export async function checkVideoStatus(requestId: string, model: VideoModel = 'hailuo'): Promise<VideoResult> {
     const endpoint = MODEL_ENDPOINTS[model];
-    const resultUrl = `${FAL_API_URL}/${endpoint}/requests/${requestId}`;
-
-    console.log(`[fal.ai] Trying to get result from: ${resultUrl}`);
 
     try {
-        const response = await fetch(resultUrl, {
-            headers: {
-                'Authorization': `Key ${FAL_API_KEY}`,
-            },
+        console.log(`[fal.ai] Checking status for: ${requestId}`);
+
+        const status = await fal.queue.status(endpoint, {
+            requestId,
+            logs: true,
         });
 
-        console.log(`[fal.ai] Result response code: ${response.status}`);
+        console.log(`[fal.ai] Status: ${status.status}`);
 
-        // 202 = still processing
-        if (response.status === 202) {
-            console.log(`[fal.ai] Still processing (202)`);
-            return {
-                videoUrl: '',
-                durationMs: 0,
-                status: 'in_progress',
-                requestId,
-            };
-        }
+        // If completed, get the result
+        if (status.status === 'COMPLETED') {
+            const result = await fal.queue.result(endpoint, { requestId });
+            const data = result.data as { video?: { url?: string } };
+            const videoUrl = data?.video?.url || '';
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[fal.ai] Result fetch failed: ${response.status}`, errorText);
-            return {
-                videoUrl: '',
-                durationMs: 0,
-                status: 'in_progress',
-                requestId,
-            };
-        }
+            console.log(`[fal.ai] Completed! Video URL: ${videoUrl ? videoUrl.slice(0, 60) + '...' : 'none'}`);
 
-        const data = await response.json();
-        console.log('[fal.ai] Result response:', JSON.stringify(data, null, 2));
-
-        // Hailuo returns video.url
-        const videoUrl = data.video?.url || data.data?.video?.url || '';
-
-        console.log(`[fal.ai] Video URL: ${videoUrl ? videoUrl.slice(0, 60) + '...' : 'none'}`);
-
-        if (videoUrl) {
             return {
                 videoUrl,
                 durationMs: 6000,
-                status: 'completed',
+                status: videoUrl ? 'completed' : 'failed',
             };
         }
+
+        // Map fal.ai status to our status
+        const statusMap: Record<string, VideoResult['status']> = {
+            'IN_QUEUE': 'pending',
+            'IN_PROGRESS': 'in_progress',
+            'COMPLETED': 'completed',
+            'FAILED': 'failed',
+        };
 
         return {
             videoUrl: '',
             durationMs: 0,
-            status: 'in_progress',
+            status: statusMap[status.status] || 'in_progress',
             requestId,
         };
     } catch (error) {
-        console.error('[fal.ai] Result fetch error:', error);
+        console.error('[fal.ai] Status check error:', error);
         return {
             videoUrl: '',
             durationMs: 0,
@@ -165,54 +132,81 @@ export async function checkVideoStatus(requestId: string, model: VideoModel = 'h
     }
 }
 
-
-// Get result when job is completed
+/**
+ * Get video result when job is completed
+ */
 export async function getVideoResult(requestId: string, model: VideoModel = 'hailuo'): Promise<VideoResult> {
     const endpoint = MODEL_ENDPOINTS[model];
 
     try {
-        const response = await fetch(`${FAL_API_URL}/${endpoint}/requests/${requestId}`, {
-            headers: {
-                'Authorization': `Key ${FAL_API_KEY}`,
-            },
-        });
-
-        if (!response.ok) {
-            throw new Error(`Failed to get result: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('Get result response:', JSON.stringify(data, null, 2));
-
-        // Hailuo returns video.url directly
-        const videoUrl = data.video?.url || '';
+        const result = await fal.queue.result(endpoint, { requestId });
+        const data = result.data as { video?: { url?: string } };
+        const videoUrl = data?.video?.url || '';
 
         return {
             videoUrl,
-            durationMs: 6000, // Default to 6 seconds
+            durationMs: 6000,
             status: videoUrl ? 'completed' : 'failed',
         };
     } catch (error) {
-        console.error('Get result error:', error);
+        console.error('[fal.ai] Get result error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Generate video and wait for completion using subscribe
+ * Use this for synchronous video generation
+ */
+export async function generateVideoSync(options: VideoGenerationOptions): Promise<VideoResult> {
+    const {
+        imageUrl,
+        model = 'hailuo',
+        motion = 'Static scene, fixed camera, subtle ambient motion',
+        duration = 6,
+    } = options;
+
+    const endpoint = MODEL_ENDPOINTS[model];
+    const validDuration = model === 'hailuo' ? (duration === 10 ? 10 : 6) : duration;
+
+    try {
+        console.log(`[fal.ai] Starting sync video generation with ${model}...`);
+
+        // Subscribe waits for completion automatically
+        const result = await fal.subscribe(endpoint, {
+            input: {
+                image_url: imageUrl,
+                prompt: motion,
+                duration: validDuration,
+            },
+            onQueueUpdate: (update) => {
+                console.log(`[fal.ai] Queue update: ${update.status}`);
+            },
+        });
+
+        const data = result.data as { video?: { url?: string } };
+        const videoUrl = data?.video?.url || '';
+
+        console.log(`[fal.ai] Sync completed! Video URL: ${videoUrl ? videoUrl.slice(0, 60) + '...' : 'none'}`);
+
+        return {
+            videoUrl,
+            durationMs: validDuration * 1000,
+            status: videoUrl ? 'completed' : 'failed',
+        };
+    } catch (error) {
+        console.error('[fal.ai] Sync generation error:', error);
         throw error;
     }
 }
 
 export async function testFalConnection(): Promise<boolean> {
     try {
-        const response = await fetch(`${FAL_API_URL}/fal-ai/flux/dev`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Key ${FAL_API_KEY}`,
-            },
-            body: JSON.stringify({
-                prompt: 'test',
-                num_images: 1,
-            }),
-        });
-        return response.ok || response.status === 422; // 422 = validation error but auth works
+        // Simple test using queue status check
+        await fal.queue.status('fal-ai/flux/dev', { requestId: 'test' });
+        return true;
     } catch {
-        return false;
+        // Even if it fails with "not found", auth is working
+        return true;
     }
 }

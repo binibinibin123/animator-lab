@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-// 기존 /create/image?projectId=xxx URL을 /project/xxx/image로 리다이렉트
-export default function ImageRedirect() {
+function ImageRedirectContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const projectId = searchParams.get('projectId');
@@ -24,5 +23,13 @@ export default function ImageRedirect() {
                 <p className="text-gray-500">리다이렉트 중...</p>
             </div>
         </div>
+    );
+}
+
+export default function ImageRedirect() {
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <ImageRedirectContent />
+        </Suspense>
     );
 }
