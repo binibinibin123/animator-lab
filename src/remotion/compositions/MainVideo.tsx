@@ -31,6 +31,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({ segments, subtitleStyle = 
                                     <Video
                                         src={seg.video_url}
                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        loop
                                     />
                                 ) : seg.image_url ? (
                                     <Img

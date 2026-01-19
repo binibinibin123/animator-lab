@@ -56,9 +56,11 @@ export async function POST(request: NextRequest) {
         // If segmentId provided, update segment with video URL and generated prompt
         if (segmentId) {
             const supabase = createServerClient();
+            // NOTE: We intentionally DO NOT update duration_ms here.
+            // The duration should come from TTS audio, not video.
+            // Video may be shorter than audio; Remotion will loop it.
             const updateData: Record<string, unknown> = {
                 video_url: result.videoUrl,
-                duration_ms: result.durationMs,
             };
 
             // Store the generated prompt for reference (optional, if column exists)
