@@ -1,52 +1,128 @@
-# 📅 Session Log: 2026-01-19 (AutoVideo Project)
+# AutoVideo 작업 내역 - 2026-01-19
 
-## ✅ Completed Tasks (완료된 작업)
+## 세션 요약
 
-### 1. **Phase 1.5: 콘텐츠 품질 고도화**
-- **스타일 프리셋 12종 구현**: Anime, Cinematic, 3D Render 등 다양한 스타일을 `public/styles`에 추가하고 선택 UI를 개선했습니다.
-- **Reference Image 연동**: 스타일 선택 시 해당 스타일의 대표 이미지를 AI 프롬프트 생성(Gemini)에 함께 전달하여 스타일 일관성을 확보했습니다.
-- **Image Page 개선**: 컷별 프롬프트 수정 및 개별 이미지 재생성 기능을 추가했습니다.
-
-### 2. **Phase 3: Autopilot (Beta)**
-- **오토파일럿 로직 구현**: 주제 입력 한 번으로 `Script` -> `Audio` -> `Image` -> `Video` 까지 자동 생성되는 파이프라인(SSE 기반)을 구축했습니다.
-- **베타 라벨링**: 안정성 확보 전까지 'Beta' 딱지를 붙이고 별도 메뉴(`create/autopilot`)로 분리했습니다.
-
-### 3. **Critical Bug Fixes (긴급 패치)**
-- **Project ID Persistence**:
-    - 페이지 이동 시 `projectId`가 유실되거나 문자열 "null"로 오염되는 문제를 해결했습니다.
-    - `Script`, `Voice`, `Image` 각 페이지에 ID 유효성 검사 로직을 강화했습니다.
-- **Data Safety**:
-    - "대본 사라짐" 현상의 원인이었던 **공격적인 자동 리다이렉트**를 제거했습니다.
-    - 대신 경고 메시지를 띄우도록 변경하여, 데이터 로딩 중 튕겨나가는 문제를 방지했습니다.
-- **Debug Tooling**:
-    - `/create/debug` 페이지를 신설하여 사용자가 직접 DB 데이터(세그먼트 보존 여부)를 눈으로 확인할 수 있게 했습니다.
+이 세션에서는 AutoVideo 앱의 대본 생성 기능 개선과 영상 생성 파이프라인 구현을 진행했습니다.
 
 ---
 
-## 🚧 Work in Progress (진행 중 / 해결 과제)
+## 완료된 작업
 
-### 1. **Image Generation Error (500)**
-- **증상**: 이미지 생성 시도 시 500 에러 발생. 디버그 페이지에서 테스트 가능.
-- **추정 원인**:
-    - `GOOGLE_AI_API_KEY` 환경 변수 누락 가능성.
-    - Gemini 2.5 Flash Image 모델 접근 권한 혹은 할당량 문제.
-    - `nanobanana.ts` 내부의 에러 핸들링 미흡.
-- **다음 단계**: API 키 확인 및 서버 로그를 통해 정확한 에러 메시지(403, 404 등) 확인 필요.
+### 1. 대본 생성 기능 개선
 
-### 2. **Navigation Flow Polish**
-- **증상**: 리다이렉트를 제거했으나, 유효하지 않은 ID로 접근 시 빈 화면이나 에러 UI가 다소 투박함.
-- **다음 단계**: "프로젝트를 찾을 수 없습니다"와 같은 친절한 안내 페이지(Empty State) 디자인 적용 필요.
+#### 1.1 언어 선택 기능 추가
+- **파일**: `src/app/project/[id]/script/page.tsx`
+- 한국어(🇰🇷) / English(🇺🇸) 선택 UI 추가
+- 선택된 언어에 따라 placeholder 텍스트 변경
+
+#### 1.2 페르소나(스타일) 선택 기능 추가
+- **파일**: `src/app/project/[id]/script/page.tsx`, `src/lib/ai/gemini.ts`
+- 5가지 대본 스타일 추가:
+  - 📊 **경제 유튜버** - Bob Invests 스타일, 차분하고 이성적인 데이터 기반 분석
+  - 📚 **교육자** - 친절한 강의형 설명
+  - 🎭 **스토리텔러** - 다큐멘터리 스타일 내러티브
+  - 📺 **뉴스 앵커** - 객관적 정보 전달
+  - 🎉 **엔터테이너** - 유머러스하고 가벼운 톤
+
+#### 1.3 API 업데이트
+- **파일**: `src/app/api/script/generate/route.ts`
+- `language`, `persona` 파라미터 추가
+- Gemini API에 전달하여 선택된 스타일로 대본 생성
 
 ---
 
-## 📝 Next Steps for Future Session (다음 작업 계획)
+### 2. 영상 생성 파이프라인 구현
 
-1.  **이미지 생성 기능 정상화**:
-    - 디버그 페이지의 'API 테스트' 결과를 바탕으로 Gemini 연동 문제 해결.
-    - 필요시 Fal.ai 등 대체 엔진 검토.
+#### 2.1 이미지 분석 기반 프롬프트 자동 생성
+- **새 파일**: `src/lib/ai/videoPrompt.ts`
+- Gemini Vision API를 사용하여 이미지 분석
+- 대본(scriptText)과 시각적 설명(visualDescription)을 참고하여 프롬프트 생성
+- **고정 카메라 + 정적 모션** 규칙 적용 (AI 영상 아티팩트 방지)
 
-2.  **Phase 2: 에셋 라이브러리 구축**:
-    - 외부 이미지/영상 업로드 기능 구현.
+#### 2.2 Hailuo 2.3 Fast API 연동
+- **파일**: `src/lib/ai/fal.ts`
+- 올바른 모델 엔드포인트 설정: `fal-ai/minimax/hailuo-2.3-fast/standard/image-to-video`
+- 환경변수 `FAL_KEY` 사용
+- Duration: 6초 또는 10초 지원
+- 비동기 작업 처리 (request_id 기반 폴링)
 
-3.  **Phase 4: 최종 렌더링 (FFmpeg)**:
-    - 생성된 이미지+오디오를 합쳐 실제 비디오 파일(.mp4)로 병합하는 백엔드 로직 구현.
+#### 2.3 영상 생성 API 업데이트
+- **파일**: `src/app/api/video/generate/route.ts`
+- POST: 이미지 분석 → 프롬프트 생성 → Hailuo API 호출
+- GET: 폴링으로 생성 상태 확인 및 완료 시 DB 업데이트
+
+---
+
+### 3. 실시간 로그 패널 추가
+
+#### 3.1 영상 생성 페이지 UI 개선
+- **파일**: `src/app/project/[id]/video/page.tsx`
+- 우측 상단에 고정된 디버그 로그 패널 추가
+- 로그 유형별 색상 구분:
+  - 흰색: 일반 정보
+  - 노란색: 경고/대기 중
+  - 녹색: 성공
+  - 빨간색: 에러
+- 타임스탬프, 자동 스크롤, 지우기/닫기 기능
+
+#### 3.2 폴링 로직 개선
+- 첫 폴링 전 10초 대기
+- 10초 간격 폴링
+- 최대 30회 재시도 (최대 5분 대기)
+- 에러 시 재시도 로직
+
+---
+
+## 미해결 이슈
+
+### fal.ai 영상 생성 결과 수신 문제
+
+**현상**: fal.ai 대시보드에서는 영상 생성 완료가 확인되지만, 앱의 폴링에서는 계속 `in_progress` 상태로 표시됨
+
+**시도한 해결 방법**:
+1. Status 엔드포인트 (`/requests/{requestId}/status`) 사용 → 상태값 매핑 시도
+2. Result 엔드포인트 (`/requests/{requestId}`) 직접 호출 → 202 vs 200 응답 확인
+3. 다양한 상태값 매핑 (COMPLETED, OK, IN_QUEUE, IN_PROGRESS 등)
+4. response_url 필드 확인
+
+**가능한 원인**:
+- fal.ai REST API의 응답 형식이 문서와 다를 수 있음
+- 공식 `@fal-ai/client` 라이브러리 사용이 더 안정적일 수 있음
+- 엔드포인트 경로나 인증 방식의 차이
+
+**추천 다음 단계**:
+1. 터미널에서 서버 로그 확인 (`[fal.ai]` 로그)
+2. 실제 fal.ai API 응답 형식 확인
+3. 필요시 `@fal-ai/client` 공식 라이브러리로 전환 고려
+
+---
+
+## 수정된 파일 목록
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `src/app/project/[id]/script/page.tsx` | 언어/페르소나 선택 UI 추가 |
+| `src/app/api/script/generate/route.ts` | language, persona 파라미터 처리 |
+| `src/lib/ai/gemini.ts` | 페르소나별 시스템 프롬프트 구현 |
+| `src/lib/ai/videoPrompt.ts` | **신규** - 이미지 분석 기반 프롬프트 생성 |
+| `src/lib/ai/fal.ts` | Hailuo 2.3 Fast API 연동 |
+| `src/app/api/video/generate/route.ts` | 자동 프롬프트 생성 및 폴링 로직 |
+| `src/app/project/[id]/video/page.tsx` | 실시간 로그 패널, 폴링 개선 |
+
+---
+
+## 환경 변수
+
+```env
+GOOGLE_AI_API_KEY=   # Gemini API 키
+FAL_KEY=             # fal.ai API 키
+```
+
+---
+
+## 다음 세션 TODO
+
+- [ ] fal.ai 영상 생성 결과 수신 문제 해결
+- [ ] `@fal-ai/client` 라이브러리 도입 검토
+- [ ] 영상 생성 완료 후 DB 업데이트 확인
+- [ ] 전체 영상 생성 → 미리보기 플로우 테스트
