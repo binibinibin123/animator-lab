@@ -1,13 +1,15 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { Project, Segment } from '@/types/database';
 import { Player } from '@remotion/player';
 import { MainVideo } from '@/remotion/compositions/MainVideo';
+import { SUBTITLE_STYLES } from '@/remotion/constants/subtitleStyles';
+import LogViewer, { LogMessage } from '@/components/ui/LogViewer';
 
 export default function PreviewPage() {
     const router = useRouter();
@@ -18,6 +20,12 @@ export default function PreviewPage() {
     const [segments, setSegments] = useState<Segment[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRendering, setIsRendering] = useState(false);
+    const [subtitleStyle, setSubtitleStyle] = useState('default');
+
+    // Logging State
+    const [logs, setLogs] = useState<LogMessage[]>([]);
+    const [renderStatus, setRenderStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
+    const [progress, setProgress] = useState(0);
 
     useEffect(() => {
         if (projectId) {
@@ -51,32 +59,76 @@ export default function PreviewPage() {
 
     const handleDownload = async (type: 'mp4' | 'srt' | 'thumbnail') => {
         if (type === 'mp4') {
+            setIsRendering(true);
+            setRenderStatus('running');
+            setLogs([]); // 초기화
+            setProgress(0);
+
             try {
-                setIsRendering(true);
                 const response = await fetch('/api/render', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ segments: remotionSegments })
+                    body: JSON.stringify({
+                        segments: remotionSegments,
+                        subtitleStyle
+                    })
                 });
 
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Render failed');
+                if (!response.ok) throw new Error('Failed to start render');
+
+                const reader = response.body?.getReader();
+                const decoder = new TextDecoder();
+                if (!reader) throw new Error('No response body');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            const eventName = line.split('\n')[0].replace('event: ', '');
+                            const dataStr = line.split('\n')[1]?.replace('data: ', '');
+
+                            if (!dataStr) continue;
+
+                            try {
+                                const data = JSON.parse(dataStr);
+
+                                if (eventName === 'log') {
+                                    setLogs(prev => [...prev, { message: data.message, timestamp: data.timestamp }]);
+                                } else if (eventName === 'progress') {
+                                    setProgress(data.progress);
+                                } else if (eventName === 'result') {
+                                    // Base64 download
+                                    const a = document.createElement('a');
+                                    a.href = data.dataUrl;
+                                    a.download = `project-${projectId}.mp4`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                } else if (eventName === 'completed') {
+                                    setRenderStatus('completed');
+                                } else if (eventName === 'error') {
+                                    setRenderStatus('error');
+                                    setLogs(prev => [...prev, { message: `❌ Error: ${data.message}`, timestamp: Date.now() }]);
+                                    throw new Error(data.message);
+                                }
+                            } catch (e) {
+                                console.error('Parse error', e);
+                            }
+                        }
+                    }
                 }
 
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `project-${projectId}.mp4`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
+                alert('✅ 렌더링 및 다운로드가 완료되었습니다!');
 
-                alert('✅ 다운로드가 완료되었습니다!');
             } catch (e: any) {
                 console.error(e);
+                setRenderStatus('error');
+                setLogs(prev => [...prev, { message: `FATAL: ${e.message}`, timestamp: Date.now() }]);
                 alert('❌ 렌더링 실패: ' + e.message);
             } finally {
                 setIsRendering(false);
@@ -96,7 +148,7 @@ export default function PreviewPage() {
     const height = project?.aspect_ratio === '9:16' ? 1920 : 1080;
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 pb-20">
             <div className="flex justify-between items-end">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900">영상 확인 (Remotion)</h2>
@@ -118,48 +170,77 @@ export default function PreviewPage() {
                 </div>
             </div>
 
-            {/* Video Player */}
-            <div className="bg-gray-900 rounded-2xl overflow-hidden border-4 border-gray-100 flex items-center justify-center relative shadow-2xl" style={{ aspectRatio: '16/9' }}>
-                {segments.length > 0 ? (
-                    <Player
-                        component={MainVideo}
-                        inputProps={{ segments: remotionSegments }}
-                        durationInFrames={totalDurationInFrames || 30 * 5}
-                        compositionWidth={width}
-                        compositionHeight={height}
-                        fps={30}
-                        style={{
-                            width: '100%',
-                            height: '100%',
-                        }}
-                        controls
-                        autoPlay
-                    />
-                ) : (
-                    <div className="text-center text-gray-400">
-                        <div className="text-5xl mb-4">🎬</div>
-                        <p className="text-lg">영상이 준비되지 않았습니다</p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left: Video Player */}
+                <div className="lg:col-span-2 space-y-6">
+                    <div className="bg-gray-900 rounded-2xl overflow-hidden border-4 border-gray-100 flex items-center justify-center relative shadow-2xl" style={{ aspectRatio: '16/9' }}>
+                        {segments.length > 0 ? (
+                            <Player
+                                component={MainVideo}
+                                inputProps={{
+                                    segments: remotionSegments,
+                                    subtitleStyle // 선택된 스타일 전달
+                                }}
+                                durationInFrames={totalDurationInFrames || 30 * 5}
+                                compositionWidth={width}
+                                compositionHeight={height}
+                                fps={30}
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                }}
+                                controls
+                                autoPlay
+                            />
+                        ) : (
+                            <div className="text-center text-gray-400">
+                                <div className="text-5xl mb-4">🎬</div>
+                                <p className="text-lg">영상이 준비되지 않았습니다</p>
+                            </div>
+                        )}
                     </div>
-                )}
-            </div>
+                </div>
 
-            {/* Video Info Grid */}
-            <div className="grid grid-cols-4 gap-4">
-                <div className="p-5 bg-white border rounded-2xl text-center shadow-sm">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">총 길이</p>
-                    <p className="text-xl font-bold text-gray-900">{minutes}:{seconds.toString().padStart(2, '0')}</p>
-                </div>
-                <div className="p-5 bg-white border rounded-2xl text-center shadow-sm">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">해상도</p>
-                    <p className="text-xl font-bold text-gray-900">{width}x{height}</p>
-                </div>
-                <div className="p-5 bg-white border rounded-2xl text-center shadow-sm">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">스타일</p>
-                    <p className="text-xl font-bold text-gray-900 capitalize">{project?.style || 'Standard'}</p>
-                </div>
-                <div className="p-5 bg-white border rounded-2xl text-center shadow-sm">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">컷 구성</p>
-                    <p className="text-xl font-bold text-gray-900">{segments.length} Segments</p>
+                {/* Right: Controls & Options */}
+                <div className="space-y-6">
+                    {/* Subtitle Style Selector */}
+                    <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                            <span>🎨 자막 스타일</span>
+                            <span className="text-xs font-normal text-violet-600 bg-violet-100 px-2 py-0.5 rounded-full">New</span>
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3">
+                            {Object.entries(SUBTITLE_STYLES).map(([key, style]) => (
+                                <button
+                                    key={key}
+                                    onClick={() => setSubtitleStyle(key)}
+                                    className={`p-3 rounded-xl border-2 text-sm font-medium transition-all
+                                        ${subtitleStyle === key
+                                            ? 'border-violet-600 bg-violet-50 text-violet-700'
+                                            : 'border-gray-100 hover:border-gray-300 text-gray-600'}
+                                    `}
+                                >
+                                    {style.name}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Video Info Grid (Compact) */}
+                    <div className="bg-white p-6 rounded-2xl border shadow-sm text-sm space-y-3">
+                        <div className="flex justify-between">
+                            <span className="text-gray-500">총 길이</span>
+                            <span className="font-bold text-gray-900">{minutes}:{seconds.toString().padStart(2, '0')}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-gray-500">해상도</span>
+                            <span className="font-bold text-gray-900">{width}x{height}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-gray-500">컷 수</span>
+                            <span className="font-bold text-gray-900">{segments.length} Cut</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -210,6 +291,19 @@ export default function PreviewPage() {
                     </button>
                 </div>
             </div>
+
+            {/* Log Viewer for Rendering */}
+            {(renderStatus !== 'idle') && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <h3 className="text-lg font-bold text-gray-800">렌더링 로그</h3>
+                    <LogViewer
+                        logs={logs}
+                        status={renderStatus}
+                        progress={progress}
+                        title="remotion-renderer"
+                    />
+                </div>
+            )}
 
             {/* Navigation */}
             <div className="flex justify-between pt-8 border-t">

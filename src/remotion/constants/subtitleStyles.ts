@@ -1,0 +1,106 @@
+import { CSSProperties } from 'react';
+
+export interface SubtitleStyle {
+    name: string;
+    container: CSSProperties;
+    text: CSSProperties;
+}
+
+export const SUBTITLE_STYLES: Record<string, SubtitleStyle> = {
+    default: {
+        name: 'Default',
+        container: {
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            paddingBottom: 100,
+        },
+        text: {
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            color: 'white',
+            padding: '20px 40px',
+            borderRadius: '20px',
+            fontSize: 50,
+            fontWeight: 'bold',
+            textAlign: 'center',
+            maxWidth: '80%',
+            textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+            fontFamily: 'sans-serif',
+        },
+    },
+    youtuber: {
+        name: 'Youtuber',
+        container: {
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            paddingBottom: 120,
+        },
+        text: {
+            color: '#FFFF00', // Yellow
+            fontSize: 70,
+            fontWeight: 900,
+            textAlign: 'center',
+            maxWidth: '90%',
+            textShadow: '-4px -4px 0 #000, 4px -4px 0 #000, -4px 4px 0 #000, 4px 4px 0 #000', // Bold outline
+            fontFamily: 'Impact, sans-serif',
+            textTransform: 'uppercase',
+            transform: 'rotate(-2deg)',
+        },
+    },
+    clean: {
+        name: 'Clean',
+        container: {
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            paddingBottom: 80,
+        },
+        text: {
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            color: '#333',
+            padding: '15px 30px',
+            borderRadius: '8px',
+            fontSize: 40,
+            fontWeight: 600,
+            textAlign: 'center',
+            maxWidth: '70%',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            fontFamily: 'Helvetica, Arial, sans-serif',
+        },
+    },
+    neon: {
+        name: 'Neon',
+        container: {
+            justifyContent: 'center',
+            alignItems: 'center', // Center of screen for neon impact? Or bottom? Let's keep bottom for subtitles
+            paddingBottom: 100,
+        },
+        text: {
+            color: '#fff',
+            fontSize: 60,
+            fontWeight: 'bold',
+            textAlign: 'center',
+            maxWidth: '80%',
+            textShadow: '0 0 10px #ff00de, 0 0 20px #ff00de, 0 0 40px #ff00de', // Neon pink glow
+            fontFamily: 'Courier New, monospace',
+            letterSpacing: '2px',
+        },
+    },
+    cinematic: {
+        name: 'Cinematic',
+        container: {
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            paddingBottom: 50, // Lower
+        },
+        text: {
+            color: '#e0e0e0',
+            fontSize: 36,
+            fontWeight: 400,
+            textAlign: 'center',
+            maxWidth: '80%',
+            textShadow: '1px 1px 2px black',
+            fontFamily: 'Georgia, serif',
+            letterSpacing: '1px',
+            fontStyle: 'italic',
+        },
+    },
+};

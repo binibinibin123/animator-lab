@@ -1,23 +1,18 @@
 import React from 'react';
 import { AbsoluteFill } from 'remotion';
+import { SUBTITLE_STYLES } from '../constants/subtitleStyles';
 
-export const Subtitle: React.FC<{ text: string }> = ({ text }) => {
+interface SubtitleProps {
+    text: string;
+    styleName?: string;
+}
+
+export const Subtitle: React.FC<SubtitleProps> = ({ text, styleName = 'default' }) => {
+    const style = SUBTITLE_STYLES[styleName.toLowerCase()] || SUBTITLE_STYLES['default'];
+
     return (
-        <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 100 }}>
-            <div
-                style={{
-                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                    color: 'white',
-                    padding: '20px 40px',
-                    borderRadius: '20px',
-                    fontSize: 50,
-                    fontWeight: 'bold',
-                    textAlign: 'center',
-                    maxWidth: '80%',
-                    textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-                    fontFamily: 'sans-serif',
-                }}
-            >
+        <AbsoluteFill style={style.container}>
+            <div style={style.text}>
                 {text}
             </div>
         </AbsoluteFill>

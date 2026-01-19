@@ -14,6 +14,7 @@ const segmentSchema = z.object({
 
 export const myCompSchema = z.object({
     segments: z.array(segmentSchema),
+    subtitleStyle: z.string().optional(),
 });
 
 export const RemotionRoot: React.FC = () => {

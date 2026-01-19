@@ -13,9 +13,10 @@ export interface Segment {
 
 interface MainVideoProps {
     segments: Segment[];
+    subtitleStyle?: string;
 }
 
-export const MainVideo: React.FC<MainVideoProps> = ({ segments }) => {
+export const MainVideo: React.FC<MainVideoProps> = ({ segments, subtitleStyle = 'default' }) => {
     return (
         <AbsoluteFill style={{ backgroundColor: 'black' }}>
             <Series>
@@ -41,7 +42,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({ segments }) => {
 
                             {seg.audio_url && <Audio src={seg.audio_url} />}
 
-                            {seg.script_text && <Subtitle text={seg.script_text} />}
+                            {seg.script_text && <Subtitle text={seg.script_text} styleName={subtitleStyle} />}
                         </Series.Sequence>
                     );
                 })}
