@@ -13,6 +13,7 @@ const ASPECT_RATIOS: { value: AspectRatio; label: string; icon: string; desc: st
 ];
 
 const STYLES = [
+    { id: 'economy-1', name: '경제유튜브 1', thumbnail: '/styles/economy-1.jpg' },
     { id: 'anime', name: '애니메이션', thumbnail: '/styles/anime.png' },
     { id: 'realistic', name: '실사', thumbnail: '/styles/realistic.png' },
     { id: 'digital-art', name: '디지털아트', thumbnail: '/styles/digital-art.png' },

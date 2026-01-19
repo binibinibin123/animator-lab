@@ -26,18 +26,26 @@ export async function POST(request: NextRequest) {
 
         // Prepare reference image if a preset style is selected (not custom)
         let referenceImage: string | undefined;
+        let referenceMimeType: string = 'image/png';
         if (style && style !== 'custom') {
-            try {
-                const stylePath = path.join(process.cwd(), 'public', 'styles', `${style}.png`);
-                if (fs.existsSync(stylePath)) {
-                    const imageBuffer = fs.readFileSync(stylePath);
-                    referenceImage = imageBuffer.toString('base64');
-                    console.log(`[Image API] Loaded reference image for style: ${style}, size: ${referenceImage.length} chars`);
-                } else {
-                    console.log(`[Image API] No reference image found for style: ${style}`);
+            // Check for png, jpg, and jpeg extensions
+            const extensions = ['png', 'jpg', 'jpeg'];
+            for (const ext of extensions) {
+                try {
+                    const stylePath = path.join(process.cwd(), 'public', 'styles', `${style}.${ext}`);
+                    if (fs.existsSync(stylePath)) {
+                        const imageBuffer = fs.readFileSync(stylePath);
+                        referenceImage = imageBuffer.toString('base64');
+                        referenceMimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+                        console.log(`[Image API] Loaded reference image for style: ${style}.${ext}, mimeType: ${referenceMimeType}, size: ${referenceImage.length} chars`);
+                        break;
+                    }
+                } catch (err) {
+                    console.warn(`[Image API] Failed to load reference image for style ${style}.${ext}:`, err);
                 }
-            } catch (err) {
-                console.warn(`[Image API] Failed to load reference image for style ${style}:`, err);
+            }
+            if (!referenceImage) {
+                console.log(`[Image API] No reference image found for style: ${style}`);
             }
         }
 
@@ -49,6 +57,7 @@ export async function POST(request: NextRequest) {
             aspectRatio: aspectRatio || '16:9',
             resolution: resolution || '2K',
             referenceImage, // Pass the base64 reference image
+            referenceMimeType, // Pass the detected mime type
         });
 
         // If segmentId provided, update segment

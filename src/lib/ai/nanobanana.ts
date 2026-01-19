@@ -12,6 +12,7 @@ export interface ImageGenerationOptions {
     aspectRatio?: '16:9' | '1:1' | '3:4' | '9:16';
     resolution?: '2K' | '4K';
     referenceImage?: string; // Base64 encoded image data
+    referenceMimeType?: string; // e.g., 'image/png' or 'image/jpeg'
 }
 
 export interface ImageResult {
@@ -22,6 +23,7 @@ export interface ImageResult {
 
 // Style presets with their prompt modifiers
 export const STYLE_PRESETS: Record<string, string> = {
+    'economy-1': 'A cute white stickman character with a yellow square hat displaying Won symbol (₩), simple flat vector illustration style, bright cheerful colors, Korean financial and economic theme, educational cartoon for YouTube',
     'anime': 'anime style, vibrant colors, detailed illustration',
     'realistic': 'photorealistic, high detail, 8k, professional photography',
     'digital-art': 'digital art, concept art, artstation trending',
@@ -42,6 +44,7 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
         style = 'anime',
         aspectRatio = '16:9',
         referenceImage,
+        referenceMimeType = 'image/png',
     } = options;
 
     const styleModifier = STYLE_PRESETS[style] || '';
@@ -58,7 +61,7 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
     if (referenceImage) {
         parts.push({
             inlineData: {
-                mimeType: 'image/png',
+                mimeType: referenceMimeType,
                 data: referenceImage
             }
         });
