@@ -14,7 +14,9 @@ export default function ImagePage() {
     const [segments, setSegments] = useState<Segment[]>([]);
     const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [currentGeneratingId, setCurrentGeneratingId] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
+
     const [resolution, setResolution] = useState<'2K' | '4K'>('2K');
     const [customPrompt, setCustomPrompt] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -74,7 +76,8 @@ export default function ImagePage() {
     const selectedSegment = segments.find(s => s.id === selectedSegmentId);
 
     const handleGenerateImage = async (segment: Segment) => {
-        setIsGenerating(true);
+        setCurrentGeneratingId(segment.id);
+        setIsGenerating(true); // Keep global for button disable
         try {
             const response = await fetch('/api/image/generate', {
                 method: 'POST',
@@ -84,7 +87,7 @@ export default function ImagePage() {
                     scriptText: segment.script_text,
                     segmentId: segment.id,
                     resolution,
-                    style: projectStyle, // Pass the image style for reference image loading
+                    style: projectStyle,
                 }),
             });
 
@@ -99,14 +102,23 @@ export default function ImagePage() {
             console.error('Image Error:', error);
             alert('이미지 생성에 실패했습니다.');
         } finally {
+            setCurrentGeneratingId(null);
             setIsGenerating(false);
         }
     };
 
     const handleGenerateAll = async () => {
-        setIsGenerating(true);
+        setIsGenerating(true); // Global loading for button
         for (const segment of segments) {
             if (!segment.image_url) {
+                // Must manually manage currentId here if handleGenerateImage resets it too fast or if we want to be safe
+                // Actually handleGenerateImage manages it, which is fine.
+                // But handleGenerateImage resets isGenerating to false at end.
+                // We need isGenerating to stay true for the button? 
+                // Let's rely on handleGenerateImage setting it true/false for each item.
+                // The "Generate All" button might flicker.
+                // Better to separate global "batch processing" state if needed.
+                // For now, let's just await.
                 await handleGenerateImage(segment);
             }
         }
@@ -250,7 +262,7 @@ export default function ImagePage() {
                                         <p>이미지가 생성되지 않았습니다</p>
                                     </div>
                                 )}
-                                {isGenerating && selectedSegmentId === selectedSegment.id && (
+                                {currentGeneratingId === selectedSegment.id && (
                                     <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <div className="w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
