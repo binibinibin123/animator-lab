@@ -21,6 +21,8 @@ export default function PreviewPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isRendering, setIsRendering] = useState(false);
     const [subtitleStyle, setSubtitleStyle] = useState('default');
+    const [padding, setPadding] = useState(0.5);
+    const [transitionType, setTransitionType] = useState('slide');
 
     // Logging State
     const [logs, setLogs] = useState<LogMessage[]>([]);
@@ -55,8 +57,11 @@ export default function PreviewPage() {
     }));
 
     const totalDurationInFrames = remotionSegments.reduce((acc, seg) => {
-        return acc + Math.max(Math.floor(seg.duration * 30), 1);
-    }, 0);
+        // Duration + Padding calculation
+        // 30fps 기준
+        const durationWithPadding = seg.duration + padding;
+        return acc + Math.max(Math.floor(durationWithPadding * 30), 1);
+    }, 0) + (transitionType === 'none' ? 0 : 20);
 
     const handleDownload = async (type: 'mp4' | 'srt' | 'thumbnail') => {
         if (type === 'mp4') {
@@ -72,7 +77,11 @@ export default function PreviewPage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         segments: remotionSegments,
-                        subtitleStyle
+                        subtitleStyle,
+                        settings: {
+                            padding,
+                            transitionType
+                        }
                     })
                 });
 
@@ -177,7 +186,11 @@ export default function PreviewPage() {
                                 component={MainVideo}
                                 inputProps={{
                                     segments: remotionSegments,
-                                    subtitleStyle // 선택된 스타일 전달
+                                    subtitleStyle,
+                                    settings: {
+                                        padding,
+                                        transitionType
+                                    }
                                 }}
                                 durationInFrames={totalDurationInFrames || 30 * 5}
                                 compositionWidth={width}
@@ -221,6 +234,57 @@ export default function PreviewPage() {
                                     {style.name}
                                 </button>
                             ))}
+                        </div>
+                    </div>
+
+                    {/* Timing & Transition Settings */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border space-y-6">
+                        <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                            <span>⏱️ 타이밍 및 효과</span>
+                        </h3>
+
+                        {/* Padding Slider */}
+                        <div className="space-y-3">
+                            <div className="flex justify-between text-sm">
+                                <label className="font-medium text-gray-700">여유 시간 (Padding)</label>
+                                <span className="text-violet-600 font-bold">{padding}초</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0"
+                                max="2"
+                                step="0.1"
+                                value={padding}
+                                onChange={(e) => setPadding(parseFloat(e.target.value))}
+                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-violet-600"
+                            />
+                            <p className="text-xs text-gray-500">대사가 끝난 후 다음 장면으로 넘어갈 때까지의 여유 시간입니다.</p>
+                        </div>
+
+                        {/* Transition Selector */}
+                        <div className="space-y-3">
+                            <label className="font-medium text-sm text-gray-700 block">화면 전환 효과</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { id: 'none', label: 'None (컷)', icon: '⚡' },
+                                    { id: 'fade', label: 'Fade (부드럽게)', icon: '🌫️' },
+                                    { id: 'slide', label: 'Slide (밀기)', icon: '➡️' },
+                                    { id: 'wipe', label: 'Wipe (닦기)', icon: '🧹' }
+                                ].map((t) => (
+                                    <button
+                                        key={t.id}
+                                        onClick={() => setTransitionType(t.id)}
+                                        className={`p-3 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2
+                                            ${transitionType === t.id
+                                                ? 'border-violet-600 bg-violet-50 text-violet-700 ring-1 ring-violet-600'
+                                                : 'border-gray-200 hover:border-gray-300 text-gray-600'
+                                            }`}
+                                    >
+                                        <span>{t.icon}</span>
+                                        <span>{t.label}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
 
