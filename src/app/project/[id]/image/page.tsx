@@ -21,6 +21,7 @@ export default function ImagePage() {
     const [customPrompt, setCustomPrompt] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [projectStyle, setProjectStyle] = useState<string>('anime'); // Image style from project
+    const [imageProvider, setImageProvider] = useState<'gemini' | 'comfyui'>('gemini'); // Image provider selection
 
     useEffect(() => {
         if (projectId) {
@@ -88,6 +89,7 @@ export default function ImagePage() {
                     segmentId: segment.id,
                     resolution,
                     style: projectStyle,
+                    provider: imageProvider,
                 }),
             });
 
@@ -122,6 +124,7 @@ export default function ImagePage() {
                             segmentId: segment.id,
                             resolution,
                             style: projectStyle,
+                            provider: imageProvider,
                         }),
                     });
 
@@ -185,9 +188,14 @@ export default function ImagePage() {
             {/* Toolbar */}
             <div className="flex items-center gap-6 p-4 bg-gray-50 rounded-xl border">
                 <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">추천 모델:</span>
-                    <select className="px-3 py-1.5 border rounded-lg text-sm bg-white">
-                        <option>🎨 Nano Banana (Standard)</option>
+                    <span className="text-sm font-medium text-gray-700">생성기:</span>
+                    <select
+                        value={imageProvider}
+                        onChange={(e) => setImageProvider(e.target.value as 'gemini' | 'comfyui')}
+                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+                    >
+                        <option value="gemini">☁️ Gemini (클라우드)</option>
+                        <option value="comfyui">💻 ComfyUI (로컬)</option>
                     </select>
                 </div>
                 <div className="flex items-center gap-2">
