@@ -269,7 +269,8 @@ export default function PreviewPage() {
                                     { id: 'none', label: 'None (컷)', icon: '⚡' },
                                     { id: 'fade', label: 'Fade (부드럽게)', icon: '🌫️' },
                                     { id: 'slide', label: 'Slide (밀기)', icon: '➡️' },
-                                    { id: 'wipe', label: 'Wipe (닦기)', icon: '🧹' }
+                                    { id: 'wipe', label: 'Wipe (닦기)', icon: '🧹' },
+                                    { id: 'mixed', label: 'Mixed (자동)', icon: '🔀' }
                                 ].map((t) => (
                                     <button
                                         key={t.id}

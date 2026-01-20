@@ -30,29 +30,34 @@ export const MainVideo: React.FC<MainVideoProps> = ({
     const { fps } = useVideoConfig();
     const { padding, transitionType } = settings;
 
-    // Transition Duration: 0 for 'none', otherwise 20 frames (0.67s)
-    const TRANSITION_DURATION = transitionType === 'none' ? 0 : 20;
+    // Transition Types for Mixed Mode (deterministic rotation)
+    const MIXED_TYPES = ['slide', 'wipe', 'fade'];
 
     let currentStartFrame = 0;
 
     return (
         <AbsoluteFill style={{ backgroundColor: 'black' }}>
             {segments.map((seg, index) => {
-                // Duration Calculation:
-                // We want: Audio Ends -> Padding Time (Silence) -> Transition Starts
-                // Overlap (Transition) happens at the end of the segment (technically start of next).
-                // So Next Segment Start should be: AudioDuration + Padding.
-                // Since Next Start = Current Start + TotalDuration - TransitionDuration
-                // Then: Current + Audio + Padding = Current + Total - Transition
-                // SO: TotalDuration = Audio + Padding + Transition
+                // Determine Transition Type for this segment
+                let currentTransitionType = transitionType;
+                if (transitionType === 'mixed') {
+                    // Smart Mix: Rotate through types based on index
+                    // Use a simple pseudo-random-like pattern to avoid boring 1-2-3-1-2-3
+                    const mixIndex = (index * 7 + 3) % MIXED_TYPES.length;
+                    currentTransitionType = MIXED_TYPES[mixIndex];
+                }
 
+                // Transition Duration: 0 for 'none', otherwise 20 frames (0.67s)
+                const transitionDuration = currentTransitionType === 'none' ? 0 : 20;
+
+                // Duration = TTS Duration + Padding
                 const baseDuration = (seg.duration || 5) + padding;
-                const durationInFrames = Math.max(Math.floor(baseDuration * fps), 1) + TRANSITION_DURATION;
+                const durationInFrames = Math.max(Math.floor(baseDuration * fps), 1) + transitionDuration;
 
                 const from = currentStartFrame;
 
                 if (index < segments.length - 1) {
-                    currentStartFrame += durationInFrames - TRANSITION_DURATION;
+                    currentStartFrame += durationInFrames - transitionDuration;
                 } else {
                     currentStartFrame += durationInFrames;
                 }
@@ -68,8 +73,8 @@ export const MainVideo: React.FC<MainVideoProps> = ({
                             segment={seg}
                             subtitleStyle={subtitleStyle}
                             isFirst={index === 0}
-                            transitionDuration={TRANSITION_DURATION}
-                            transitionType={transitionType}
+                            transitionDuration={transitionDuration}
+                            transitionType={currentTransitionType}
                         />
                     </Sequence>
                 );
