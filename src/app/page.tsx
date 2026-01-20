@@ -13,6 +13,8 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name'>('newest');
   const [filterStatus, setFilterStatus] = useState<'all' | 'draft' | 'completed'>('all');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSelectMode, setIsSelectMode] = useState(false);
 
   // 필터링 및 정렬된 프로젝트
   const filteredProjects = projects
@@ -107,6 +109,53 @@ export default function Home() {
     setEditTitle(project.title || '');
   };
 
+  const toggleSelect = (e: React.MouseEvent, projectId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredProjects.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredProjects.map(p => p.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`선택한 ${selectedIds.size}개 프로젝트를 삭제하시겠습니까?`)) return;
+
+    try {
+      for (const id of selectedIds) {
+        await fetch(`/api/project?id=${id}`, { method: 'DELETE' });
+      }
+      setProjects(prev => prev.filter(p => !selectedIds.has(p.id)));
+      setSelectedIds(new Set());
+      setIsSelectMode(false);
+    } catch (error) {
+      alert('삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed': return 'bg-green-100 text-green-600';
+      case 'draft': return 'bg-gray-100 text-gray-600';
+      case 'script': return 'bg-blue-100 text-blue-600';
+      case 'voice': return 'bg-purple-100 text-purple-600';
+      case 'image': return 'bg-orange-100 text-orange-600';
+      case 'video': return 'bg-pink-100 text-pink-600';
+      default: return 'bg-violet-100 text-violet-600';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -196,16 +245,48 @@ export default function Home() {
                     key={status}
                     onClick={() => setFilterStatus(status)}
                     className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${filterStatus === status
-                        ? 'bg-white text-violet-600 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
+                      ? 'bg-white text-violet-600 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
                       }`}
                   >
                     {status === 'all' ? '전체' : status === 'draft' ? '작업중' : '완료'}
                   </button>
                 ))}
               </div>
+
+              {/* Select Mode Toggle */}
+              <button
+                onClick={() => { setIsSelectMode(!isSelectMode); setSelectedIds(new Set()); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${isSelectMode ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+              >
+                ☑️ 선택
+              </button>
             </div>
           </div>
+
+          {/* Bulk Actions Bar */}
+          {isSelectMode && (
+            <div className="flex items-center gap-4 mb-4 p-3 bg-violet-50 rounded-lg border border-violet-200">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === filteredProjects.length && filteredProjects.length > 0}
+                  onChange={toggleSelectAll}
+                  className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                />
+                <span>전체 선택 ({selectedIds.size}/{filteredProjects.length})</span>
+              </label>
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="px-3 py-1 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
+                >
+                  🗑️ {selectedIds.size}개 삭제
+                </button>
+              )}
+            </div>
+          )}
 
           {isLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -235,10 +316,24 @@ export default function Home() {
                         </div>
                       )}
                       <div className="absolute top-2 right-2">
-                        <span className="bg-white/90 backdrop-blur px-2 py-1 rounded-md text-[10px] font-bold text-violet-600 uppercase">
+                        <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(project.status)}`}>
                           {project.status}
                         </span>
                       </div>
+                      {/* Checkbox for select mode */}
+                      {isSelectMode && (
+                        <div
+                          onClick={(e) => toggleSelect(e, project.id)}
+                          className="absolute top-2 left-2 cursor-pointer"
+                        >
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${selectedIds.has(project.id)
+                              ? 'bg-violet-600 border-violet-600 text-white'
+                              : 'bg-white/90 border-gray-300'
+                            }`}>
+                            {selectedIds.has(project.id) && <span className="text-xs">✓</span>}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     {editingId === project.id ? (
                       <input
