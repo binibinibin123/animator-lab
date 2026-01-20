@@ -16,7 +16,7 @@ export default function VideoPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
     const [selectedModel, setSelectedModel] = useState<'hailuo' | 'kling'>('hailuo');
-    const [selectedProvider, setSelectedProvider] = useState<'fal' | 'comfyui'>('comfyui');
+    const [selectedProvider] = useState<'comfyui'>('comfyui');
     const [selectedWorkflow, setSelectedWorkflow] = useState<string>('rapid-aio-mega-sage');
     const [videoPrompt, setVideoPrompt] = useState('');
 
@@ -74,10 +74,7 @@ export default function VideoPage() {
                 .single();
 
             if (project) {
-                const projectData = project as { video_provider?: string };
-                if (projectData.video_provider) {
-                    setSelectedProvider(projectData.video_provider as any);
-                }
+                // provider is now fixed to comfyui
             }
         }
         setIsLoading(false);
@@ -284,7 +281,6 @@ export default function VideoPage() {
         if (!confirm('정말로 이 영상을 삭제하시겠습니까?')) return;
 
         try {
-            const supabase = (await import('@/lib/supabase')).createBrowserClient();
             const { error } = await supabase
                 .from('segments')
                 .update({ video_url: null })
@@ -323,40 +319,23 @@ export default function VideoPage() {
             {/* Toolbar */}
             <div className="flex items-center gap-6 p-4 bg-gray-50 border rounded-xl flex-wrap">
                 <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">생성기(Provider):</span>
-                    <select
-                        value={selectedProvider}
-                        onChange={(e) => setSelectedProvider(e.target.value as any)}
-                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
-                    >
-                        <option value="fal">☁️ fal.ai (클라우드)</option>
-                        <option value="comfyui">💻 ComfyUI (로컬)</option>
-                    </select>
+                    <span className="text-sm font-medium text-gray-700">생성기:</span>
+                    <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">💻 ComfyUI (로컬)</span>
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">비디오 모델:</span>
-                    {selectedProvider === 'comfyui' ? (
-                        <select
-                            value={selectedWorkflow}
-                            onChange={(e) => setSelectedWorkflow(e.target.value)}
-                            className="px-3 py-1.5 border rounded-lg text-sm bg-white max-w-[300px]"
-                        >
-                            <option value="lf-i2v-v1.1">LF i2v (Batch) v1.1</option>
-                            <option value="rapid-aio-mega">Rapid AIO Mega</option>
-                            <option value="rapid-aio-mega-sage">Rapid AIO Mega + Sage</option>
-                            <option value="ltx-video-default">LTX Video (Fast)</option>
-                        </select>
-                    ) : (
-                        <select
-                            value={selectedModel}
-                            onChange={(e) => setSelectedModel(e.target.value as 'hailuo' | 'kling')}
-                            className="px-3 py-1.5 border rounded-lg text-sm bg-white"
-                        >
-                            <option value="hailuo">🎬 Hailuo 2.3 (빠름/고품질)</option>
-                            <option value="kling">🎬 Kling 2.6 (정교함)</option>
-                        </select>
-                    )}
+                    <span className="text-sm font-medium text-gray-700">워크플로우:</span>
+                    <select
+                        value={selectedWorkflow}
+                        onChange={(e) => setSelectedWorkflow(e.target.value)}
+                        className="px-3 py-1.5 border rounded-lg text-sm bg-white max-w-[300px]"
+                    >
+                        <option value="lf-i2v-v1.1">LF i2v (Batch) v1.1</option>
+                        <option value="rapid-aio-mega">Rapid AIO Mega</option>
+                        <option value="rapid-aio-mega-sage">Rapid AIO Mega + Sage</option>
+                        <option value="rapid-aio-mega-sage-2">Rapid AIO Mega + Sage v2</option>
+                        <option value="ltx-video-default">LTX Video (Fast)</option>
+                    </select>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-gray-500 bg-white px-4 py-1.5 border rounded-lg">
                     <span>형식: <span className="text-gray-900 font-medium">MP4</span></span>

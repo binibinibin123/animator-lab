@@ -271,6 +271,28 @@ export class ComfyUIVideoProvider implements VideoProvider {
             if (workflow["39"] && workflow["39"].inputs) {
                 workflow["39"].inputs.filename_prefix = `autovideo_rapid_sage_${Date.now()}`;
             }
+        } else if (workflowId === 'rapid-aio-mega-sage-2') {
+            // Rapid AIO Mega + Sage v2 injection (same node structure as sage)
+
+            // Node 16: Input Image
+            if (workflow["16"] && workflow["16"].inputs) {
+                workflow["16"].inputs.image = imageFilename;
+            }
+
+            // Node 9: Positive Prompt
+            if (workflow["9"] && workflow["9"].inputs) {
+                workflow["9"].inputs.text = motionPrompt || "High quality video";
+            }
+
+            // Node 8: KSampler (Seed)
+            if (workflow["8"] && workflow["8"].inputs) {
+                workflow["8"].inputs.seed = Math.floor(Math.random() * 100000000000000);
+            }
+
+            // Node 39: Video Combine name prefix
+            if (workflow["39"] && workflow["39"].inputs) {
+                workflow["39"].inputs.filename_prefix = `autovideo_rapid_sage2_${Date.now()}`;
+            }
         }
 
         return workflow;

@@ -1681,6 +1681,107 @@ const RAPID_AIO_MEGA_SAGE = {
     }
 };
 
+// Rapid AIO Mega + Sage v2 (from Rapid-AIO-Mega_api_sage_2.json)
+// Uses different CLIP model: t5xxl_um_fp8_e4m3fn_scaled.safetensors
+const RAPID_AIO_MEGA_SAGE_2 = {
+    "8": {
+        "inputs": {
+            "seed": 739578501617166,
+            "steps": 4,
+            "cfg": 1,
+            "sampler_name": "ipndm",
+            "scheduler": "beta",
+            "denoise": 1,
+            "model": ["32", 0],
+            "positive": ["28", 0],
+            "negative": ["28", 1],
+            "latent_image": ["28", 2]
+        },
+        "class_type": "KSampler",
+        "_meta": { "title": "KSampler" }
+    },
+    "9": {
+        "inputs": { "text": "", "clip": ["52", 0] },
+        "class_type": "CLIPTextEncode",
+        "_meta": { "title": "CLIP 텍스트 인코딩 (프롬프트)" }
+    },
+    "10": {
+        "inputs": { "text": "", "clip": ["52", 0] },
+        "class_type": "CLIPTextEncode",
+        "_meta": { "title": "Negative Prompt (leave blank cuz 1 CFG)" }
+    },
+    "11": {
+        "inputs": { "samples": ["8", 0], "vae": ["53", 0] },
+        "class_type": "VAEDecode",
+        "_meta": { "title": "VAE 디코드" }
+    },
+    "16": {
+        "inputs": { "image": "pasted/image (1).png" },
+        "class_type": "LoadImage",
+        "_meta": { "title": "Start Frame (Optional)" }
+    },
+    "28": {
+        "inputs": {
+            "width": 832, "height": 480,
+            "length": ["48", 0], "batch_size": 1, "strength": 1,
+            "positive": ["9", 0], "negative": ["10", 0],
+            "vae": ["53", 0], "control_video": ["34", 0], "control_masks": ["34", 1]
+        },
+        "class_type": "WanVaceToVideo",
+        "_meta": { "title": "T2V=Strength 0, I2V=Strength 1" }
+    },
+    "32": {
+        "inputs": { "shift": 8, "model": ["54", 0] },
+        "class_type": "ModelSamplingSD3",
+        "_meta": { "title": "모델 샘플링 (SD3)" }
+    },
+    "34": {
+        "inputs": {
+            "num_frames": ["48", 0], "empty_frame_level": 0.5,
+            "start_index": 0, "end_index": -1, "start_image": ["16", 0]
+        },
+        "class_type": "WanVideoVACEStartToEndFrame",
+        "_meta": { "title": "Bypass for T2V, use for I2V" }
+    },
+    "39": {
+        "inputs": {
+            "frame_rate": 16, "loop_count": 0,
+            "filename_prefix": "rapid-mega-out/vid",
+            "format": "video/h264-mp4", "pix_fmt": "yuv420p", "crf": 12,
+            "save_metadata": true, "trim_to_audio": false,
+            "pingpong": false, "save_output": true,
+            "images": ["11", 0]
+        },
+        "class_type": "VHS_VideoCombine",
+        "_meta": { "title": "Video Combine 🎥🅥🅗🅢" }
+    },
+    "48": {
+        "inputs": { "value": 81 },
+        "class_type": "PrimitiveInt",
+        "_meta": { "title": "Number of Frames" }
+    },
+    "51": {
+        "inputs": { "unet_name": "wan2.2-rapid-mega-aio-nsfw-v12.1-Q3_K.gguf" },
+        "class_type": "UnetLoaderGGUF",
+        "_meta": { "title": "Unet Loader (GGUF)" }
+    },
+    "52": {
+        "inputs": { "clip_name": "t5xxl_um_fp8_e4m3fn_scaled.safetensors", "type": "wan", "device": "default" },
+        "class_type": "CLIPLoader",
+        "_meta": { "title": "CLIP 로드" }
+    },
+    "53": {
+        "inputs": { "vae_name": "wan_2.1_vae.safetensors" },
+        "class_type": "VAELoader",
+        "_meta": { "title": "VAE 로드" }
+    },
+    "54": {
+        "inputs": { "sage_attention": "sageattn_qk_int8_pv_fp16_triton", "allow_compile": false, "model": ["51", 0] },
+        "class_type": "PathchSageAttentionKJ",
+        "_meta": { "title": "Patch Sage Attention KJ" }
+    }
+};
+
 export const WORKFLOWS = {
     'lf-i2v-v1.1': {
         name: 'LF i2v (Batch) v1.1',
@@ -1748,7 +1849,13 @@ export const WORKFLOWS = {
         name: 'Rapid AIO Mega + Sage',
         description: 'WanVace + Sage Attention (Faster)',
         workflow: RAPID_AIO_MEGA_SAGE
+    },
+    'rapid-aio-mega-sage-2': {
+        name: 'Rapid AIO Mega + Sage v2',
+        description: 'WanVace + Sage Attention v2 (Optimized CLIP)',
+        workflow: RAPID_AIO_MEGA_SAGE_2
     }
 } as const;
 
 export type WorkflowId = keyof typeof WORKFLOWS;
+
