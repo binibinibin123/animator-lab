@@ -15,6 +15,10 @@ export default function Home() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'draft' | 'completed'>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  const ITEMS_PER_PAGE = 6;
 
   // 필터링 및 정렬된 프로젝트
   const filteredProjects = projects
@@ -35,6 +39,18 @@ export default function Home() {
       if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       return (a.title || '').localeCompare(b.title || '');
     });
+
+  // 페이지네이션
+  const totalPages = Math.ceil(filteredProjects.length / ITEMS_PER_PAGE);
+  const paginatedProjects = filteredProjects.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // 필터 변경 시 페이지 리셋
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterStatus, sortBy]);
 
   useEffect(() => {
     fetchProjects();
@@ -156,6 +172,21 @@ export default function Home() {
     }
   };
 
+  const handleSyncThumbnails = async () => {
+    try {
+      const res = await fetch('/api/project/sync-thumbnails', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        alert(`썸네일 동기화 완료! ${data.updated}개 업데이트`);
+        fetchProjects(); // Refresh to see thumbnails
+      } else {
+        alert('동기화 실패: ' + data.error);
+      }
+    } catch (error) {
+      alert('동기화 중 오류 발생');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -164,6 +195,13 @@ export default function Home() {
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold text-violet-600">AutoVideo</h1>
             <div className="flex items-center gap-6">
+              <button
+                onClick={handleSyncThumbnails}
+                className="text-gray-400 hover:text-violet-600 transition-colors text-sm"
+                title="썸네일 동기화"
+              >
+                🖼️
+              </button>
               <Link href="/settings" className="text-gray-500 hover:text-violet-600 transition-colors flex items-center gap-1">
                 <span className="text-lg">⚙️</span>
                 <span className="text-sm font-medium">설정</span>
@@ -262,6 +300,24 @@ export default function Home() {
               >
                 ☑️ 선택
               </button>
+
+              {/* View Mode Toggle */}
+              <div className="flex bg-gray-100 rounded-lg p-0.5">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`px-2 py-1 text-sm rounded-md transition-colors ${viewMode === 'grid' ? 'bg-white shadow-sm' : ''}`}
+                  title="그리드 뷰"
+                >
+                  ▦
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`px-2 py-1 text-sm rounded-md transition-colors ${viewMode === 'list' ? 'bg-white shadow-sm' : ''}`}
+                  title="리스트 뷰"
+                >
+                  ☰
+                </button>
+              </div>
             </div>
           </div>
 
@@ -294,99 +350,178 @@ export default function Home() {
                 <div key={i} className="h-48 bg-gray-100 rounded-2xl animate-pulse"></div>
               ))}
             </div>
-          ) : filteredProjects.length === 0 ? (
+          ) : paginatedProjects.length === 0 ? (
             <div className="p-12 bg-white rounded-2xl border border-dashed text-center text-gray-400">
               <p className="text-lg mb-2 text-gray-300">🎬</p>
               <p>{searchQuery || filterStatus !== 'all' ? '검색 결과가 없습니다.' : '아직 프로젝트가 없습니다. 첫 영상을 만들어보세요!'}</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredProjects.map((project) => (
-                <div key={project.id} className="group relative">
-                  <Link
-                    href={`/project/${project.id}/script`}
-                    className="block bg-white p-5 rounded-2xl border hover:border-violet-300 hover:shadow-md transition-all"
-                  >
-                    <div className="aspect-video bg-gray-100 rounded-xl mb-4 overflow-hidden relative">
-                      {project.thumbnail_url ? (
-                        <img src={project.thumbnail_url} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-300">
-                          <span className="text-3xl">🎞️</span>
-                        </div>
-                      )}
-                      <div className="absolute top-2 right-2">
-                        <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(project.status)}`}>
-                          {project.status}
-                        </span>
-                      </div>
-                      {/* Checkbox for select mode */}
-                      {isSelectMode && (
-                        <div
-                          onClick={(e) => toggleSelect(e, project.id)}
-                          className="absolute top-2 left-2 cursor-pointer"
-                        >
-                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${selectedIds.has(project.id)
-                              ? 'bg-violet-600 border-violet-600 text-white'
-                              : 'bg-white/90 border-gray-300'
-                            }`}>
-                            {selectedIds.has(project.id) && <span className="text-xs">✓</span>}
+            <>
+              {viewMode === 'grid' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {paginatedProjects.map((project) => (
+                    <div key={project.id} className="group relative">
+                      <Link
+                        href={`/project/${project.id}/script`}
+                        className="block bg-white p-5 rounded-2xl border hover:border-violet-300 hover:shadow-md transition-all"
+                      >
+                        <div className="aspect-video bg-gray-100 rounded-xl mb-4 overflow-hidden relative">
+                          {project.thumbnail_url ? (
+                            <img src={project.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-300">
+                              <span className="text-3xl">🎞️</span>
+                            </div>
+                          )}
+                          <div className="absolute top-2 right-2">
+                            <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(project.status)}`}>
+                              {project.status}
+                            </span>
                           </div>
+                          {/* Checkbox for select mode */}
+                          {isSelectMode && (
+                            <div
+                              onClick={(e) => toggleSelect(e, project.id)}
+                              className="absolute top-2 left-2 cursor-pointer"
+                            >
+                              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${selectedIds.has(project.id)
+                                ? 'bg-violet-600 border-violet-600 text-white'
+                                : 'bg-white/90 border-gray-300'
+                                }`}>
+                                {selectedIds.has(project.id) && <span className="text-xs">✓</span>}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    {editingId === project.id ? (
-                      <input
-                        type="text"
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                        onBlur={() => handleRename(project.id)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleRename(project.id)}
-                        onClick={(e) => e.preventDefault()}
-                        autoFocus
-                        className="w-full font-bold text-gray-900 border-b-2 border-violet-600 outline-none bg-transparent"
-                      />
-                    ) : (
-                      <h4 className="font-bold text-gray-900 group-hover:text-violet-600 truncate mb-1">
-                        {project.title || '제목 없음'}
-                      </h4>
-                    )}
-                    <p className="text-xs text-gray-500 line-clamp-1">
-                      {project.topic || '주제 정보 없음'}
-                    </p>
-                    <div className="mt-4 pt-4 border-t flex justify-between text-[10px] text-gray-400">
-                      <span>{new Date(project.created_at).toLocaleDateString()}</span>
-                      <span className="font-bold">{project.aspect_ratio}</span>
-                    </div>
-                  </Link>
+                        {editingId === project.id ? (
+                          <input
+                            type="text"
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            onBlur={() => handleRename(project.id)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleRename(project.id)}
+                            onClick={(e) => e.preventDefault()}
+                            autoFocus
+                            className="w-full font-bold text-gray-900 border-b-2 border-violet-600 outline-none bg-transparent"
+                          />
+                        ) : (
+                          <h4 className="font-bold text-gray-900 group-hover:text-violet-600 truncate mb-1">
+                            {project.title || '제목 없음'}
+                          </h4>
+                        )}
+                        <p className="text-xs text-gray-500 line-clamp-1">
+                          {project.topic || '주제 정보 없음'}
+                        </p>
+                        <div className="mt-4 pt-4 border-t flex justify-between text-[10px] text-gray-400">
+                          <span>{new Date(project.created_at).toLocaleDateString()}</span>
+                          <span className="font-bold">{project.aspect_ratio}</span>
+                        </div>
+                      </Link>
 
-                  {/* Action Buttons */}
-                  <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                    <button
-                      onClick={(e) => startEditing(e, project)}
-                      className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-violet-100 text-gray-600 hover:text-violet-600"
-                      title="이름 변경"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      onClick={(e) => handleDuplicate(e, project.id)}
-                      className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-violet-100 text-gray-600 hover:text-violet-600"
-                      title="복제"
-                    >
-                      📋
-                    </button>
-                    <button
-                      onClick={(e) => handleDelete(e, project.id)}
-                      className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-red-100 text-gray-600 hover:text-red-600"
-                      title="삭제"
-                    >
-                      🗑️
-                    </button>
-                  </div>
+                      {/* Action Buttons */}
+                      <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                        <button
+                          onClick={(e) => startEditing(e, project)}
+                          className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-violet-100 text-gray-600 hover:text-violet-600"
+                          title="이름 변경"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={(e) => handleDuplicate(e, project.id)}
+                          className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-violet-100 text-gray-600 hover:text-violet-600"
+                          title="복제"
+                        >
+                          📋
+                        </button>
+                        <button
+                          onClick={(e) => handleDelete(e, project.id)}
+                          className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-red-100 text-gray-600 hover:text-red-600"
+                          title="삭제"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              ) : (
+                /* List View */
+                <div className="space-y-3">
+                  {paginatedProjects.map((project) => (
+                    <div key={project.id} className="group relative">
+                      <Link
+                        href={`/project/${project.id}/script`}
+                        className="flex items-center gap-4 bg-white p-4 rounded-xl border hover:border-violet-300 hover:shadow-md transition-all"
+                      >
+                        {isSelectMode && (
+                          <div onClick={(e) => toggleSelect(e, project.id)} className="cursor-pointer">
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${selectedIds.has(project.id) ? 'bg-violet-600 border-violet-600 text-white' : 'border-gray-300'
+                              }`}>
+                              {selectedIds.has(project.id) && <span className="text-xs">✓</span>}
+                            </div>
+                          </div>
+                        )}
+                        <div className="w-24 h-14 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                          {project.thumbnail_url ? (
+                            <img src={project.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-300 text-xl">🎞️</div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          {editingId === project.id ? (
+                            <input
+                              type="text"
+                              value={editTitle}
+                              onChange={(e) => setEditTitle(e.target.value)}
+                              onBlur={() => handleRename(project.id)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleRename(project.id)}
+                              onClick={(e) => e.preventDefault()}
+                              autoFocus
+                              className="w-full font-bold text-gray-900 border-b-2 border-violet-600 outline-none bg-transparent"
+                            />
+                          ) : (
+                            <h4 className="font-bold text-gray-900 group-hover:text-violet-600 truncate">{project.title || '제목 없음'}</h4>
+                          )}
+                          <p className="text-xs text-gray-500 truncate">{project.topic || '주제 정보 없음'}</p>
+                        </div>
+                        <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(project.status)}`}>{project.status}</span>
+                        <span className="text-xs text-gray-400">{new Date(project.created_at).toLocaleDateString()}</span>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={(e) => startEditing(e, project)} className="p-1.5 rounded hover:bg-violet-100" title="이름 변경">✏️</button>
+                          <button onClick={(e) => handleDuplicate(e, project.id)} className="p-1.5 rounded hover:bg-violet-100" title="복제">📋</button>
+                          <button onClick={(e) => handleDelete(e, project.id)} className="p-1.5 rounded hover:bg-red-100" title="삭제">🗑️</button>
+                        </div>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-4 mt-8">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    ← 이전
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    <span className="font-bold text-violet-600">{currentPage}</span> / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    다음 →
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>

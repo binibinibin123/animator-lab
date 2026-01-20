@@ -139,6 +139,27 @@ export async function POST(request: NextRequest) {
                     console.warn('[Image API] Failed to update video_prompt (likely missing column):', promptError.message);
                 }
             }
+
+            // 3. Update project thumbnail if this is the first segment
+            const { data: segmentData } = await supabase
+                .from('segments')
+                .select('order_index, project_id')
+                .eq('id', segmentId)
+                .single();
+
+            const seg = segmentData as { order_index: number; project_id: string } | null;
+            if (seg && seg.order_index === 0) {
+                const { error: thumbnailError } = await supabase
+                    .from('projects')
+                    .update({ thumbnail_url: result.imageUrl } as never)
+                    .eq('id', seg.project_id);
+
+                if (thumbnailError) {
+                    console.warn('[Image API] Failed to update project thumbnail:', thumbnailError.message);
+                } else {
+                    console.log('[Image API] Updated project thumbnail for project:', seg.project_id);
+                }
+            }
         }
 
         return NextResponse.json({
