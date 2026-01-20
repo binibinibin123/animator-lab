@@ -247,6 +247,7 @@ Respond in JSON format:
                     temperature: 0.7,
                     topP: 0.9,
                     maxOutputTokens: 8192,
+                    responseMimeType: 'application/json',
                 },
                 tools: [
                     { googleSearch: {} }
@@ -269,33 +270,55 @@ Respond in JSON format:
             throw new Error('No text returned from Gemini');
         }
 
-        // Improve JSON parsing - Find first '{' and last '}'
-        const firstOpen = text.indexOf('{');
-        const lastClose = text.lastIndexOf('}');
-
-        if (firstOpen === -1 || lastClose === -1) {
-            console.error('[ScriptGen] JSON format not found in text:', text);
-            throw new Error('Failed to find JSON in Gemini response');
-        }
-
-        const jsonString = text.substring(firstOpen, lastClose + 1);
-
+        // Try direct parsing first
         try {
-            const result = JSON.parse(jsonString) as ScriptGenerationResult;
-
-            // Calculate total duration
+            const result = JSON.parse(text) as ScriptGenerationResult;
             result.totalDurationMs = result.segments.reduce(
                 (sum, seg) => sum + (seg.estimatedDurationMs || 3000),
                 0
             );
-
             return result;
         } catch (e) {
-            console.error('[ScriptGen] JSON Parse Error:', e);
-            console.error('[ScriptGen] Problematic JSON string:', jsonString);
-            throw new Error('Failed to parse JSON from Gemini response');
-        }
+            console.warn('[ScriptGen] Direct JSON parse failed, attempting repair...');
 
+            // Repair Strategy: Extract all segment objects using Regex
+            const segmentRegex = /{\s*"text"[\s\S]*?"estimatedDurationMs"[\s\S]*?}/g;
+            const matches = text.match(segmentRegex);
+
+            if (!matches || matches.length === 0) {
+                console.error('[ScriptGen] No valid segments found in truncated text:', text);
+                throw new Error('Failed to parse or repair JSON from Gemini response');
+            }
+
+            const segments: SegmentResult[] = [];
+            for (const match of matches) {
+                try {
+                    const seg = JSON.parse(match);
+                    if (seg.text && seg.estimatedDurationMs) {
+                        segments.push(seg);
+                    }
+                } catch (err) {
+                    continue; // Skip malformed segments
+                }
+            }
+
+            if (segments.length === 0) {
+                throw new Error('No valid segments recovered');
+            }
+
+            // Extract title if possible
+            const titleMatch = text.match(/"title"\s*:\s*"([^"]+)"/);
+            const title = titleMatch ? titleMatch[1] : 'Generated Video';
+
+            const result: ScriptGenerationResult = {
+                title,
+                segments,
+                totalDurationMs: segments.reduce((sum, s) => sum + (s.estimatedDurationMs || 3000), 0)
+            };
+
+            console.log(`[ScriptGen] Repaired JSON: Recovered ${segments.length} segments`);
+            return result;
+        }
     } catch (error) {
         console.error('Gemini API error:', error);
         throw error;
