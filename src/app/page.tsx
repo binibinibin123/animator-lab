@@ -10,6 +10,29 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name'>('newest');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'draft' | 'completed'>('all');
+
+  // 필터링 및 정렬된 프로젝트
+  const filteredProjects = projects
+    .filter(p => {
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        return p.title?.toLowerCase().includes(q) || p.topic?.toLowerCase().includes(q);
+      }
+      return true;
+    })
+    .filter(p => {
+      if (filterStatus === 'all') return true;
+      if (filterStatus === 'completed') return p.status === 'completed';
+      return p.status !== 'completed';
+    })
+    .sort((a, b) => {
+      if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      return (a.title || '').localeCompare(b.title || '');
+    });
 
   useEffect(() => {
     fetchProjects();
@@ -135,10 +158,54 @@ export default function Home() {
 
         {/* Recent Projects */}
         <div>
-          <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-            <span>최근 프로젝트</span>
-            <span className="bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full text-xs">{projects.length}</span>
-          </h3>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+              <span>프로젝트</span>
+              <span className="bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full text-xs">{filteredProjects.length}</span>
+            </h3>
+
+            {/* Search & Filter Toolbar */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Search */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="검색..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 text-sm border rounded-lg bg-white focus:ring-2 focus:ring-violet-300 focus:border-violet-400 outline-none w-40"
+                />
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+              </div>
+
+              {/* Sort */}
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'newest' | 'oldest' | 'name')}
+                className="px-3 py-1.5 text-sm border rounded-lg bg-white focus:ring-2 focus:ring-violet-300 outline-none"
+              >
+                <option value="newest">최신순</option>
+                <option value="oldest">오래된순</option>
+                <option value="name">이름순</option>
+              </select>
+
+              {/* Filter tabs */}
+              <div className="flex bg-gray-100 rounded-lg p-0.5">
+                {(['all', 'draft', 'completed'] as const).map(status => (
+                  <button
+                    key={status}
+                    onClick={() => setFilterStatus(status)}
+                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${filterStatus === status
+                        ? 'bg-white text-violet-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                  >
+                    {status === 'all' ? '전체' : status === 'draft' ? '작업중' : '완료'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
 
           {isLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -146,14 +213,14 @@ export default function Home() {
                 <div key={i} className="h-48 bg-gray-100 rounded-2xl animate-pulse"></div>
               ))}
             </div>
-          ) : projects.length === 0 ? (
+          ) : filteredProjects.length === 0 ? (
             <div className="p-12 bg-white rounded-2xl border border-dashed text-center text-gray-400">
               <p className="text-lg mb-2 text-gray-300">🎬</p>
-              <p>아직 프로젝트가 없습니다. 첫 영상을 만들어보세요!</p>
+              <p>{searchQuery || filterStatus !== 'all' ? '검색 결과가 없습니다.' : '아직 프로젝트가 없습니다. 첫 영상을 만들어보세요!'}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {projects.map((project) => (
+              {filteredProjects.map((project) => (
                 <div key={project.id} className="group relative">
                   <Link
                     href={`/project/${project.id}/script`}
