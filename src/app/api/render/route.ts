@@ -5,6 +5,7 @@ import { getCompositions, renderMedia } from '@remotion/renderer';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { pathToFileURL } from 'url';
 
 // 렌더링 타임아웃 제한 없음 (로컬 환경)
 export const maxDuration = 300;
@@ -142,7 +143,8 @@ async function preDownloadAssets(
 
                 const buffer = Buffer.from(await response.arrayBuffer());
                 fs.writeFileSync(localPath, buffer);
-                return localPath;
+                // Fix: Convert Windows path to file:// URL for Remotion
+                return pathToFileURL(localPath).href;
             } catch (error: any) {
                 if (attempt === 2) throw error;
                 sendLog(`⚠️ 다운로드 재시도 (${attempt + 1}/3): ${path.basename(url)}`);
