@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -20,8 +20,19 @@ export default function ImagePage() {
     const [resolution, setResolution] = useState<'2K' | '4K'>('2K');
     const [customPrompt, setCustomPrompt] = useState('');
     const [error, setError] = useState<string | null>(null);
-    const [projectStyle, setProjectStyle] = useState<string>('anime'); // Image style from project
-    const [imageProvider, setImageProvider] = useState<'gemini' | 'comfyui'>('gemini'); // Image provider selection
+    const [projectStyle, setProjectStyle] = useState<string>('anime');
+    const [imageProvider, setImageProvider] = useState<'gemini' | 'comfyui'>('comfyui');
+
+    // Logs for real-time feedback
+    const [logs, setLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
+    const [showLogs, setShowLogs] = useState(true);
+    const logsEndRef = useRef<HTMLDivElement>(null);
+
+    const addLog = (type: 'info' | 'success' | 'error' | 'warn', message: string) => {
+        const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLogs(prev => [...prev.slice(-50), { time, type, message }]);
+        setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    };
 
     useEffect(() => {
         if (projectId) {
@@ -78,8 +89,11 @@ export default function ImagePage() {
 
     const handleGenerateImage = async (segment: Segment) => {
         setCurrentGeneratingId(segment.id);
-        setIsGenerating(true); // Keep global for button disable
+        setIsGenerating(true);
+        addLog('info', `🎨 이미지 생성 시작 (CUT #${segments.findIndex(s => s.id === segment.id) + 1}) - ${imageProvider.toUpperCase()}`);
+
         try {
+            addLog('info', `📤 API 요청 중...`);
             const response = await fetch('/api/image/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -93,16 +107,20 @@ export default function ImagePage() {
                 }),
             });
 
-            if (!response.ok) throw new Error('Failed to generate image');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || 'Failed to generate image');
+            }
             const data = await response.json();
 
             setSegments(prev => prev.map(s =>
                 s.id === segment.id ? { ...s, image_url: data.imageUrl } : s
             ));
             setCustomPrompt('');
-        } catch (error) {
+            addLog('success', `✅ 이미지 생성 완료!`);
+        } catch (error: any) {
             console.error('Image Error:', error);
-            alert('이미지 생성에 실패했습니다.');
+            addLog('error', `❌ 이미지 생성 실패: ${error.message}`);
         } finally {
             setCurrentGeneratingId(null);
             setIsGenerating(false);
@@ -111,15 +129,20 @@ export default function ImagePage() {
 
     const handleGenerateAll = async () => {
         setIsGenerating(true);
+        addLog('info', `🚀 전체 이미지 생성 시작 (${segments.filter(s => !s.image_url).length}개 컷)`);
+
         for (const segment of segments) {
             if (!segment.image_url) {
+                const cutIndex = segments.findIndex(s => s.id === segment.id) + 1;
                 setCurrentGeneratingId(segment.id);
+                addLog('info', `🎨 CUT #${cutIndex} 생성 중... (${imageProvider.toUpperCase()})`);
+
                 try {
                     const response = await fetch('/api/image/generate', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            prompt: segment.visual_description || undefined, // Use EACH segment's visual_description
+                            prompt: segment.visual_description || undefined,
                             scriptText: segment.script_text,
                             segmentId: segment.id,
                             resolution,
@@ -128,19 +151,25 @@ export default function ImagePage() {
                         }),
                     });
 
-                    if (!response.ok) throw new Error('Failed to generate image');
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.error || 'Failed to generate image');
+                    }
                     const data = await response.json();
 
                     setSegments(prev => prev.map(s =>
                         s.id === segment.id ? { ...s, image_url: data.imageUrl } : s
                     ));
-                } catch (error) {
+                    addLog('success', `✅ CUT #${cutIndex} 완료!`);
+                } catch (error: any) {
                     console.error('Image Error for segment:', segment.id, error);
+                    addLog('error', `❌ CUT #${cutIndex} 실패: ${error.message}`);
                 }
                 setCurrentGeneratingId(null);
             }
         }
         setIsGenerating(false);
+        addLog('success', `🎉 전체 생성 완료!`);
     };
 
     const handleDeleteImage = async (segmentId: string) => {
@@ -336,6 +365,48 @@ export default function ImagePage() {
                         </div>
                     )}
                 </div>
+            </div>
+
+            {/* Real-time Logs Panel */}
+            <div className="bg-gray-900 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2 bg-gray-800">
+                    <div className="flex items-center gap-2">
+                        <span className="text-green-400 text-xs">●</span>
+                        <span className="text-white text-sm font-medium">실시간 로그</span>
+                        <span className="text-gray-400 text-xs">({logs.length})</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setLogs([])}
+                            className="text-gray-400 hover:text-white text-xs"
+                        >
+                            🗑️ 지우기
+                        </button>
+                        <button
+                            onClick={() => setShowLogs(!showLogs)}
+                            className="text-gray-400 hover:text-white text-xs"
+                        >
+                            {showLogs ? '▼ 접기' : '▶ 펼치기'}
+                        </button>
+                    </div>
+                </div>
+                {showLogs && (
+                    <div className="h-40 overflow-y-auto p-3 font-mono text-xs space-y-1">
+                        {logs.length === 0 ? (
+                            <div className="text-gray-500 text-center py-4">이미지 생성을 시작하면 로그가 표시됩니다.</div>
+                        ) : logs.map((log, i) => (
+                            <div key={i} className={`flex gap-2 ${log.type === 'error' ? 'text-red-400' :
+                                log.type === 'success' ? 'text-green-400' :
+                                    log.type === 'warn' ? 'text-yellow-400' :
+                                        'text-gray-300'
+                                }`}>
+                                <span className="text-gray-500">[{log.time}]</span>
+                                <span>{log.message}</span>
+                            </div>
+                        ))}
+                        <div ref={logsEndRef} />
+                    </div>
+                )}
             </div>
 
             {/* Navigation */}

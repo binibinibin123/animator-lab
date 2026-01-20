@@ -186,7 +186,7 @@ export class ComfyUIImageProvider implements ImageProvider {
         return result.prompt_id;
     }
 
-    private async pollForCompletion(promptId: string, maxAttempts = 60, intervalMs = 2000): Promise<{ filename: string; subfolder: string; type: string }> {
+    private async pollForCompletion(promptId: string, maxAttempts = 150, intervalMs = 2000): Promise<{ filename: string; subfolder: string; type: string }> {
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             await new Promise(resolve => setTimeout(resolve, intervalMs));
 
