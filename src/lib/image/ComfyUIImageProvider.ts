@@ -123,7 +123,7 @@ export class ComfyUIImageProvider implements ImageProvider {
      * Qwen Image Edit 2511 style presets
      */
     private static readonly QWEN_STYLE_PRESETS: Record<string, string> = {
-        'economy-1': 'Simple flat vector illustration, clean solid background, minimalist stickman character design.',
+        'economy-1': 'Simple flat vector illustration on a solid pure white background. Minimalist stickman character. Clean lines, no shadows, no gradients.',
         'anime': 'Anime illustration style, vibrant colors, detailed character design, clean lines.',
         'realistic': 'Photorealistic rendering, high detail, professional photography lighting.',
         'digital-art': 'Digital art style, concept art quality, trending on artstation.',
@@ -152,11 +152,19 @@ export class ComfyUIImageProvider implements ImageProvider {
             ? (ComfyUIImageProvider.QWEN_STYLE_PRESETS[style] || ComfyUIImageProvider.QWEN_STYLE_PRESETS['economy-1'])
             : ComfyUIImageProvider.QWEN_STYLE_PRESETS['economy-1'];
 
+        // Check if this is economy style (needs white background)
+        const isEconomyStyle = style === 'economy-1' || !style;
+
         // Build Qwen-optimized prompt
         const promptParts: string[] = [];
 
         // Main scene instruction
         promptParts.push(`Create an illustration showing: ${sceneDescription}.`);
+
+        // Background instruction (critical for economy style)
+        if (isEconomyStyle) {
+            promptParts.push(`Background: Solid pure white background (#FFFFFF). No transparency, no gradients, no patterns.`);
+        }
 
         // Style directive (important for Qwen)
         promptParts.push(`Style: ${styleModifier}`);
@@ -165,7 +173,7 @@ export class ComfyUIImageProvider implements ImageProvider {
         promptParts.push(`Preserve character identity and proportions from the reference image.`);
 
         // Output quality
-        promptParts.push(`High quality, clean composition, no text, no watermarks.`);
+        promptParts.push(`High quality, clean composition, no text, no watermarks, no transparency.`);
 
         return promptParts.join(' ');
     }
