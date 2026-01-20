@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Audio, Video, Img, Easing, interpolate, useCurrentFrame, useVideoConfig, Sequence } from 'remotion';
+import { AbsoluteFill, Audio, OffthreadVideo, Img, Easing, interpolate, useCurrentFrame, useVideoConfig, Sequence } from 'remotion';
 import { Subtitle } from '../components/Subtitle';
 
 export interface Segment {
@@ -35,6 +35,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({
 
     // Transition Types for Mixed Mode (deterministic rotation)
     const MIXED_TYPES = ['slide', 'wipe', 'fade'];
+    const transitionFramesCount = Math.round(20 * (fps / 30));
 
     // Pre-calculate segment timings for subtitle layer
     const segmentTimings: Array<{ id: string; from: number; durationInFrames: number; subtitleDuration: number; script_text: string }> = [];
@@ -46,7 +47,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({
             const mixIndex = (i * 7 + 3) % MIXED_TYPES.length;
             currentTransitionType = MIXED_TYPES[mixIndex];
         }
-        const transitionDuration = currentTransitionType === 'none' ? 0 : 20;
+        const transitionDuration = currentTransitionType === 'none' ? 0 : transitionFramesCount;
         const baseDuration = (seg.duration || 5) + padding;
         const durationInFrames = Math.max(Math.floor(baseDuration * fps), 1) + transitionDuration;
 
@@ -78,7 +79,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({
                     const mixIndex = (index * 7 + 3) % MIXED_TYPES.length;
                     currentTransitionType = MIXED_TYPES[mixIndex];
                 }
-                const transitionDuration = currentTransitionType === 'none' ? 0 : 20;
+                const transitionDuration = currentTransitionType === 'none' ? 0 : transitionFramesCount;
                 const baseDuration = (seg.duration || 5) + padding;
                 const durationInFrames = Math.max(Math.floor(baseDuration * fps), 1) + transitionDuration;
                 const from = segmentTimings[index].from;
@@ -158,7 +159,7 @@ const SegmentContainer: React.FC<{
             const blur = interpolate(
                 frame,
                 [0, transitionDuration / 2, transitionDuration],
-                [0, 30, 0],
+                [0, 10, 0],
                 { extrapolateRight: 'clamp' }
             );
             if (frame < transitionDuration) {
@@ -200,11 +201,9 @@ const SegmentContainer: React.FC<{
         <AbsoluteFill style={{ ...style, filter }}>
             <AbsoluteFill>
                 {videoSrc ? (
-                    <Video
+                    <OffthreadVideo
                         src={videoSrc}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    // Ensure video loops if needed (though Remotion Video doesn't loop by default easily without composition, but usually short segments are fine)
-                    // Actually better to let it freeze on last frame or loop if we can.
                     />
                 ) : segment.image_url ? (
                     <Img

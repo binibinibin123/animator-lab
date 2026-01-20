@@ -5,7 +5,7 @@ import { getCompositions, renderMedia } from '@remotion/renderer';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { pathToFileURL } from 'url';
+
 
 // 렌더링 타임아웃 제한 없음 (로컬 환경)
 export const maxDuration = 300;
@@ -33,8 +33,13 @@ export async function POST(req: NextRequest) {
                 sendLog(`⚙️ FPS: ${fps}, 자막: ${skipSubtitles ? '없음' : '있음'}`);
 
                 // 0. Pre-download assets to prevent socket hang up
-                sendLog('📥 에셋 다운로드 중...');
-                const localSegments = await preDownloadAssets(segments, sendLog);
+                // Construct base URL for local assets
+                const protocol = req.headers.get('x-forwarded-proto') || 'http';
+                const host = req.headers.get('host');
+                const baseUrl = `${protocol}://${host}`;
+
+                sendLog(`📥 에셋 다운로드 중... (Base: ${baseUrl})`);
+                const { localSegments, createdFiles } = await preDownloadAssets(segments, baseUrl, sendLog);
                 sendLog('✅ 에셋 다운로드 완료');
 
                 // 1. Bundle
@@ -101,13 +106,24 @@ export async function POST(req: NextRequest) {
                 });
                 sendEvent('completed', { success: true });
 
-                // Cleanup: 다운로드를 위해 파일 유지 (OS가 임시 파일 관리하도록 둠)
+                // Cleanup source assets
+                for (const file of createdFiles) {
+                    try { fs.unlinkSync(file); } catch (e) { }
+                }
 
                 controller.close();
 
             } catch (error: any) {
                 console.error('Render stream error:', error);
                 sendEvent('error', { message: error.message || 'Unknown error' });
+
+                // Cleanup source assets (if defined)
+                if (typeof createdFiles !== 'undefined') {
+                    for (const file of createdFiles) {
+                        try { fs.unlinkSync(file); } catch (e) { }
+                    }
+                }
+
                 controller.close();
             }
         }
@@ -125,13 +141,41 @@ export async function POST(req: NextRequest) {
 // Pre-download assets to prevent socket hang up during Remotion render
 async function preDownloadAssets(
     segments: any[],
+    baseUrl: string,
     sendLog: (msg: string) => void
-): Promise<any[]> {
+): Promise<{ localSegments: any[], createdFiles: string[] }> {
+    // Ensure temp_renders directory exists
+    const publicDir = path.join(process.cwd(), 'public');
+    const tempDir = path.join(publicDir, 'temp_renders');
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // Cleanup old files (older than 1 hour)
+    try {
+        const files = fs.readdirSync(tempDir);
+        const now = Date.now();
+        for (const file of files) {
+            const filePath = path.join(tempDir, file);
+            const stats = fs.statSync(filePath);
+            if (now - stats.mtimeMs > 60 * 60 * 1000) { // 1 hour
+                fs.unlinkSync(filePath);
+            }
+        }
+    } catch (e) {
+        console.error('Cleanup error:', e);
+    }
+
+    const createdFiles: string[] = [];
+
     const downloadFile = async (url: string, type: 'audio' | 'video'): Promise<string> => {
         if (!url) return '';
+        // If already local (starts with base url or relative), skip
+        if (url.startsWith(baseUrl) || url.startsWith('/')) return url;
 
         const ext = type === 'audio' ? 'mp3' : 'mp4';
-        const localPath = path.join(os.tmpdir(), `render_${type}_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`);
+        const filename = `render_${type}_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const localPath = path.join(tempDir, filename);
 
         // Retry logic
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -143,8 +187,10 @@ async function preDownloadAssets(
 
                 const buffer = Buffer.from(await response.arrayBuffer());
                 fs.writeFileSync(localPath, buffer);
-                // Fix: Convert Windows path to file:// URL for Remotion
-                return pathToFileURL(localPath).href;
+                createdFiles.push(localPath);
+
+                // Return full HTTP URL
+                return `${baseUrl}/temp_renders/${filename}`;
             } catch (error: any) {
                 if (attempt === 2) throw error;
                 sendLog(`⚠️ 다운로드 재시도 (${attempt + 1}/3): ${path.basename(url)}`);
@@ -193,5 +239,5 @@ async function preDownloadAssets(
         sendLog(`📥 [${i + 1}/${segments.length}] 에셋 다운로드 완료`);
     }
 
-    return localSegments;
+    return { localSegments, createdFiles };
 }
