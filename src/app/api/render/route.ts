@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
             try {
                 const body = await req.json();
-                const { segments, compositionId = 'MainVideo', subtitleStyle } = body;
+                const { segments, compositionId = 'MainVideo', subtitleStyle, settings } = body;
 
                 sendLog('🚀 렌더링 프로세스를 시작합니다...');
 
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
                 // 2. Compositions
                 sendLog('🔍 컴포지션 정보를 분석 중입니다...');
                 const compositions = await getCompositions(bundleLocation, {
-                    inputProps: { segments, subtitleStyle },
+                    inputProps: { segments, subtitleStyle, settings },
                 });
 
                 const composition = compositions.find((c) => c.id === compositionId);
@@ -52,11 +52,16 @@ export async function POST(req: NextRequest) {
                 }
                 sendLog(`✅ 컴포지션 확인: ${composition.id} (${composition.width}x${composition.height})`);
 
-                // Duration Calculation
+                // Duration Calculation (including padding and transition)
+                const padding = settings?.padding || 0.5;
+                const transitionType = settings?.transitionType || 'slide';
+                const transitionFrames = transitionType === 'none' ? 0 : 20;
+
                 const totalDurationInFrames = segments.reduce((acc: number, seg: any) => {
-                    return acc + Math.max(Math.floor((seg.duration || 3) * 30), 1);
-                }, 0);
-                sendLog(`⏱️ 총 프레임 수: ${totalDurationInFrames} frames`);
+                    const durationWithPadding = (seg.duration || 3) + padding;
+                    return acc + Math.max(Math.floor(durationWithPadding * 30), 1) + transitionFrames;
+                }, 0) - (segments.length > 1 ? transitionFrames * (segments.length - 1) : 0) + transitionFrames; // Overlap correction
+                sendLog(`⏱️ 총 프레임 수: ${totalDurationInFrames} frames (padding: ${padding}s, transition: ${transitionType})`);
 
                 // 3. Render
                 const tempOutput = path.join(os.tmpdir(), `autovideo-${Date.now()}.mp4`);
@@ -67,7 +72,7 @@ export async function POST(req: NextRequest) {
                     serveUrl: bundleLocation,
                     codec: 'h264',
                     outputLocation: tempOutput,
-                    inputProps: { segments, subtitleStyle },
+                    inputProps: { segments, subtitleStyle, settings },
                     // fps: 30, // composition 설정 따름
                     onProgress: (p) => {
                         const progress = Math.round(p.progress * 100);

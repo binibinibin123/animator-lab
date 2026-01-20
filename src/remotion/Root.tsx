@@ -12,10 +12,44 @@ const segmentSchema = z.object({
     duration: z.number(),
 });
 
+const settingsSchema = z.object({
+    padding: z.number().optional(),
+    transitionType: z.string().optional(),
+});
+
 export const myCompSchema = z.object({
     segments: z.array(segmentSchema),
     subtitleStyle: z.string().optional(),
+    settings: settingsSchema.optional(),
 });
+
+// Dynamic duration calculation
+const calculateMetadata = ({ props }: { props: z.infer<typeof myCompSchema> }) => {
+    const { segments, settings } = props;
+    const padding = settings?.padding ?? 0.5;
+    const transitionType = settings?.transitionType ?? 'slide';
+    const transitionFrames = transitionType === 'none' ? 0 : 20;
+    const fps = 30;
+
+    let totalFrames = 0;
+    for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        const durationWithPadding = (seg.duration || 3) + padding;
+        const segmentFrames = Math.max(Math.floor(durationWithPadding * fps), 1) + transitionFrames;
+        totalFrames += segmentFrames;
+    }
+
+    // Transition overlap: transitions overlap with previous segment
+    if (segments.length > 1) {
+        totalFrames -= transitionFrames * (segments.length - 1);
+    }
+    // Add one extra transition at end
+    totalFrames += transitionFrames;
+
+    return {
+        durationInFrames: totalFrames || 300, // fallback to 10s if empty
+    };
+};
 
 export const RemotionRoot: React.FC = () => {
     return (
@@ -23,13 +57,15 @@ export const RemotionRoot: React.FC = () => {
             <Composition
                 id="MainVideo"
                 component={MainVideo as any}
-                durationInFrames={300} // 기본값, 실제 렌더링 시에는 inputProps에 따라 달라짐
+                durationInFrames={300}
                 fps={30}
                 width={1920}
                 height={1080}
                 schema={myCompSchema}
+                calculateMetadata={calculateMetadata}
                 defaultProps={{
-                    segments: []
+                    segments: [],
+                    settings: { padding: 0.5, transitionType: 'slide' }
                 }}
             />
         </>
