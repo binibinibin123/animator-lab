@@ -33,45 +33,62 @@ export const MainVideo: React.FC<MainVideoProps> = ({
     // Transition Types for Mixed Mode (deterministic rotation)
     const MIXED_TYPES = ['slide', 'wipe', 'fade'];
 
-    let currentStartFrame = 0;
+    // Pre-calculate segment timings for subtitle layer
+    const segmentTimings: Array<{ id: string; from: number; durationInFrames: number; subtitleDuration: number; script_text: string }> = [];
+    let calcFrame = 0;
+    for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        let currentTransitionType = transitionType;
+        if (transitionType === 'mixed') {
+            const mixIndex = (i * 7 + 3) % MIXED_TYPES.length;
+            currentTransitionType = MIXED_TYPES[mixIndex];
+        }
+        const transitionDuration = currentTransitionType === 'none' ? 0 : 20;
+        const baseDuration = (seg.duration || 5) + padding;
+        const durationInFrames = Math.max(Math.floor(baseDuration * fps), 1) + transitionDuration;
+
+        // Subtitle should NOT overlap - ends before next segment starts
+        const isLast = i === segments.length - 1;
+        const subtitleDuration = isLast ? durationInFrames : durationInFrames - transitionDuration;
+
+        segmentTimings.push({
+            id: seg.id,
+            from: calcFrame,
+            durationInFrames,
+            subtitleDuration,
+            script_text: seg.script_text
+        });
+
+        if (i < segments.length - 1) {
+            calcFrame += durationInFrames - transitionDuration;
+        } else {
+            calcFrame += durationInFrames;
+        }
+    }
 
     return (
         <AbsoluteFill style={{ backgroundColor: 'black' }}>
+            {/* Video/Image Layer (with transitions) */}
             {segments.map((seg, index) => {
-                // Determine Transition Type for this segment
                 let currentTransitionType = transitionType;
                 if (transitionType === 'mixed') {
-                    // Smart Mix: Rotate through types based on index
-                    // Use a simple pseudo-random-like pattern to avoid boring 1-2-3-1-2-3
                     const mixIndex = (index * 7 + 3) % MIXED_TYPES.length;
                     currentTransitionType = MIXED_TYPES[mixIndex];
                 }
-
-                // Transition Duration: 0 for 'none', otherwise 20 frames (0.67s)
                 const transitionDuration = currentTransitionType === 'none' ? 0 : 20;
-
-                // Duration = TTS Duration + Padding
                 const baseDuration = (seg.duration || 5) + padding;
                 const durationInFrames = Math.max(Math.floor(baseDuration * fps), 1) + transitionDuration;
-
-                const from = currentStartFrame;
-
-                if (index < segments.length - 1) {
-                    currentStartFrame += durationInFrames - transitionDuration;
-                } else {
-                    currentStartFrame += durationInFrames;
-                }
+                const from = segmentTimings[index].from;
 
                 return (
                     <Sequence
                         key={seg.id}
                         from={from}
                         durationInFrames={durationInFrames}
-                        style={{ zIndex: index }} // Ensure proper stacking
+                        style={{ zIndex: index }}
                     >
                         <SegmentContainer
                             segment={seg}
-                            subtitleStyle={subtitleStyle}
                             isFirst={index === 0}
                             transitionDuration={transitionDuration}
                             transitionType={currentTransitionType}
@@ -79,17 +96,31 @@ export const MainVideo: React.FC<MainVideoProps> = ({
                     </Sequence>
                 );
             })}
+
+            {/* Subtitle Layer (always on top, no transitions) */}
+            <AbsoluteFill style={{ zIndex: 1000, pointerEvents: 'none' }}>
+                {segmentTimings.map((timing) => (
+                    <Sequence
+                        key={`sub-${timing.id}`}
+                        from={timing.from}
+                        durationInFrames={timing.subtitleDuration}
+                    >
+                        {timing.script_text && (
+                            <Subtitle text={timing.script_text} styleName={subtitleStyle} />
+                        )}
+                    </Sequence>
+                ))}
+            </AbsoluteFill>
         </AbsoluteFill>
     );
 };
 
 const SegmentContainer: React.FC<{
     segment: Segment;
-    subtitleStyle: string;
     isFirst: boolean;
     transitionDuration: number;
     transitionType: string;
-}> = ({ segment, subtitleStyle, isFirst, transitionDuration, transitionType }) => {
+}> = ({ segment, isFirst, transitionDuration, transitionType }) => {
     const frame = useCurrentFrame();
     const { width, height } = useVideoConfig();
 
@@ -176,8 +207,6 @@ const SegmentContainer: React.FC<{
             </AbsoluteFill>
 
             {segment.audio_url && <Audio src={segment.audio_url} />}
-
-            {segment.script_text && <Subtitle text={segment.script_text} styleName={subtitleStyle} />}
         </AbsoluteFill>
     );
 };

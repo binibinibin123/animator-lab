@@ -25,6 +25,7 @@ export const SUBTITLE_STYLES: Record<string, SubtitleStyle> = {
             maxWidth: '80%',
             textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
             fontFamily: 'sans-serif',
+            textWrap: 'balance',
         },
     },
     youtuber: {
@@ -44,6 +45,7 @@ export const SUBTITLE_STYLES: Record<string, SubtitleStyle> = {
             fontFamily: 'Impact, sans-serif',
             textTransform: 'uppercase',
             transform: 'rotate(-2deg)',
+            textWrap: 'balance',
         },
     },
     clean: {
@@ -64,6 +66,7 @@ export const SUBTITLE_STYLES: Record<string, SubtitleStyle> = {
             maxWidth: '70%',
             boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
             fontFamily: 'Helvetica, Arial, sans-serif',
+            textWrap: 'balance',
         },
     },
     neon: {
@@ -82,6 +85,7 @@ export const SUBTITLE_STYLES: Record<string, SubtitleStyle> = {
             textShadow: '0 0 10px #ff00de, 0 0 20px #ff00de, 0 0 40px #ff00de', // Neon pink glow
             fontFamily: 'Courier New, monospace',
             letterSpacing: '2px',
+            textWrap: 'balance',
         },
     },
     cinematic: {
@@ -101,6 +105,7 @@ export const SUBTITLE_STYLES: Record<string, SubtitleStyle> = {
             fontFamily: 'Georgia, serif',
             letterSpacing: '1px',
             fontStyle: 'italic',
+            textWrap: 'balance',
         },
     },
 };
