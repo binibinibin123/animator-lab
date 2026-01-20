@@ -64,6 +64,27 @@ export default function VideoPage() {
         }
     }, [selectedSegmentId, segments]);
 
+    // Autopilot Logic
+    useEffect(() => {
+        const autopilot = new URLSearchParams(window.location.search).get('autopilot') === 'true';
+        if (!autopilot || isLoading || segments.length === 0) return;
+
+        // Auto-start generation
+        if (!isGlobalGenerating && !segments.every(s => s.video_url)) {
+            console.log('[Autopilot] Starting global video generation...');
+            setIsGlobalGenerating(true);
+            setVideoPrompt('autogenerate'); // dummy change to trigger effect if needed
+        }
+
+        // Check completion
+        const allDone = segments.every(s => s.video_url);
+        if (allDone) {
+            const targetStep = new URLSearchParams(window.location.search).get('targetStep');
+            console.log('[Autopilot] Video generation complete. Moving to Preview step...');
+            router.push(`/project/${projectId}/preview?autopilot=true&targetStep=${targetStep}`);
+        }
+    }, [isLoading, segments, isGlobalGenerating]);
+
     // Auto-Advance Logic: When loading finishes, if global generation is active, process the new page
     useEffect(() => {
         if (!isLoading && isGlobalGenerating && segments.length > 0) {

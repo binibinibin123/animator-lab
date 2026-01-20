@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { Segment } from '@/types/database';
 
@@ -16,6 +16,7 @@ interface Voice {
 export default function VoicePage() {
     const router = useRouter();
     const params = useParams();
+    const searchParams = useSearchParams();
     const projectId = params.id as string;
 
     const [segments, setSegments] = useState<Segment[]>([]);
@@ -83,6 +84,40 @@ export default function VoicePage() {
         }
         setIsLoading(false);
     };
+
+    // Autopilot Logic
+    useEffect(() => {
+        const checkAutopilot = async () => {
+            const autopilot = searchParams.get('autopilot') === 'true';
+            if (!autopilot || isLoading || segments.length === 0) return;
+
+            // Check if all segments have audio
+            const allHasAudio = segments.every(s => s.audio_url);
+
+            if (allHasAudio) {
+                // Done! Move to next step
+                const targetStep = searchParams.get('targetStep');
+                console.log('[Autopilot] Voice generation complete. Moving to Image step...');
+                router.push(`/project/${projectId}/image?autopilot=true&targetStep=${targetStep}`);
+            } else if (!generatingId) {
+                // Not done, trigger generation
+                // Check if voice is selected
+                if (!selectedVoiceId && voices.length > 0) {
+                    setSelectedVoiceId(voices[0].voiceId);
+                }
+
+                if (selectedVoiceId) {
+                    console.log('[Autopilot] Triggering auto-generation for voices...');
+                    await handleGenerateAll();
+                } else {
+                    console.log('[Autopilot] Waiting for voice selection...');
+                }
+            }
+        };
+
+        const timeout = setTimeout(checkAutopilot, 1000); // Small delay to ensure state is settled
+        return () => clearTimeout(timeout);
+    }, [isLoading, segments, selectedVoiceId, generatingId, voices, searchParams, projectId, router]);
 
     const handleScriptChange = async (id: string, text: string) => {
         setSegments(prev => prev.map(s => s.id === id ? { ...s, script_text: text } : s));

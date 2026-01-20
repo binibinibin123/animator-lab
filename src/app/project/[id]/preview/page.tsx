@@ -138,6 +138,21 @@ export default function PreviewPage() {
         setIsLoading(false);
     };
 
+    // Autopilot Trigger
+    useEffect(() => {
+        const autopilot = new URLSearchParams(window.location.search).get('autopilot') === 'true';
+        if (autopilot && !isLoading && segments.length > 0 && !isRendering && renderStatus === 'idle') {
+            const hasVideo = segments.every(s => s.video_url || s.image_url); // Minimal check
+            if (hasVideo) {
+                console.log('[Autopilot] Automatically starting render...');
+                // Default settings for autopilot
+                setPadding(0.3);
+                setTransitionType('mixed');
+                handleDownload('mp4');
+            }
+        }
+    }, [isLoading, segments, isRendering, renderStatus]);
+
     // Remotion 용 데이터 변환
     const remotionSegments = segments.map(s => ({
         id: s.id,

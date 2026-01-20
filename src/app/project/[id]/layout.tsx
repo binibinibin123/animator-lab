@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import type { Project } from '@/types/database';
+import AutopilotWidget from '@/components/AutopilotWidget';
 
 // Steps for project editing (영상 설정 제외)
 const PROJECT_STEPS = [
@@ -161,6 +162,7 @@ export default function ProjectLayout({
                     {children}
                 </div>
             </main>
+            <AutopilotWidget />
         </div>
     );
 }

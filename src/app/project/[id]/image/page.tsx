@@ -85,6 +85,35 @@ export default function ImagePage() {
         }
     };
 
+    // Autopilot Logic
+    useEffect(() => {
+        const checkAutopilot = async () => {
+            const autopilot = new URLSearchParams(window.location.search).get('autopilot') === 'true';
+            if (!autopilot || isLoading || segments.length === 0) return;
+
+            const allHasImage = segments.every(s => s.image_url);
+
+            if (allHasImage) {
+                // Done! Move to next step
+                const targetStep = new URLSearchParams(window.location.search).get('targetStep');
+                console.log('[Autopilot] Image generation complete. Moving to Video step...');
+                router.push(`/project/${projectId}/video?autopilot=true&targetStep=${targetStep}`);
+            } else if (!isGenerating) {
+                // Trigger auto-generation
+                console.log('[Autopilot] Triggering auto-generation for images...');
+                try {
+                    await handleGenerateAll();
+                } catch (e) {
+                    console.error('Autopilot image gen failed', e);
+                    // Prevent infinite loop if it fails immediately, but usually handleGenerateAll handles errors per segment
+                }
+            }
+        };
+
+        const timeout = setTimeout(checkAutopilot, 2000); // Wait for initial render/state
+        return () => clearTimeout(timeout);
+    }, [isLoading, segments, isGenerating]);
+
     const selectedSegment = segments.find(s => s.id === selectedSegmentId);
 
     const handleGenerateImage = async (segment: Segment) => {
