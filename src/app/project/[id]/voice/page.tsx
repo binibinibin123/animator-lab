@@ -56,16 +56,30 @@ export default function VoicePage() {
 
     const fetchSegments = async () => {
         setIsLoading(true);
-        const { data, error } = await supabase
-            .from('segments')
-            .select('*')
-            .eq('project_id', projectId)
-            .order('order_index', { ascending: true });
+        try {
+            console.log('[VoicePage] Fetching segments for project:', projectId);
 
-        if (error) {
-            console.error('Error fetching segments:', error);
-        } else if (data) {
-            setSegments(data);
+            const { data, error, status, statusText } = await supabase
+                .from('segments')
+                .select('id, project_id, order_index, script_text, audio_url')
+                .eq('project_id', projectId)
+                .order('order_index', { ascending: true });
+
+            if (error) {
+                console.error('Error fetching segments:', {
+                    message: error.message,
+                    details: error.details,
+                    hint: error.hint,
+                    code: error.code,
+                    status,
+                    statusText
+                });
+            } else if (data) {
+                console.log(`[VoicePage] Loaded ${data.length} segments`);
+                setSegments(data);
+            }
+        } catch (err: any) {
+            console.error('[VoicePage] Unexpected fetch error:', err);
         }
         setIsLoading(false);
     };
@@ -218,8 +232,8 @@ export default function VoicePage() {
                                             key={voice.voiceId}
                                             onClick={() => setSelectedVoiceId(voice.voiceId)}
                                             className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${isSelected
-                                                    ? 'bg-violet-100 border-2 border-violet-500'
-                                                    : 'bg-white border border-gray-200 hover:border-violet-300'
+                                                ? 'bg-violet-100 border-2 border-violet-500'
+                                                : 'bg-white border border-gray-200 hover:border-violet-300'
                                                 }`}
                                         >
                                             {/* Preview Button */}
@@ -230,10 +244,10 @@ export default function VoicePage() {
                                                 }}
                                                 disabled={!voice.previewUrl}
                                                 className={`w-8 h-8 flex items-center justify-center rounded-full text-sm flex-shrink-0 ${!voice.previewUrl
-                                                        ? 'bg-gray-100 text-gray-300'
-                                                        : isPlaying
-                                                            ? 'bg-violet-600 text-white'
-                                                            : 'bg-gray-200 text-gray-600 hover:bg-violet-200'
+                                                    ? 'bg-gray-100 text-gray-300'
+                                                    : isPlaying
+                                                        ? 'bg-violet-600 text-white'
+                                                        : 'bg-gray-200 text-gray-600 hover:bg-violet-200'
                                                     }`}
                                             >
                                                 {isPlaying ? '■' : '▶'}
@@ -290,10 +304,10 @@ export default function VoicePage() {
                                         onClick={() => handleGenerateVoice(segment)}
                                         disabled={generatingId === segment.id || !selectedVoiceId}
                                         className={`px-3 py-1 rounded-md text-sm ${generatingId === segment.id
-                                                ? 'bg-yellow-100 text-yellow-700'
-                                                : segment.audio_url
-                                                    ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                                    : 'bg-violet-600 text-white hover:bg-violet-700'
+                                            ? 'bg-yellow-100 text-yellow-700'
+                                            : segment.audio_url
+                                                ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                : 'bg-violet-600 text-white hover:bg-violet-700'
                                             } disabled:opacity-50`}
                                     >
                                         {generatingId === segment.id ? '⏳ 생성 중...' : segment.audio_url ? '🔄 재생성' : '🎙️ 음성 생성'}

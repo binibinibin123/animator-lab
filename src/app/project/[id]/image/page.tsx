@@ -65,7 +65,7 @@ export default function ImagePage() {
 
             const { data, error: fetchError } = await supabase
                 .from('segments')
-                .select('*')
+                .select('id, project_id, order_index, script_text, image_url, visual_description')
                 .eq('project_id', projectId)
                 .order('order_index', { ascending: true });
 

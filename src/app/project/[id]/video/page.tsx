@@ -52,30 +52,46 @@ export default function VideoPage() {
 
     const fetchSegments = async () => {
         setIsLoading(true);
-        const { data, error } = await supabase
-            .from('segments')
-            .select('*')
-            .eq('project_id', projectId)
-            .order('order_index', { ascending: true });
+        try {
+            console.log('[VideoPage] Fetching segments for project:', projectId);
 
-        if (!error && data) {
-            setSegments(data as Segment[]);
-            if (data.length > 0 && !selectedSegmentId) {
-                const firstSeg = (data as Segment[])[0];
-                setSelectedSegmentId(firstSeg.id);
-                setVideoPrompt(firstSeg.video_prompt || '');
+            const { data, error, status, statusText } = await supabase
+                .from('segments')
+                .select('id, order_index, script_text, image_url, video_url')
+                .eq('project_id', projectId)
+                .order('order_index', { ascending: true });
+
+            if (error) {
+                console.error('[VideoPage] Error fetching segments:', {
+                    message: error.message,
+                    code: error.code,
+                    status,
+                    statusText
+                });
+                addLog('error', `세그먼트 로딩 실패: ${error.message}`);
+            } else if (data) {
+                console.log(`[VideoPage] Loaded ${data.length} segments`);
+                setSegments(data as Segment[]);
+                if (data.length > 0 && !selectedSegmentId) {
+                    const firstSeg = (data as Segment[])[0];
+                    setSelectedSegmentId(firstSeg.id);
+                    setVideoPrompt(firstSeg.video_prompt || '');
+                }
+
+                // Fetch project provider default
+                const { data: project } = await supabase
+                    .from('projects')
+                    .select('video_provider')
+                    .eq('id', projectId)
+                    .single();
+
+                if (project) {
+                    // provider is now fixed to comfyui
+                }
             }
-
-            // Fetch project provider default
-            const { data: project } = await supabase
-                .from('projects')
-                .select('video_provider')
-                .eq('id', projectId)
-                .single();
-
-            if (project) {
-                // provider is now fixed to comfyui
-            }
+        } catch (err: any) {
+            console.error('[VideoPage] Unexpected error:', err);
+            addLog('error', `예상치 못한 오류: ${err.message}`);
         }
         setIsLoading(false);
     };
