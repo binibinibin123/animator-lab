@@ -158,8 +158,11 @@ export class ComfyUIImageProvider implements ImageProvider {
         // Build Qwen-optimized prompt
         const promptParts: string[] = [];
 
-        // Main scene instruction
+        // Main scene instruction with action emphasis
         promptParts.push(`Create an illustration showing: ${sceneDescription}.`);
+
+        // Dynamic pose instruction
+        promptParts.push(`The character should have expressive poses, gestures, and facial expressions that match the scene. Show action and emotion.`);
 
         // Background instruction (critical for economy style)
         if (isEconomyStyle) {
@@ -169,8 +172,8 @@ export class ComfyUIImageProvider implements ImageProvider {
         // Style directive (important for Qwen)
         promptParts.push(`Style: ${styleModifier}`);
 
-        // Preservation instructions (critical for Qwen Edit with reference images)
-        promptParts.push(`Preserve character identity and proportions from the reference image.`);
+        // Character identity (keep visual style but allow dynamic poses)
+        promptParts.push(`Keep the character's visual identity (stickman design, hat) from the reference image, but adapt pose and expression to match the scene.`);
 
         // Output quality
         promptParts.push(`High quality, clean composition, no text, no watermarks, no transparency.`);
