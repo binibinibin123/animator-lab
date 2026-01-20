@@ -24,11 +24,22 @@ export default function PreviewPage() {
     const [padding, setPadding] = useState(0.5);
     const [transitionType, setTransitionType] = useState('slide');
 
-    // Logging State
+    // Logging State (Rendering)
     const [logs, setLogs] = useState<LogMessage[]>([]);
     const [renderStatus, setRenderStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
     const [progress, setProgress] = useState(0);
     const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
+
+    // Data Loading Log State
+    const [dataLogs, setDataLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
+    const [showDataLogs, setShowDataLogs] = useState(true);
+    const dataLogsEndRef = useRef<HTMLDivElement>(null);
+
+    const addDataLog = (type: 'info' | 'success' | 'error' | 'warn', message: string) => {
+        const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setDataLogs(prev => [...prev.slice(-50), { time, type, message }]);
+        setTimeout(() => dataLogsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    };
 
     useEffect(() => {
         if (projectId) {
@@ -38,11 +49,61 @@ export default function PreviewPage() {
 
     const fetchProjectData = async () => {
         setIsLoading(true);
-        const { data: proj } = await supabase.from('projects').select('*').eq('id', projectId).single();
-        const { data: segs } = await supabase.from('segments').select('*').eq('project_id', projectId).order('order_index', { ascending: true });
+        setDataLogs([]);
+        addDataLog('info', '📦 프로젝트 정보 로딩 중...');
 
-        if (proj) setProject(proj as Project);
-        if (segs) setSegments(segs);
+        try {
+            // 1. Load Project Info
+            const { data: proj, error: projError } = await supabase.from('projects').select('*').eq('id', projectId).single();
+            if (projError) {
+                addDataLog('error', `프로젝트 로드 실패: ${projError.message}`);
+            } else if (proj) {
+                setProject(proj as Project);
+                addDataLog('success', `✅ 프로젝트 로드 완료: ${proj.title}`);
+            }
+
+            // 2. Load Segment Metadata (Lightweight)
+            addDataLog('info', '🎬 세그먼트 메타데이터 로딩 중...');
+            const { data: segs, error: segsError } = await supabase
+                .from('segments')
+                .select('id, order_index, script_text, duration_ms')
+                .eq('project_id', projectId)
+                .order('order_index', { ascending: true });
+
+            if (segsError) {
+                addDataLog('error', `세그먼트 로드 실패: ${segsError.message}`);
+                setIsLoading(false);
+                return;
+            }
+
+            if (segs) {
+                addDataLog('info', `${segs.length}개 세그먼트 발견. 미디어 URL 로딩 중...`);
+                setSegments(segs as Segment[]);
+
+                // 3. Progressive Media Loading
+                let loadedCount = 0;
+                for (const seg of segs) {
+                    const { data: mediaData } = await supabase
+                        .from('segments')
+                        .select('id, image_url, video_url, audio_url')
+                        .eq('id', seg.id)
+                        .single();
+
+                    if (mediaData) {
+                        setSegments(prev => prev.map(s =>
+                            s.id === mediaData.id ? { ...s, ...mediaData } : s
+                        ));
+                    }
+                    loadedCount++;
+                    if (loadedCount % 10 === 0 || loadedCount === segs.length) {
+                        addDataLog('info', `미디어 로드 진행: ${loadedCount}/${segs.length}`);
+                    }
+                }
+                addDataLog('success', `✅ 전체 로드 완료 (${segs.length}개 세그먼트)`);
+            }
+        } catch (err: any) {
+            addDataLog('error', `예상치 못한 오류: ${err.message}`);
+        }
         setIsLoading(false);
     };
 
@@ -401,6 +462,40 @@ export default function PreviewPage() {
                     ← 편집 단계로 돌아가서 수정하기
                 </Link>
             </div>
+            {/* Data Loading Log Panel */}
+            {showDataLogs && dataLogs.length > 0 && (
+                <div className="fixed right-4 top-20 w-96 max-h-[70vh] bg-gray-900 text-gray-100 rounded-xl shadow-2xl border border-gray-700 overflow-hidden z-50">
+                    <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+                        <span className="text-sm font-bold">📋 데이터 로딩 로그</span>
+                        <div className="flex gap-2">
+                            <button onClick={() => setDataLogs([])} className="text-xs text-gray-400 hover:text-white">지우기</button>
+                            <button onClick={() => setShowDataLogs(false)} className="text-gray-400 hover:text-white">✕</button>
+                        </div>
+                    </div>
+                    <div className="p-3 overflow-y-auto max-h-[60vh] font-mono text-xs space-y-1">
+                        {dataLogs.map((log, i) => (
+                            <div key={i} className={`flex gap-2 ${log.type === 'error' ? 'text-red-400' :
+                                log.type === 'success' ? 'text-green-400' :
+                                    log.type === 'warn' ? 'text-yellow-400' :
+                                        'text-gray-300'
+                                }`}>
+                                <span className="text-gray-500 flex-shrink-0">{log.time}</span>
+                                <span>{log.message}</span>
+                            </div>
+                        ))}
+                        <div ref={dataLogsEndRef} />
+                    </div>
+                </div>
+            )}
+
+            {!showDataLogs && dataLogs.length > 0 && (
+                <button
+                    onClick={() => setShowDataLogs(true)}
+                    className="fixed right-4 top-20 px-3 py-2 bg-gray-900 text-white rounded-lg shadow-lg text-sm hover:bg-gray-800 z-50"
+                >
+                    📋 로그 보기
+                </button>
+            )}
         </div>
     );
 }

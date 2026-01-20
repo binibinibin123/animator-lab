@@ -260,8 +260,8 @@ export class ComfyUIImageProvider implements ImageProvider {
 
             if (error) {
                 console.error('[ComfyUIImageProvider] Storage upload error:', error);
-                // Return data URL as fallback
-                return `data:image/png;base64,${buffer.toString('base64')}`;
+                // WARNING: Do NOT return base64 here as it will pollute the database and cause timeouts
+                throw new Error(`Failed to upload image to storage: ${error.message} (Bucket 'media' missing?)`);
             }
 
             const { data: { publicUrl } } = supabase.storage

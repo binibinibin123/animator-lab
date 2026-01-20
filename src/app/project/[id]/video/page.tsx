@@ -20,6 +20,15 @@ export default function VideoPage() {
     const [selectedWorkflow, setSelectedWorkflow] = useState<string>('rapid-aio-mega-sage');
     const [videoPrompt, setVideoPrompt] = useState('');
 
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(0);
+    const [totalCount, setTotalCount] = useState(0);
+    const PAGE_SIZE = 10;
+
+    // Auto-Advance Generation State
+    const [isGlobalGenerating, setIsGlobalGenerating] = useState(false);
+    const isGlobalGeneratingRef = useRef(false); // Ref for access inside effects/timeouts
+
     // ...
     const [logs, setLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
     const [showLogs, setShowLogs] = useState(true);
@@ -33,6 +42,11 @@ export default function VideoPage() {
         setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     };
 
+    // Update ref when state changes
+    useEffect(() => {
+        isGlobalGeneratingRef.current = isGlobalGenerating;
+    }, [isGlobalGenerating]);
+
     useEffect(() => {
         if (projectId) {
             fetchSegments();
@@ -40,7 +54,7 @@ export default function VideoPage() {
         return () => {
             Object.values(pollingIntervals.current).forEach(clearInterval);
         };
-    }, [projectId]);
+    }, [projectId, currentPage]); // Re-fetch when page changes
 
     // Update video prompt when selected segment changes
     useEffect(() => {
@@ -50,50 +64,81 @@ export default function VideoPage() {
         }
     }, [selectedSegmentId, segments]);
 
+    // Auto-Advance Logic: When loading finishes, if global generation is active, process the new page
+    useEffect(() => {
+        if (!isLoading && isGlobalGenerating && segments.length > 0) {
+            console.log('[AutoAdvance] Page loaded, resuming generation...');
+            processCurrentPage();
+        }
+    }, [isLoading, isGlobalGenerating, segments.length]);
+
     const fetchSegments = async () => {
         setIsLoading(true);
         try {
-            console.log('[VideoPage] Fetching segments for project:', projectId);
+            console.log('[VideoPage] Fetching segment metadata for project:', projectId);
 
+            // 1. Fetch only lightweight metadata first (No image_url, video_url)
             const { data, error, status, statusText } = await supabase
                 .from('segments')
-                .select('id, order_index, script_text, image_url, video_url')
+                .select('id, order_index, script_text, video_prompt') // Exclude image_url, video_url
                 .eq('project_id', projectId)
                 .order('order_index', { ascending: true });
 
             if (error) {
-                console.error('[VideoPage] Error fetching segments:', {
-                    message: error.message,
-                    code: error.code,
-                    status,
-                    statusText
-                });
-                addLog('error', `세그먼트 로딩 실패: ${error.message}`);
+                console.error('[VideoPage] Error fetching segments:', { message: error.message, code: error.code });
+                addLog('error', `세그먼트 목록 로딩 실패: ${error.message}`);
             } else if (data) {
-                console.log(`[VideoPage] Loaded ${data.length} segments`);
-                setSegments(data as Segment[]);
+                console.log(`[VideoPage] Loaded ${data.length} segments metadata`);
+                setSegments(data as Segment[]); // Initialize with partial data
+
                 if (data.length > 0 && !selectedSegmentId) {
                     const firstSeg = (data as Segment[])[0];
                     setSelectedSegmentId(firstSeg.id);
                     setVideoPrompt(firstSeg.video_prompt || '');
                 }
 
-                // Fetch project provider default
-                const { data: project } = await supabase
-                    .from('projects')
-                    .select('video_provider')
-                    .eq('id', projectId)
-                    .single();
-
-                if (project) {
-                    // provider is now fixed to comfyui
-                }
+                // 2. Start background loading of heavy media data
+                loadMediaForSegments(data as Segment[]);
             }
         } catch (err: any) {
             console.error('[VideoPage] Unexpected error:', err);
             addLog('error', `예상치 못한 오류: ${err.message}`);
         }
         setIsLoading(false);
+    };
+
+    // Lazy load media for segments one by one to avoid timeout
+    const loadMediaForSegments = async (initialSegments: Segment[]) => {
+        console.log('[VideoPage] Starting background media loading...');
+
+        // Process in small batches or one by one
+        for (const seg of initialSegments) {
+            try {
+                const { data, error } = await supabase
+                    .from('segments')
+                    .select('id, image_url, video_url')
+                    .eq('id', seg.id)
+                    .single();
+
+                if (data && !error) {
+                    setSegments(prev => prev.map(s =>
+                        s.id === data.id ? { ...s, image_url: data.image_url, video_url: data.video_url } : s
+                    ));
+                }
+            } catch (e) {
+                console.warn(`[VideoPage] Failed to load media for segment ${seg.id}`, e);
+            }
+            // Small delay to be gentle on the DB
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        const videoCount = segments.filter(s => s.video_url).length; // Note: using s.video_url from loop scope might be tricky if state not updated yet. 
+        // Better to check filtered list if possible, but state update is async.
+        // Actually, let's just use the simple log for now if this is hard to match.
+        // Wait, I can calculate based on what I just loaded? No, too complex.
+        // Let's just blindly replace the log line.
+        console.log('[VideoPage] Background media loading complete');
+        addLog('info', '미디어 로드 완료 (백그라운드)');
     };
 
     const startPolling = (segmentId: string, requestId: string): Promise<boolean> => {
@@ -275,22 +320,56 @@ export default function VideoPage() {
         }
     };
 
-    const handleGenerateAll = async () => {
-        addLog('info', `🚀 전체 생성 시작 (순차 실행 모드)`);
-        const pendingSegments = segments.filter(seg => !seg.video_url && seg.image_url);
-        addLog('info', `생성할 세그먼트: ${pendingSegments.length}개`);
+    const processCurrentPage = async () => {
+        console.log('[AutoAdvance] Processing current page...');
+        // Filter segments that need generation (exclude already done or generating)
+        const pendingSegments = segments.filter(seg => !seg.video_url && seg.image_url && !generatingIds.has(seg.id));
+
+        if (pendingSegments.length === 0) {
+            console.log('[AutoAdvance] No pending items on this page.');
+            checkNextPage();
+            return;
+        }
+
+        addLog('info', `🚀 [Auto-Advance] 현재 페이지 ${pendingSegments.length}개 생성 시작`);
 
         for (let i = 0; i < pendingSegments.length; i++) {
-            const segment = pendingSegments[i];
-            addLog('info', `--- [${i + 1}/${pendingSegments.length}] 세그먼트 생성 시작 ---`);
-            const success = await handleGenerateVideo(segment, true); // waitForCompletion = true
-            if (success) {
-                addLog('success', `[${i + 1}/${pendingSegments.length}] 완료!`);
-            } else {
-                addLog('error', `[${i + 1}/${pendingSegments.length}] 실패, 다음으로 진행`);
+            // Check cancellation
+            if (!isGlobalGeneratingRef.current) {
+                addLog('warn', '🛑 전체 생성 중단됨');
+                return;
             }
+
+            const seg = pendingSegments[i];
+            await handleGenerateVideo(seg, true); // Wait for completion
         }
-        addLog('success', `🎉 전체 생성 완료!`);
+
+        checkNextPage();
+    };
+
+    const checkNextPage = () => {
+        if (!isGlobalGeneratingRef.current) return;
+
+        const maxPage = Math.ceil(totalCount / PAGE_SIZE) - 1;
+        if (currentPage < maxPage) {
+            addLog('info', `⏩ 현재 페이지 완료. 다음 페이지(${currentPage + 2}/${maxPage + 1})로 이동합니다...`);
+            setCurrentPage(prev => prev + 1);
+        } else {
+            addLog('success', `🎉 모든 페이지 생성 완료!`);
+            setIsGlobalGenerating(false);
+        }
+    };
+
+    const handleGenerateAll = () => {
+        if (isGlobalGenerating) {
+            setIsGlobalGenerating(false);
+            addLog('info', '🛑 전체 생성 중지 요청됨.');
+        } else {
+            setIsGlobalGenerating(true);
+            addLog('info', '🚀 전체 생성 시작 (자동 페이지 넘김)');
+            // Trigger handled by useEffect
+            processCurrentPage();
+        }
     };
 
     const handleDeleteVideo = async (segmentId: string) => {
@@ -399,6 +478,27 @@ export default function VideoPage() {
                             </div>
                         </button>
                     ))}
+                </div>
+
+                {/* Pagination Controls */}
+                <div className="flex items-center justify-between p-2 mt-2 border-t pt-4">
+                    <button
+                        onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                        disabled={currentPage === 0 || isLoading}
+                        className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
+                    >
+                        ◀ 이전
+                    </button>
+                    <span className="text-sm text-gray-600">
+                        {currentPage + 1} / {Math.max(1, Math.ceil(totalCount / PAGE_SIZE))}
+                    </span>
+                    <button
+                        onClick={() => setCurrentPage(p => p + 1)}
+                        disabled={currentPage >= Math.ceil(totalCount / PAGE_SIZE) - 1 || isLoading}
+                        className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
+                    >
+                        다음 ▶
+                    </button>
                 </div>
 
                 {/* Preview Area */}
