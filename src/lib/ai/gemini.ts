@@ -154,6 +154,17 @@ export async function generateScript(
     console.log(`[ScriptGen] Duration: ${durationSeconds}s, Pacing: ${calculatedPacing}s, Target Segments: ${segmentCount}`);
 
     const personaPrompt = PERSONA_PROMPTS[persona] || PERSONA_PROMPTS.finance;
+
+    // Calculate target length based on language
+    // English: ~150 words per minute (2.5 words/sec)
+    // Korean: ~350 chars per minute (5.8 chars/sec)
+    const targetWordCount = Math.round(durationSeconds * 2.5);
+    const targetCharCount = Math.round(durationSeconds * 6.0);
+
+    const lengthInstruction = language === 'ko'
+        ? `Target Length: Approximately **${targetCharCount} characters** (excluding spaces).`
+        : `Target Length: Approximately **${targetWordCount} words**.`;
+
     const languageInstruction = language === 'ko'
         ? 'IMPORTANT: You MUST write the entire script in KOREAN (한국어).'
         : 'IMPORTANT: You MUST write the entire script in ENGLISH.';
@@ -184,21 +195,25 @@ Output format:
 ${languageInstruction}
 - If the search results or topic are in a different language, TRANSLATE obtained information into ${language === 'ko' ? 'Korean' : 'English'} for the script.
 
-CRITICAL RULES FOR PACING (Follow strictly):
-1. **KILLER HOOK**: The FIRST segment MUST be a specific, provocative statement. 
+CRITICAL RULES FOR PACING AND LENGTH (Follow strictly):
+1. **MEET THE TARGET LENGTH**: The script MUST be long enough to cover ${durationSeconds} seconds. 
+   - ${lengthInstruction}
+   - Do NOT write a short summary. Write a FULL script.
+2. **KILLER HOOK**: The FIRST segment MUST be a specific, provocative statement. 
    - BAD: "Artificial Intelligence is very convenient."
    - GOOD: "Half of your electricity bill might be paying for ChatGPT's server costs."
-2. **EXTREME BREVITY**: Each segment MUST be very short. Max 15 words (English) or 40 characters (Korean).
-3. **SPLIT SENTENCES**: If a sentence is long, SPLIT it into multiple segments.
+3. **EXTREME BREVITY**: Each segment MUST be very short. Max 15 words (English) or 40 characters (Korean).
+4. **SPLIT SENTENCES**: If a sentence is long, SPLIT it into multiple segments.
    - Bad: "The economy is crashing because interest rates are rising." (1 segment)
    - Good: "The economy is crashing." (Segment 1) + "Why? Because interest rates are rising." (Segment 2)
-3. **VISUAL VARIETY**: Every segment needs a NEW visual description. Do not repeat the same visual for consecutive segments.
+5. **VISUAL VARIETY**: Every segment needs a NEW visual description. Do not repeat the same visual for consecutive segments.
 
 ---
 
 Topic: ${topic}
-Target length: ${durationSeconds} seconds (approximately ${Math.round(durationSeconds / 60)} minutes)
+Target Duration: ${durationSeconds} seconds (approximately ${Math.round(durationSeconds / 60)} minutes)
 Recommended segments: ~${segmentCount} cuts (3~5 seconds each)
+${lengthInstruction}
 
 Additional requirements:
 1. **Visual descriptions**: For each segment, provide a detailed visual description in English for AI image generation. (e.g., "Close-up of a stock chart with red arrows pointing down")
