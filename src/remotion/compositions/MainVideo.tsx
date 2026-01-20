@@ -5,6 +5,7 @@ import { Subtitle } from '../components/Subtitle';
 export interface Segment {
     id: string;
     video_url?: string | null;
+    upscaled_video_url?: string | null; // NEW: upscaled 60fps video
     audio_url?: string | null;
     image_url?: string | null;
     script_text: string;
@@ -20,12 +21,14 @@ interface MainVideoProps {
     segments: Segment[];
     subtitleStyle?: string;
     settings?: VideoSettings;
+    skipSubtitles?: boolean;
 }
 
 export const MainVideo: React.FC<MainVideoProps> = ({
     segments,
     subtitleStyle = 'default',
-    settings = { padding: 0.5, transitionType: 'slide' }
+    settings = { padding: 0.5, transitionType: 'slide' },
+    skipSubtitles = false
 }) => {
     const { fps } = useVideoConfig();
     const { padding, transitionType } = settings;
@@ -97,20 +100,22 @@ export const MainVideo: React.FC<MainVideoProps> = ({
                 );
             })}
 
-            {/* Subtitle Layer (always on top, no transitions) */}
-            <AbsoluteFill style={{ zIndex: 1000, pointerEvents: 'none' }}>
-                {segmentTimings.map((timing) => (
-                    <Sequence
-                        key={`sub-${timing.id}`}
-                        from={timing.from}
-                        durationInFrames={timing.subtitleDuration}
-                    >
-                        {timing.script_text && (
-                            <Subtitle text={timing.script_text} styleName={subtitleStyle} />
-                        )}
-                    </Sequence>
-                ))}
-            </AbsoluteFill>
+            {/* Subtitle Layer (only when not skipping) */}
+            {!skipSubtitles && (
+                <AbsoluteFill style={{ zIndex: 1000, pointerEvents: 'none' }}>
+                    {segmentTimings.map((timing) => (
+                        <Sequence
+                            key={`sub-${timing.id}`}
+                            from={timing.from}
+                            durationInFrames={timing.subtitleDuration}
+                        >
+                            {timing.script_text && (
+                                <Subtitle text={timing.script_text} styleName={subtitleStyle} />
+                            )}
+                        </Sequence>
+                    ))}
+                </AbsoluteFill>
+            )}
         </AbsoluteFill>
     );
 };
@@ -188,12 +193,15 @@ const SegmentContainer: React.FC<{
         }
     }
 
+    // Priority: upscaled_video_url > video_url
+    const videoSrc = segment.upscaled_video_url || segment.video_url;
+
     return (
         <AbsoluteFill style={{ ...style, filter }}>
             <AbsoluteFill>
-                {segment.video_url ? (
+                {videoSrc ? (
                     <Video
-                        src={segment.video_url}
+                        src={videoSrc}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     // Ensure video loops if needed (though Remotion Video doesn't loop by default easily without composition, but usually short segments are fine)
                     // Actually better to let it freeze on last frame or loop if we can.

@@ -6,6 +6,7 @@ import { z } from 'zod';
 const segmentSchema = z.object({
     id: z.string(),
     video_url: z.string().optional().nullable(),
+    upscaled_video_url: z.string().optional().nullable(), // NEW: upscaled video
     audio_url: z.string().optional().nullable(),
     image_url: z.string().optional().nullable(),
     script_text: z.string(),
@@ -21,15 +22,17 @@ export const myCompSchema = z.object({
     segments: z.array(segmentSchema),
     subtitleStyle: z.string().optional(),
     settings: settingsSchema.optional(),
+    fps: z.number().optional(),
+    skipSubtitles: z.boolean().optional(), // For upscale workflow
 });
 
-// Dynamic duration calculation
+// Dynamic duration and FPS calculation
 const calculateMetadata = ({ props }: { props: z.infer<typeof myCompSchema> }) => {
-    const { segments, settings } = props;
+    const { segments, settings, fps: inputFps } = props;
     const padding = settings?.padding ?? 0.5;
     const transitionType = settings?.transitionType ?? 'slide';
-    const transitionFrames = transitionType === 'none' ? 0 : 20;
-    const fps = 30;
+    const fps = inputFps ?? 30;
+    const transitionFrames = transitionType === 'none' ? 0 : Math.round(20 * (fps / 30));
 
     let totalFrames = 0;
     for (let i = 0; i < segments.length; i++) {
@@ -47,7 +50,8 @@ const calculateMetadata = ({ props }: { props: z.infer<typeof myCompSchema> }) =
     totalFrames += transitionFrames;
 
     return {
-        durationInFrames: totalFrames || 300, // fallback to 10s if empty
+        durationInFrames: totalFrames || 300,
+        fps, // Dynamic FPS
     };
 };
 
@@ -65,7 +69,8 @@ export const RemotionRoot: React.FC = () => {
                 calculateMetadata={calculateMetadata}
                 defaultProps={{
                     segments: [],
-                    settings: { padding: 0.5, transitionType: 'slide' }
+                    settings: { padding: 0.5, transitionType: 'slide' },
+                    fps: 30
                 }}
             />
         </>

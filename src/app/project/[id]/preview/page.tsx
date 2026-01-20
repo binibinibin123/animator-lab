@@ -30,6 +30,11 @@ export default function PreviewPage() {
     const [progress, setProgress] = useState(0);
     const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
 
+    // Upscale + 60fps State
+    const [selectedFps, setSelectedFps] = useState<30 | 60>(30);
+    const [isUpscaling, setIsUpscaling] = useState(false);
+    const [upscaleProgress, setUpscaleProgress] = useState({ current: 0, total: 0 });
+
     // Data Loading Log State
     const [dataLogs, setDataLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
     const [showDataLogs, setShowDataLogs] = useState(true);
@@ -40,6 +45,32 @@ export default function PreviewPage() {
         setDataLogs(prev => [...prev.slice(-50), { time, type, message }]);
         setTimeout(() => dataLogsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     };
+
+    // Load saved settings on mount
+    useEffect(() => {
+        const saved = localStorage.getItem(`project_settings_${projectId}`);
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                if (parsed.padding !== undefined) setPadding(parsed.padding);
+                if (parsed.transitionType) setTransitionType(parsed.transitionType);
+                if (parsed.subtitleStyle) setSubtitleStyle(parsed.subtitleStyle);
+            } catch (e) {
+                console.error('Failed to load settings', e);
+            }
+        }
+    }, [projectId]);
+
+    // Save settings on change
+    useEffect(() => {
+        if (projectId) {
+            localStorage.setItem(`project_settings_${projectId}`, JSON.stringify({
+                padding,
+                transitionType,
+                subtitleStyle
+            }));
+        }
+    }, [projectId, padding, transitionType, subtitleStyle]);
 
     useEffect(() => {
         if (projectId) {
@@ -205,6 +236,176 @@ export default function PreviewPage() {
             window.open(segments[0].image_url, '_blank');
         } else {
             alert(`${type} 다운로드 기능은 준비 중입니다.`);
+        }
+    };
+
+    // Upscale + Render Orchestration
+    const handleUpscaleAndRender = async () => {
+        const segmentsWithVideo = segments.filter(s => s.video_url);
+
+        // If 30fps selected, skip upscale and go straight to render
+        if (selectedFps === 30) {
+            handleDownload('mp4');
+            return;
+        }
+
+        // 60fps Merged Upscale Flow:
+        // 1. Render without subtitles (30fps)
+        // 2. Upscale merged video (→60fps)
+        // 3. Render with subtitles on upscaled video (60fps)
+
+        setIsUpscaling(true);
+        setLogs([]);
+        setRenderStatus('running');
+        setProgress(0);
+
+        try {
+            // Step 1: Render without subtitles
+            setLogs(prev => [...prev, { message: '📦 Step 1/3: 자막 없이 영상 렌더링 중...', timestamp: Date.now() }]);
+
+            const renderNoSubsResponse = await fetch('/api/render', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    segments: remotionSegments,
+                    subtitleStyle,
+                    settings: { padding, transitionType },
+                    fps: 30,
+                    skipSubtitles: true
+                })
+            });
+
+            if (!renderNoSubsResponse.ok) throw new Error('Failed to render without subtitles');
+
+            // Parse SSE to get the rendered video URL
+            let noSubsVideoUrl = '';
+            const reader1 = renderNoSubsResponse.body?.getReader();
+            const decoder1 = new TextDecoder();
+            if (!reader1) throw new Error('No response body');
+
+            while (true) {
+                const { done, value } = await reader1.read();
+                if (done) break;
+                const chunk = decoder1.decode(value);
+                const lines = chunk.split('\n\n');
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    const eventMatch = line.match(/event: (\w+)/);
+                    const dataMatch = line.match(/data: (.+)/);
+                    if (eventMatch && dataMatch) {
+                        try {
+                            const eventName = eventMatch[1];
+                            const data = JSON.parse(dataMatch[1]);
+                            if (eventName === 'log') {
+                                setLogs(prev => [...prev, data]);
+                            } else if (eventName === 'progress') {
+                                setProgress(Math.round(data.progress / 3)); // 0-33%
+                            } else if (eventName === 'result') {
+                                noSubsVideoUrl = `/api/download?filename=${data.filename}`;
+                            } else if (eventName === 'error') {
+                                throw new Error(data.message);
+                            }
+                        } catch (e) { /* ignore parse errors */ }
+                    }
+                }
+            }
+
+            if (!noSubsVideoUrl) throw new Error('No rendered video URL received');
+            setLogs(prev => [...prev, { message: '✅ Step 1/3 완료: 자막 없는 영상 생성됨', timestamp: Date.now() }]);
+
+            // Step 2: Upscale the merged video
+            setLogs(prev => [...prev, { message: '🚀 Step 2/3: 업스케일 + 60fps 보간 중... (최대 30분 소요)', timestamp: Date.now() }]);
+
+            // Convert download URL to full URL for upscale API
+            const fullVideoUrl = `${window.location.origin}${noSubsVideoUrl}`;
+
+            const upscaleResponse = await fetch('/api/upscale', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_url: fullVideoUrl })
+            });
+
+            if (!upscaleResponse.ok) {
+                const error = await upscaleResponse.json();
+                throw new Error(error.error || 'Upscale failed');
+            }
+
+            const upscaleResult = await upscaleResponse.json();
+            setProgress(66); // 66%
+            setLogs(prev => [...prev, { message: '✅ Step 2/3 완료: 업스케일 및 60fps 보간 완료', timestamp: Date.now() }]);
+
+            // Step 3: Final render with upscaled video and subtitles at 60fps
+            setLogs(prev => [...prev, { message: '🎬 Step 3/3: 자막 합성 및 최종 렌더링 중...', timestamp: Date.now() }]);
+            setIsUpscaling(false);
+            setIsRendering(true);
+
+            // For final render, we use the upscaled video as the base
+            // Since upscaled video is a single merged file, we create a single-segment composition
+            const finalRenderResponse = await fetch('/api/render', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    segments: [{
+                        id: 'upscaled-merged',
+                        video_url: upscaleResult.upscaled_video_url,
+                        script_text: '',
+                        duration: remotionSegments.reduce((acc, s) => acc + s.duration + padding, 0)
+                    }],
+                    subtitleStyle,
+                    settings: { padding: 0, transitionType: 'none' },
+                    fps: 60,
+                    skipSubtitles: false,
+                    // Pass original segments for subtitle timing
+                    originalSegments: remotionSegments
+                })
+            });
+
+            if (!finalRenderResponse.ok) throw new Error('Failed to render final video');
+
+            // Handle final render SSE
+            const reader3 = finalRenderResponse.body?.getReader();
+            const decoder3 = new TextDecoder();
+            if (!reader3) throw new Error('No response body');
+
+            while (true) {
+                const { done, value } = await reader3.read();
+                if (done) break;
+                const chunk = decoder3.decode(value);
+                const lines = chunk.split('\n\n');
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    const eventMatch = line.match(/event: (\w+)/);
+                    const dataMatch = line.match(/data: (.+)/);
+                    if (eventMatch && dataMatch) {
+                        try {
+                            const eventName = eventMatch[1];
+                            const data = JSON.parse(dataMatch[1]);
+                            if (eventName === 'log') {
+                                setLogs(prev => [...prev, data]);
+                            } else if (eventName === 'progress') {
+                                setProgress(66 + Math.round(data.progress / 3)); // 66-100%
+                            } else if (eventName === 'result') {
+                                setRenderedVideoUrl(`/api/download?filename=${data.filename}`);
+                            } else if (eventName === 'completed') {
+                                setRenderStatus('completed');
+                            } else if (eventName === 'error') {
+                                throw new Error(data.message);
+                            }
+                        } catch (e) { /* ignore parse errors */ }
+                    }
+                }
+            }
+
+            setLogs(prev => [...prev, { message: '🎉 완료! 60fps 업스케일 영상이 준비되었습니다.', timestamp: Date.now() }]);
+
+        } catch (e: any) {
+            console.error(e);
+            setRenderStatus('error');
+            setLogs(prev => [...prev, { message: `❌ 오류: ${e.message}`, timestamp: Date.now() }]);
+            alert('❌ 업스케일/렌더링 실패: ' + e.message);
+        } finally {
+            setIsUpscaling(false);
+            setIsRendering(false);
         }
     };
 
@@ -413,6 +614,28 @@ export default function PreviewPage() {
                         <p className="font-bold text-gray-900 group-hover:text-violet-700">AI 유튜브 썸네일</p>
                         <p className="text-sm text-gray-500 mt-1">클릭을 부르는 대표 이미지</p>
                     </button>
+                </div>
+            </div>
+
+            {/* Upscale + Render Section */}
+            {/* Go to Upscale Page Link */}
+            <div className="bg-gradient-to-r from-violet-50 to-fuchsia-50 p-6 rounded-2xl border-2 border-violet-200">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            🚀 업스케일 + 60fps
+                            <span className="text-xs font-normal text-violet-600 bg-violet-100 px-2 py-0.5 rounded-full">고급</span>
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                            ComfyUI로 영상을 업스케일하고 60fps로 변환합니다.
+                        </p>
+                    </div>
+                    <Link
+                        href={`/project/${projectId}/upscale`}
+                        className="px-6 py-3 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-700 transition-all"
+                    >
+                        업스케일 페이지로 →
+                    </Link>
                 </div>
             </div>
 

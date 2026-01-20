@@ -71,6 +71,7 @@ export type Database = {
                     audio_url: string | null;
                     image_url: string | null;
                     video_url: string | null;
+                    upscaled_video_url: string | null;
                     visual_description: string | null;
                     duration_ms: number | null;
                     video_provider_override: string | null;
@@ -85,6 +86,7 @@ export type Database = {
                     audio_url?: string | null;
                     image_url?: string | null;
                     video_url?: string | null;
+                    upscaled_video_url?: string | null;
                     visual_description?: string | null;
                     duration_ms?: number | null;
                     video_provider_override?: string | null;
@@ -99,6 +101,7 @@ export type Database = {
                     audio_url?: string | null;
                     image_url?: string | null;
                     video_url?: string | null;
+                    upscaled_video_url?: string | null;
                     visual_description?: string | null;
                     duration_ms?: number | null;
                     video_provider_override?: string | null;
