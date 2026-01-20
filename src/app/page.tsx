@@ -8,6 +8,8 @@ import type { Project } from '@/types/database';
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
 
   useEffect(() => {
     fetchProjects();
@@ -24,6 +26,62 @@ export default function Home() {
       setProjects(data as Project[]);
     }
     setIsLoading(false);
+  };
+
+  const handleDelete = async (e: React.MouseEvent, projectId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm('이 프로젝트를 삭제하시겠습니까?\n관련된 모든 데이터가 삭제됩니다.')) return;
+
+    try {
+      const res = await fetch(`/api/project?id=${projectId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('삭제 실패');
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+    } catch (error) {
+      alert('프로젝트 삭제에 실패했습니다.');
+    }
+  };
+
+  const handleDuplicate = async (e: React.MouseEvent, projectId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const res = await fetch('/api/project', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'duplicate', id: projectId }),
+      });
+      if (!res.ok) throw new Error('복제 실패');
+      await fetchProjects();
+    } catch (error) {
+      alert('프로젝트 복제에 실패했습니다.');
+    }
+  };
+
+  const handleRename = async (projectId: string) => {
+    if (!editTitle.trim()) {
+      setEditingId(null);
+      return;
+    }
+    try {
+      const res = await fetch('/api/project', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: projectId, title: editTitle }),
+      });
+      if (!res.ok) throw new Error('이름 변경 실패');
+      setProjects(prev => prev.map(p => p.id === projectId ? { ...p, title: editTitle } : p));
+    } catch (error) {
+      alert('이름 변경에 실패했습니다.');
+    }
+    setEditingId(null);
+  };
+
+  const startEditing = (e: React.MouseEvent, project: Project) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditingId(project.id);
+    setEditTitle(project.title || '');
   };
 
   return (
@@ -96,36 +154,75 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {projects.map((project) => (
-                <Link
-                  key={project.id}
-                  href={`/project/${project.id}/script`}
-                  className="group bg-white p-5 rounded-2xl border hover:border-violet-300 hover:shadow-md transition-all flex flex-col"
-                >
-                  <div className="aspect-video bg-gray-100 rounded-xl mb-4 overflow-hidden relative">
-                    {project.thumbnail_url ? (
-                      <img src={project.thumbnail_url} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-300">
-                        <span className="text-3xl">🎞️</span>
+                <div key={project.id} className="group relative">
+                  <Link
+                    href={`/project/${project.id}/script`}
+                    className="block bg-white p-5 rounded-2xl border hover:border-violet-300 hover:shadow-md transition-all"
+                  >
+                    <div className="aspect-video bg-gray-100 rounded-xl mb-4 overflow-hidden relative">
+                      {project.thumbnail_url ? (
+                        <img src={project.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          <span className="text-3xl">🎞️</span>
+                        </div>
+                      )}
+                      <div className="absolute top-2 right-2">
+                        <span className="bg-white/90 backdrop-blur px-2 py-1 rounded-md text-[10px] font-bold text-violet-600 uppercase">
+                          {project.status}
+                        </span>
                       </div>
-                    )}
-                    <div className="absolute top-2 right-2">
-                      <span className="bg-white/90 backdrop-blur px-2 py-1 rounded-md text-[10px] font-bold text-violet-600 uppercase">
-                        {project.status}
-                      </span>
                     </div>
+                    {editingId === project.id ? (
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        onBlur={() => handleRename(project.id)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleRename(project.id)}
+                        onClick={(e) => e.preventDefault()}
+                        autoFocus
+                        className="w-full font-bold text-gray-900 border-b-2 border-violet-600 outline-none bg-transparent"
+                      />
+                    ) : (
+                      <h4 className="font-bold text-gray-900 group-hover:text-violet-600 truncate mb-1">
+                        {project.title || '제목 없음'}
+                      </h4>
+                    )}
+                    <p className="text-xs text-gray-500 line-clamp-1">
+                      {project.topic || '주제 정보 없음'}
+                    </p>
+                    <div className="mt-4 pt-4 border-t flex justify-between text-[10px] text-gray-400">
+                      <span>{new Date(project.created_at).toLocaleDateString()}</span>
+                      <span className="font-bold">{project.aspect_ratio}</span>
+                    </div>
+                  </Link>
+
+                  {/* Action Buttons */}
+                  <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                    <button
+                      onClick={(e) => startEditing(e, project)}
+                      className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-violet-100 text-gray-600 hover:text-violet-600"
+                      title="이름 변경"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      onClick={(e) => handleDuplicate(e, project.id)}
+                      className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-violet-100 text-gray-600 hover:text-violet-600"
+                      title="복제"
+                    >
+                      📋
+                    </button>
+                    <button
+                      onClick={(e) => handleDelete(e, project.id)}
+                      className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-red-100 text-gray-600 hover:text-red-600"
+                      title="삭제"
+                    >
+                      🗑️
+                    </button>
                   </div>
-                  <h4 className="font-bold text-gray-900 group-hover:text-violet-600 truncate mb-1">
-                    {project.title || '제목 없음'}
-                  </h4>
-                  <p className="text-xs text-gray-500 line-clamp-1">
-                    {project.topic || '주제 정보 없음'}
-                  </p>
-                  <div className="mt-4 pt-4 border-t flex justify-between text-[10px] text-gray-400">
-                    <span>{new Date(project.created_at).toLocaleDateString()}</span>
-                    <span className="font-bold">{project.aspect_ratio}</span>
-                  </div>
-                </Link>
+                </div>
               ))}
             </div>
           )}
@@ -134,3 +231,4 @@ export default function Home() {
     </div>
   );
 }
+
