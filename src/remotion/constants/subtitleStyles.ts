@@ -108,4 +108,27 @@ export const SUBTITLE_STYLES: Record<string, SubtitleStyle> = {
             textWrap: 'balance',
         },
     },
+    viral_red: {
+        name: 'Viral (Red)',
+        container: {
+            justifyContent: 'center',
+            alignItems: 'center', // Center for maximum impact
+            paddingBottom: 200, // Higher up
+        },
+        text: {
+            color: '#FFFFFF',
+            backgroundColor: '#FF0000',
+            padding: '10px 30px',
+            fontSize: 80,
+            fontWeight: 900,
+            textAlign: 'center',
+            maxWidth: '90%',
+            textShadow: '4px 4px 0 #000000',
+            fontFamily: 'Impact, sans-serif',
+            textTransform: 'uppercase',
+            transform: 'rotate(2deg)',
+            boxShadow: '8px 8px 0 rgba(0,0,0,0.8)',
+            textWrap: 'balance',
+        },
+    },
 };

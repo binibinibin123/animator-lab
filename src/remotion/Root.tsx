@@ -23,12 +23,14 @@ export const myCompSchema = z.object({
     subtitleStyle: z.string().optional(),
     settings: settingsSchema.optional(),
     fps: z.number().optional(),
-    skipSubtitles: z.boolean().optional(), // For upscale workflow
+    skipSubtitles: z.boolean().optional(),
+    isShortsMode: z.boolean().optional(),
+    title: z.string().optional(),
 });
 
 // Dynamic duration and FPS calculation
 const calculateMetadata = ({ props }: { props: z.infer<typeof myCompSchema> }) => {
-    const { segments, settings, fps: inputFps } = props;
+    const { segments, settings, fps: inputFps, isShortsMode } = props;
     const padding = settings?.padding ?? 0.5;
     const transitionType = settings?.transitionType ?? 'slide';
     const fps = inputFps ?? 30;
@@ -42,16 +44,16 @@ const calculateMetadata = ({ props }: { props: z.infer<typeof myCompSchema> }) =
         totalFrames += segmentFrames;
     }
 
-    // Transition overlap: transitions overlap with previous segment
     if (segments.length > 1) {
         totalFrames -= transitionFrames * (segments.length - 1);
     }
-    // Add one extra transition at end
     totalFrames += transitionFrames;
 
     return {
         durationInFrames: totalFrames || 300,
         fps, // Dynamic FPS
+        width: isShortsMode ? 1080 : 1920,
+        height: isShortsMode ? 1920 : 1080,
     };
 };
 
