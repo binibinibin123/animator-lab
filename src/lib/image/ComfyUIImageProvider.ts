@@ -123,6 +123,7 @@ export class ComfyUIImageProvider implements ImageProvider {
      * Qwen Image Edit 2511 style presets
      */
     private static readonly QWEN_STYLE_PRESETS: Record<string, string> = {
+        'senior-1': '3D rendered minimalist stickman character with a fluffy white beard and black bead eyes. Soft lighting, clean white background, high quality 3D render style.',
         'economy-1': 'Simple flat vector illustration on a solid pure white background. Minimalist stickman character. Clean lines, no shadows, no gradients.',
         'anime': 'Anime illustration style, vibrant colors, detailed character design, clean lines.',
         'realistic': 'Photorealistic rendering, high detail, professional photography lighting.',
@@ -153,7 +154,7 @@ export class ComfyUIImageProvider implements ImageProvider {
             : ComfyUIImageProvider.QWEN_STYLE_PRESETS['economy-1'];
 
         // Check if this is economy style (needs white background)
-        const isEconomyStyle = style === 'economy-1' || !style;
+        const isEconomyStyle = style === 'economy-1' || style === 'senior-1' || !style;
 
         // Build Qwen-optimized prompt
         const promptParts: string[] = [];

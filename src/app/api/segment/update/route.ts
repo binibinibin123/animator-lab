@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
         const supabase = createServerClient();
         const { data, error } = await supabase
             .from('segments')
-            .update(updateFields)
+            .update(updateFields as never)
             .eq('id', segmentId)
             .select()
             .single();

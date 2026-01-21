@@ -23,6 +23,7 @@ export interface ImageResult {
 
 // Style presets with their prompt modifiers
 export const STYLE_PRESETS: Record<string, string> = {
+    'senior-1': '3D rendered minimalist stickman character with a fluffy white beard, clean white background.',
     'economy-1': 'Simple flat vector illustration style, clean background.',
     'anime': 'anime style, vibrant colors, detailed illustration',
     'realistic': 'photorealistic, high detail, 8k, professional photography',

@@ -182,6 +182,17 @@ ALL visual descriptions MUST focus on the main character: **'a simple white stic
 - Keep visuals abstract, symbolic, and clean.
 - Example visuals: "The stickman character looking at a rising red arrow on a plain background", "The stickman holding a large gold coin", "A simple magnifying glass over a document".
 `;
+    } else if (style === 'senior-1') {
+        styleInstruction = `
+VISUAL INSTRUCTION:
+The visual style is a **3D rendered simple stickman character**.
+ALL visual descriptions MUST focus on the main character: **'a white 3D stickman with a fluffy white beard'**.
+- **CHARACTER IDENTITY**: ALWAYS include "white stickman with a white beard".
+- **STYLE**: Clean 3D render, soft lighting, minimalism.
+- **BACKGROUND**: Pure white background or very simple abstract background.
+- **NO TEXT**: Do NOT include text.
+- Example visuals: "The bearded stickman holding a smartphone", "The bearded stickman standing next to a large medical cross symbol", "The bearded stickman looking thoughtful".
+`;
     }
 
     const prompt = `

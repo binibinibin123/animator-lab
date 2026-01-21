@@ -34,7 +34,7 @@ CRITICAL RULES for AI video generation:
 `;
 
     // Enforce stricter motion rules for economy-1 style to prevent stickman morphing
-    if (style === 'economy-1') {
+    if (style === 'economy-1' || style === 'senior-1') {
         systemPrompt += `
 SPECIAL RULES for Simple/Cartoon Style:
 5. MINIMALISM: This is a stickman/cartoon style. Use EXTREMELY subtle motion.

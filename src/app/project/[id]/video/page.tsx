@@ -142,8 +142,9 @@ export default function VideoPage() {
                     .single();
 
                 if (data && !error) {
+                    const typedData = data as any;
                     setSegments(prev => prev.map(s =>
-                        s.id === data.id ? { ...s, image_url: data.image_url, video_url: data.video_url } : s
+                        s.id === typedData.id ? { ...s, image_url: typedData.image_url, video_url: typedData.video_url } : s
                     ));
                 }
             } catch (e) {
@@ -399,7 +400,7 @@ export default function VideoPage() {
         try {
             const { error } = await supabase
                 .from('segments')
-                .update({ video_url: null })
+                .update({ video_url: null } as never)
                 .eq('id', segmentId);
 
             if (error) throw error;

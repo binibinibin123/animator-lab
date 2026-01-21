@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
 
         console.log(`[Cleanup] Found ${segments.length} segments with base64 images.`);
 
-        for (const segment of segments) {
+        for (const segment of segments as any[]) {
             try {
                 if (!segment.image_url) continue;
 
