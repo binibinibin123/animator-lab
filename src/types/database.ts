@@ -109,6 +109,47 @@ export type Database = {
                     created_at?: string;
                 };
             };
+            video_jobs: {
+                Row: {
+                    id: string;
+                    segment_id: string;
+                    external_job_id: string | null;
+                    provider: string;
+                    status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+                    progress: number;
+                    output_url: string | null;
+                    error: string | null;
+                    created_at: string;
+                    started_at: string | null;
+                    finished_at: string | null;
+                };
+                Insert: {
+                    id?: string;
+                    segment_id: string;
+                    external_job_id?: string | null;
+                    provider: string;
+                    status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+                    progress?: number;
+                    output_url?: string | null;
+                    error?: string | null;
+                    created_at?: string;
+                    started_at?: string | null;
+                    finished_at?: string | null;
+                };
+                Update: {
+                    id?: string;
+                    segment_id?: string;
+                    external_job_id?: string | null;
+                    provider?: string;
+                    status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+                    progress?: number;
+                    output_url?: string | null;
+                    error?: string | null;
+                    created_at?: string;
+                    started_at?: string | null;
+                    finished_at?: string | null;
+                };
+            };
         };
         Views: Record<string, never>;
         Functions: Record<string, never>;
@@ -120,3 +161,6 @@ export type Project = Database['public']['Tables']['projects']['Row'];
 export type ProjectInsert = Database['public']['Tables']['projects']['Insert'];
 export type Segment = Database['public']['Tables']['segments']['Row'];
 export type SegmentInsert = Database['public']['Tables']['segments']['Insert'];
+export type VideoJob = Database['public']['Tables']['video_jobs']['Row'];
+export type VideoJobInsert = Database['public']['Tables']['video_jobs']['Insert'];
+export type VideoJobStatus = VideoJob['status'];

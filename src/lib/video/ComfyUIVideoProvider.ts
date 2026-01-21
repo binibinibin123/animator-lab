@@ -51,6 +51,8 @@ export class ComfyUIVideoProvider implements VideoProvider {
         return { externalJobId: promptId };
     }
 
+    private static uploadingJobs = new Set<string>();
+
     async checkStatus(externalJobId: string): Promise<{
         status: VideoJobStatus;
         progress: number;
@@ -58,6 +60,12 @@ export class ComfyUIVideoProvider implements VideoProvider {
         error?: string;
     }> {
         try {
+            // Prevent multiple upload requests for the same job
+            if (ComfyUIVideoProvider.uploadingJobs.has(externalJobId)) {
+                console.log(`[ComfyUIVideoProvider] Job ${externalJobId} is currently uploading. Skipping duplicate check.`);
+                return { status: 'running', progress: 0.99 }; // Indicate mostly done
+            }
+
             console.log(`[ComfyUIVideoProvider] Checking status: ${externalJobId}`);
 
             // Get history from ComfyUI
@@ -90,29 +98,37 @@ export class ComfyUIVideoProvider implements VideoProvider {
 
                 if (outputNodeId) {
                     const outputs = entry.outputs[outputNodeId];
-                    console.log(`[ComfyUIVideoProvider] Found output node ${outputNodeId}:`, outputs);
-
                     const file = outputs.videos?.[0] || outputs.gifs?.[0] || outputs.images?.[0];
 
                     if (file) {
-                        // Construct local file URL or upload to storage
-                        const localUrl = `${COMFYUI_BASE_URL}/view?filename=${file.filename}&subfolder=${file.subfolder}&type=${file.type}`;
+                        try {
+                            ComfyUIVideoProvider.uploadingJobs.add(externalJobId);
 
-                        // Check if it's a video file type based on extension
-                        const isVideo = file.filename.endsWith('.mp4') || file.filename.endsWith('.mov') || file.filename.endsWith('.webm');
+                            // Construct local file URL
+                            const localUrl = `${COMFYUI_BASE_URL}/view?filename=${file.filename}&subfolder=${file.subfolder}&type=${file.type}`;
 
-                        console.log(`[ComfyUIVideoProvider] Found output file: ${file.filename} (Video: ${isVideo})`);
+                            console.log(`[ComfyUIVideoProvider] Uploading output to cloud: ${file.filename}`);
 
-                        // Upload to Supabase Storage
-                        const publicUrl = await this.uploadToStorage(localUrl, file.filename);
+                            // Upload to Supabase Storage
+                            const publicUrl = await this.uploadToStorage(localUrl, file.filename);
 
-                        console.log(`[ComfyUIVideoProvider] Completed! URL: ${publicUrl}`);
+                            console.log(`[ComfyUIVideoProvider] Upload completed! URL: ${publicUrl}`);
 
-                        return {
-                            status: 'succeeded',
-                            progress: 1,
-                            videoUrl: publicUrl,
-                        };
+                            return {
+                                status: 'succeeded',
+                                progress: 1,
+                                videoUrl: publicUrl,
+                            };
+                        } catch (uploadError: any) {
+                            console.error(`[ComfyUIVideoProvider] Upload failed:`, uploadError);
+                            return {
+                                status: 'failed',
+                                progress: 1,
+                                error: `Upload failed: ${uploadError.message}`,
+                            };
+                        } finally {
+                            ComfyUIVideoProvider.uploadingJobs.delete(externalJobId);
+                        }
                     }
                 }
 
@@ -132,6 +148,27 @@ export class ComfyUIVideoProvider implements VideoProvider {
                 progress: 0,
                 error: error.message || 'Unknown error',
             };
+        }
+    }
+
+    async cancelJob(externalJobId: string): Promise<boolean> {
+        try {
+            console.log(`[ComfyUIVideoProvider] Interrupting ComfyUI for job: ${externalJobId}`);
+
+            const response = await fetch(`${COMFYUI_BASE_URL}/interrupt`, {
+                method: 'POST',
+            });
+
+            if (!response.ok) {
+                console.warn(`[ComfyUIVideoProvider] Failed to interrupt ComfyUI: ${response.status}`);
+                return false;
+            }
+
+            console.log(`[ComfyUIVideoProvider] ComfyUI interrupt signal sent successfully.`);
+            return true;
+        } catch (error) {
+            console.error('[ComfyUIVideoProvider] Cancel error:', error);
+            return false;
         }
     }
 
@@ -299,42 +336,55 @@ export class ComfyUIVideoProvider implements VideoProvider {
     }
 
     private async uploadToStorage(localUrl: string, filename: string): Promise<string> {
-        try {
-            // Fetch file from ComfyUI
-            const response = await fetch(localUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch file: ${response.status}`);
+        const MAX_RETRIES = 3;
+        let lastError: any;
+
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                // Fetch file from ComfyUI
+                const response = await fetch(localUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch file from ComfyUI: ${response.status}`);
+                }
+
+                const blob = await response.blob();
+                const buffer = Buffer.from(await blob.arrayBuffer());
+
+                // Upload to Supabase Storage
+                const supabase = createServerClient();
+                const extension = filename.split('.').pop() || 'mp4';
+                const storagePath = `videos/${Date.now()}_${filename}`;
+
+                const { error } = await supabase.storage
+                    .from('autovideo-media')
+                    .upload(storagePath, buffer, {
+                        contentType: extension === 'mp4' ? 'video/mp4' : 'video/webm',
+                        upsert: true,
+                    });
+
+                if (error) {
+                    throw error;
+                }
+
+                // Get public URL
+                const { data: { publicUrl } } = supabase.storage
+                    .from('autovideo-media')
+                    .getPublicUrl(storagePath);
+
+                console.log(`[ComfyUIVideoProvider] Successfully uploaded to cloud: ${publicUrl}`);
+                return publicUrl;
+            } catch (error: any) {
+                lastError = error;
+                console.error(`[ComfyUIVideoProvider] Upload attempt ${attempt + 1} failed:`, error.message);
+                if (attempt < MAX_RETRIES - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1))); // Exponential backoff
+                }
             }
-
-            const blob = await response.blob();
-            const buffer = Buffer.from(await blob.arrayBuffer());
-
-            // Upload to Supabase Storage
-            const supabase = createServerClient();
-            const storagePath = `videos/${Date.now()}_${filename}`;
-
-            const { error } = await supabase.storage
-                .from('media')
-                .upload(storagePath, buffer, {
-                    contentType: 'video/mp4',
-                    upsert: true,
-                });
-
-            if (error) {
-                console.error('[ComfyUIVideoProvider] Storage upload error:', error);
-                // Fallback to local URL
-                return localUrl;
-            }
-
-            // Get public URL
-            const { data: { publicUrl } } = supabase.storage
-                .from('media')
-                .getPublicUrl(storagePath);
-
-            return publicUrl;
-        } catch (error) {
-            console.error('[ComfyUIVideoProvider] Upload failed:', error);
-            return localUrl; // Fallback
         }
+
+        console.error('[ComfyUIVideoProvider] All upload attempts failed. Last error:', lastError);
+        // We throw instead of returning localUrl to ensure consistency across devices.
+        // If it's not in the cloud, it's not "done" for a 10-minute project.
+        throw new Error(`Cloud upload failed after ${MAX_RETRIES} attempts. Please check Supabase Pro status and bucket 'autovideo-media'. Original error: ${lastError?.message}`);
     }
 }

@@ -186,6 +186,20 @@ export default function AutopilotPage() {
                         </div>
                     )}
 
+                    {status === 'running' && (
+                        <div className="flex justify-center pt-4">
+                            <button
+                                onClick={() => {
+                                    if (confirm('오토파일럿 작업을 중단하시겠습니까?')) {
+                                        window.location.reload(); // Simple interruption for SSE
+                                    }
+                                }}
+                                className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors shadow-lg"
+                            >
+                                🛑 생성 중단하기
+                            </button>
+                        </div>
+                    )}
                     {status === 'error' && (
                         <div className="flex justify-center pt-4">
                             <button

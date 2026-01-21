@@ -3,7 +3,7 @@
 
 export type VideoProviderType = 'fal' | 'comfyui';
 
-export type VideoJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type VideoJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface VideoGenerationRequest {
     imageUrl: string;
@@ -43,6 +43,11 @@ export interface VideoProvider {
         videoUrl?: string;
         error?: string;
     }>;
+    /**
+     * Cancel a running or queued job
+     * @param externalJobId - The provider's job ID
+     */
+    cancelJob?(externalJobId: string): Promise<boolean>;
 }
 
 // Factory function to get the appropriate provider

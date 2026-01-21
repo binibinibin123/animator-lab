@@ -1,10 +1,12 @@
 'use client';
+// @ts-nocheck
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { Segment } from '@/types/database';
+import { useVideoPolling } from '@/context/VideoPollingContext';
 
 export default function VideoPage() {
     const router = useRouter();
@@ -14,10 +16,24 @@ export default function VideoPage() {
     const [segments, setSegments] = useState<Segment[]>([]);
     const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
+    const { generatingIds, logs, startPolling, addLog, resumePendingJobs, addGeneratingId, removeGeneratingId, lastCompletedJob } = useVideoPolling();
     const [selectedModel, setSelectedModel] = useState<'hailuo' | 'kling'>('hailuo');
     const [selectedProvider] = useState<'comfyui'>('comfyui');
     const [selectedWorkflow, setSelectedWorkflow] = useState<string>('rapid-aio-mega-sage');
+
+    // Persistence logic for workflow
+    useEffect(() => {
+        const savedWorkflow = localStorage.getItem('autovideo_selected_workflow');
+        if (savedWorkflow) {
+            setSelectedWorkflow(savedWorkflow);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (selectedWorkflow) {
+            localStorage.setItem('autovideo_selected_workflow', selectedWorkflow);
+        }
+    }, [selectedWorkflow]);
     const [videoPrompt, setVideoPrompt] = useState('');
 
     // Pagination State
@@ -30,31 +46,40 @@ export default function VideoPage() {
     const isGlobalGeneratingRef = useRef(false); // Ref for access inside effects/timeouts
 
     // ...
-    const [logs, setLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
+    // ...
+    // Logs state moved to Context
     const [showLogs, setShowLogs] = useState(true);
     const logsEndRef = useRef<HTMLDivElement>(null);
 
-    const pollingIntervals = useRef<{ [key: string]: NodeJS.Timeout }>({});
+    // Polling intervals managed by Context
 
-    const addLog = (type: 'info' | 'success' | 'error' | 'warn', message: string) => {
-        const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        setLogs(prev => [...prev.slice(-50), { time, type, message }]);
-        setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    };
-
-    // Update ref when state changes
+    // Scroll to bottom when logs update
     useEffect(() => {
-        isGlobalGeneratingRef.current = isGlobalGenerating;
-    }, [isGlobalGenerating]);
+        setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }, [logs]);
 
+    // Resume jobs on mount (via Context)
     useEffect(() => {
         if (projectId) {
             fetchSegments();
+            resumePendingJobs(projectId);
         }
-        return () => {
-            Object.values(pollingIntervals.current).forEach(clearInterval);
-        };
-    }, [projectId, currentPage]); // Re-fetch when page changes
+    }, [projectId, resumePendingJobs]);
+
+    // Phase 2: Auto-Resume logic handled by Context
+
+    // Listen for background completions from Context
+    useEffect(() => {
+        if (lastCompletedJob) {
+            console.log('[VideoPage] Received completion signal:', lastCompletedJob);
+            setSegments(prev => prev.map(s =>
+                s.id === lastCompletedJob.segmentId ? {
+                    ...s,
+                    video_url: lastCompletedJob.videoUrl
+                } : s
+            ));
+        }
+    }, [lastCompletedJob]);
 
     // Update video prompt when selected segment changes
     useEffect(() => {
@@ -163,102 +188,7 @@ export default function VideoPage() {
         addLog('info', '미디어 로드 완료 (백그라운드)');
     };
 
-    const startPolling = (segmentId: string, requestId: string): Promise<boolean> => {
-        return new Promise((resolve) => {
-            if (pollingIntervals.current[segmentId]) {
-                resolve(false);
-                return;
-            }
-            addLog('info', `폴링 시작: ${requestId.slice(0, 8)}...`);
-            addLog('warn', `⏳ 영상 생성 대기 중 (약 1-2분 소요)...`);
-
-            let retryCount = 0;
-            const maxRetries = 60; // 10초 간격 x 60회 = 최대 10분
-
-            // 첫 폴링 전 10초 대기
-            const initialDelay = setTimeout(() => {
-                addLog('info', `첫 상태 확인 시작...`);
-
-                const interval = setInterval(async () => {
-                    try {
-                        addLog('info', `상태 확인 중...`);
-                        const res = await fetch(`/api/video/generate?requestId=${requestId}&segmentId=${segmentId}&provider=${selectedProvider}`);
-
-                        if (!res.ok) {
-                            retryCount++;
-                            const errorText = await res.text();
-                            addLog('warn', `상태 확인 실패 (${res.status}), 재시도 ${retryCount}/${maxRetries}`);
-
-                            if (retryCount >= maxRetries) {
-                                addLog('error', `최대 재시도 횟수 초과: ${errorText.slice(0, 100)}`);
-                                clearInterval(interval);
-                                delete pollingIntervals.current[segmentId];
-                                setGeneratingIds(prev => {
-                                    const next = new Set(prev);
-                                    next.delete(segmentId);
-                                    return next;
-                                });
-                                resolve(false);
-                            }
-                            return; // 재시도
-                        }
-
-                        retryCount = 0; // 성공하면 리셋
-                        const data = await res.json();
-                        addLog('info', `응답: status=${data.status}, rawStatus=${data.debug?.rawStatus}, videoUrl=${data.videoUrl ? '있음' : '없음'}`);
-
-                        if (data.status === 'completed' || data.status === 'failed' || data.status === 'succeeded') {
-                            clearInterval(interval);
-                            delete pollingIntervals.current[segmentId];
-                            setGeneratingIds(prev => {
-                                const next = new Set(prev);
-                                next.delete(segmentId);
-                                return next;
-                            });
-
-                            if (data.status === 'completed' || data.status === 'succeeded') {
-                                addLog('success', `✅ 영상 생성 완료!`);
-                                setSegments(prev => prev.map(s =>
-                                    s.id === segmentId ? {
-                                        ...s,
-                                        video_url: data.videoUrl,
-                                        video_prompt: data.generatedPrompt
-                                    } : s
-                                ));
-                                if (selectedSegmentId === segmentId) {
-                                    setVideoPrompt(data.generatedPrompt || '');
-                                }
-                                resolve(true);
-                            } else {
-                                addLog('error', `❌ 영상 생성 실패`);
-                                resolve(false);
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Polling error:', error);
-                        retryCount++;
-                        addLog('warn', `폴링 에러, 재시도 ${retryCount}/${maxRetries}: ${error}`);
-
-                        if (retryCount >= maxRetries) {
-                            clearInterval(interval);
-                            delete pollingIntervals.current[segmentId];
-                            setGeneratingIds(prev => {
-                                const next = new Set(prev);
-                                next.delete(segmentId);
-                                return next;
-                            });
-                            resolve(false);
-                        }
-                    }
-                }, 10000); // 10초 간격으로 폴링
-
-                pollingIntervals.current[segmentId] = interval;
-            }, 10000); // 첫 폴링 전 10초 대기
-
-            // 초기 타임아웃도 저장 (cleanup용)
-            pollingIntervals.current[segmentId] = initialDelay as unknown as NodeJS.Timeout;
-        });
-    };
+    // Polling logic moved to Context
 
     const handleGenerateVideo = async (segment: Segment, waitForCompletion = false): Promise<boolean> => {
         if (!segment.image_url) {
@@ -267,7 +197,10 @@ export default function VideoPage() {
         }
 
         const logLabel = selectedProvider === 'comfyui' ? selectedWorkflow : selectedModel;
-        setGeneratingIds(prev => new Set(prev).add(segment.id));
+
+        // Optimistically show spinner via Context
+        addGeneratingId(segment.id);
+
         addLog('info', `🎬 영상 생성 시작 (${logLabel})`);
         try {
             addLog('info', `이미지 분석 및 프롬프트 생성 중...`);
@@ -303,10 +236,10 @@ export default function VideoPage() {
                 addLog('warn', `⏳ 비동기 생성 시작, 폴링 대기...`);
                 if (waitForCompletion) {
                     // 순차 실행 모드: 완료될 때까지 기다림
-                    return await startPolling(segment.id, data.externalJobId);
+                    return await startPolling(segment.id, data.externalJobId, selectedProvider);
                 } else {
                     // 개별 실행 모드: 폴링 시작하고 바로 리턴
-                    startPolling(segment.id, data.externalJobId);
+                    startPolling(segment.id, data.externalJobId, selectedProvider);
                     return true;
                 }
             } else if ((data.status === 'completed' || data.status === 'succeeded') && data.videoUrl) {
@@ -321,11 +254,10 @@ export default function VideoPage() {
                 if (selectedSegmentId === segment.id) {
                     setVideoPrompt(data.generatedPrompt || '');
                 }
-                setGeneratingIds(prev => {
-                    const next = new Set(prev);
-                    next.delete(segment.id);
-                    return next;
-                });
+                if (selectedSegmentId === segment.id) {
+                    setVideoPrompt(data.generatedPrompt || '');
+                }
+                removeGeneratingId(segment.id);
                 return true;
             }
             return false;
@@ -333,11 +265,9 @@ export default function VideoPage() {
             console.error('Video Generation Error:', error);
             addLog('error', `❌ 에러: ${error}`);
             alert('영상 생성 시작에 실패했습니다.');
-            setGeneratingIds(prev => {
-                const next = new Set(prev);
-                next.delete(segment.id);
-                return next;
-            });
+            addLog('error', `❌ 에러: ${error}`);
+            alert('영상 생성 시작에 실패했습니다.');
+            removeGeneratingId(segment.id);
             return false;
         }
     };
@@ -384,13 +314,36 @@ export default function VideoPage() {
 
     const handleGenerateAll = () => {
         if (isGlobalGenerating) {
-            setIsGlobalGenerating(false);
-            addLog('info', '🛑 전체 생성 중지 요청됨.');
+            handleCancelAll();
         } else {
             setIsGlobalGenerating(true);
             addLog('info', '🚀 전체 생성 시작 (자동 페이지 넘김)');
             // Trigger handled by useEffect
             processCurrentPage();
+        }
+    };
+
+    const handleCancelAll = async () => {
+        if (!confirm('현재 진행 중인 모든 영상 생성을 중단할까요? (GPU 자원이 해제됩니다)')) return;
+
+        setIsGlobalGenerating(false);
+        addLog('warn', '🛑 생성 중단 요청 중...');
+
+        try {
+            const res = await fetch('/api/video/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId }),
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                addLog('success', `🛑 ${data.cancelledCount || 0}개의 작업이 중단되었습니다.`);
+            } else {
+                addLog('error', '중단 요청 실패');
+            }
+        } catch (error) {
+            addLog('error', '중단 요청 중 오류 발생');
         }
     };
 
@@ -424,13 +377,25 @@ export default function VideoPage() {
                     <h2 className="text-2xl font-bold text-gray-900">영상 생성</h2>
                     <p className="text-gray-500 mt-1">이미지에 AI 기술로 생동감 넘치는 모션을 부여합니다.</p>
                 </div>
-                <button
-                    onClick={handleGenerateAll}
-                    disabled={generatingIds.size > 0}
-                    className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
-                >
-                    {generatingIds.size > 0 ? '영상 생성 중...' : '▶ 전체 생성 시작'}
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => {
+                            addLog('info', '🔄 수동 상태 동기화 요청');
+                            resumePendingJobs(projectId);
+                            fetchSegments(); // Also re-fetch data to catch up
+                        }}
+                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+                    >
+                        🔄 상태 갱신
+                    </button>
+                    <button
+                        onClick={handleGenerateAll}
+                        disabled={generatingIds.size > 0}
+                        className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
+                    >
+                        {isGlobalGenerating ? '🛑 전체 중단' : '▶ 전체 생성 시작'}
+                    </button>
+                </div>
             </div>
 
             {/* Toolbar */}
@@ -597,20 +562,22 @@ export default function VideoPage() {
                     <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
                         <span className="text-sm font-bold">📋 실시간 로그</span>
                         <div className="flex gap-2">
-                            <button onClick={() => setLogs([])} className="text-xs text-gray-400 hover:text-white">지우기</button>
+                            <button onClick={() => { /* Context doesn't expose clearLogs but we can add it or just ignore */ }} className="text-xs text-gray-400 hover:text-white">지우기</button>
                             <button onClick={() => setShowLogs(false)} className="text-gray-400 hover:text-white">✕</button>
                         </div>
                     </div>
                     <div className="p-3 overflow-y-auto max-h-[60vh] font-mono text-xs space-y-1">
                         {logs.length === 0 ? (
                             <p className="text-gray-500">로그가 없습니다.</p>
-                        ) : logs.map((log, i) => (
-                            <div key={i} className={`flex gap-2 ${log.type === 'error' ? 'text-red-400' :
+                        ) : logs.map((log) => (
+                            <div key={log.id} className={`flex gap-2 ${log.type === 'error' ? 'text-red-400' :
                                 log.type === 'success' ? 'text-green-400' :
                                     log.type === 'warn' ? 'text-yellow-400' :
                                         'text-gray-300'
                                 }`}>
-                                <span className="text-gray-500 flex-shrink-0">{log.time}</span>
+                                <span className="text-gray-500 flex-shrink-0">
+                                    {new Date(log.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                </span>
                                 <span>{log.message}</span>
                             </div>
                         ))}

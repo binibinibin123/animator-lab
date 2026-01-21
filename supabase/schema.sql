@@ -82,3 +82,23 @@ CREATE TABLE IF NOT EXISTS user_settings (
 
 -- Insert a default row if not exists
 -- INSERT INTO user_settings (id) VALUES ('00000000-0000-0000-0000-000000000000') ON CONFLICT DO NOTHING;
+
+-- Video jobs table for tracking long-running generation tasks
+CREATE TABLE IF NOT EXISTS video_jobs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  segment_id UUID REFERENCES segments(id) ON DELETE CASCADE,
+  external_job_id TEXT, -- ComfyUI prompt_id or Fal request_id
+  provider TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+  progress FLOAT DEFAULT 0,
+  output_url TEXT,
+  error TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ
+);
+
+-- Index for job status tracking and segment lookup
+CREATE INDEX IF NOT EXISTS idx_video_jobs_segment_id ON video_jobs(segment_id);
+CREATE INDEX IF NOT EXISTS idx_video_jobs_status ON video_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_video_jobs_created_at ON video_jobs(created_at DESC);

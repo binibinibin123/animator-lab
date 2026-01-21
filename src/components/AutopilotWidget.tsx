@@ -18,6 +18,7 @@ export default function AutopilotWidget() {
     const [targetStep, setTargetStep] = useState<number>(5); // Default to Final Render
     const [isActive, setIsActive] = useState(false);
     const [isExpanded, setIsExpanded] = useState(true);
+    const [selectedWorkflow, setSelectedWorkflow] = useState<string>('rapid-aio-mega-sage');
 
     // Sync state with URL
     useEffect(() => {
@@ -27,6 +28,12 @@ export default function AutopilotWidget() {
         setIsActive(autopilot);
         if (target) {
             setTargetStep(parseInt(target, 10));
+        }
+
+        // Load saved workflow preference
+        const savedWorkflow = localStorage.getItem('autovideo_selected_workflow');
+        if (savedWorkflow) {
+            setSelectedWorkflow(savedWorkflow);
         }
     }, [searchParams]);
 
@@ -45,6 +52,9 @@ export default function AutopilotWidget() {
             alert('목표 단계는 현재 단계보다 뒤여야 합니다.');
             return;
         }
+
+        // Save selected workflow
+        localStorage.setItem('autovideo_selected_workflow', selectedWorkflow);
 
         const params = new URLSearchParams(searchParams.toString());
         params.set('autopilot', 'true');
@@ -112,6 +122,22 @@ export default function AutopilotWidget() {
                     </div>
                 ) : (
                     <div className="space-y-3">
+                        {/* Workflow Selection */}
+                        <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">영상 생성 워크플로우</label>
+                            <select
+                                value={selectedWorkflow}
+                                onChange={(e) => setSelectedWorkflow(e.target.value)}
+                                className="w-full p-2 border rounded-lg text-sm bg-gray-50 focus:ring-2 focus:ring-violet-500 outline-none"
+                            >
+                                <option value="rapid-aio-mega-sage">Rapid AIO Mega Sage (기본)</option>
+                                <option value="rapid-aio-mega-sage-2">Rapid AIO Mega Sage 2 (강력)</option>
+                                <option value="rapid-aio-mega">Rapid AIO Mega</option>
+                                <option value="lf-i2v-v1.1">LF I2V v1.1</option>
+                                <option value="ltx-video-default">LTX Video Default</option>
+                            </select>
+                        </div>
+
                         <div>
                             <label className="block text-xs font-medium text-gray-500 mb-1">목표 단계 설정</label>
                             <select

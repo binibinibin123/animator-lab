@@ -23,6 +23,20 @@ export default function ImagePage() {
     const [projectStyle, setProjectStyle] = useState<string>('anime');
     const [imageProvider, setImageProvider] = useState<'gemini' | 'comfyui'>('comfyui');
 
+    // Persistence logic
+    useEffect(() => {
+        const savedProvider = localStorage.getItem('autovideo_image_provider');
+        if (savedProvider && (savedProvider === 'gemini' || savedProvider === 'comfyui')) {
+            setImageProvider(savedProvider as 'gemini' | 'comfyui');
+        }
+    }, []);
+
+    useEffect(() => {
+        if (imageProvider) {
+            localStorage.setItem('autovideo_image_provider', imageProvider);
+        }
+    }, [imageProvider]);
+
     // Logs for real-time feedback
     const [logs, setLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
     const [showLogs, setShowLogs] = useState(true);

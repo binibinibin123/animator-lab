@@ -240,39 +240,53 @@ export class ComfyUIImageProvider implements ImageProvider {
     }
 
     private async uploadToStorage(localUrl: string, filename: string): Promise<string> {
-        try {
-            const response = await fetch(localUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch file: ${response.status}`);
+        const MAX_RETRIES = 3;
+        let lastError: any;
+
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                // Fetch file from ComfyUI
+                const response = await fetch(localUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch file from ComfyUI: ${response.status}`);
+                }
+
+                const blob = await response.blob();
+                const buffer = Buffer.from(await blob.arrayBuffer());
+
+                // Upload to Supabase Storage
+                const supabase = createServerClient();
+                const storagePath = `images/${Date.now()}_${filename}`;
+
+                const { error } = await supabase.storage
+                    .from('autovideo-media')
+                    .upload(storagePath, buffer, {
+                        contentType: 'image/png',
+                        upsert: true,
+                    });
+
+                if (error) {
+                    throw error;
+                }
+
+                // Get public URL
+                const { data: { publicUrl } } = supabase.storage
+                    .from('autovideo-media')
+                    .getPublicUrl(storagePath);
+
+                console.log(`[ComfyUIImageProvider] Successfully uploaded to cloud: ${publicUrl}`);
+                return publicUrl;
+            } catch (error: any) {
+                lastError = error;
+                console.error(`[ComfyUIImageProvider] Upload attempt ${attempt + 1} failed:`, error.message);
+                if (attempt < MAX_RETRIES - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1))); // Exponential backoff
+                }
             }
-
-            const blob = await response.blob();
-            const buffer = Buffer.from(await blob.arrayBuffer());
-
-            const supabase = createServerClient();
-            const storagePath = `images/${Date.now()}_${filename}`;
-
-            const { error } = await supabase.storage
-                .from('media')
-                .upload(storagePath, buffer, {
-                    contentType: 'image/png',
-                    upsert: true,
-                });
-
-            if (error) {
-                console.error('[ComfyUIImageProvider] Storage upload error:', error);
-                // WARNING: Do NOT return base64 here as it will pollute the database and cause timeouts
-                throw new Error(`Failed to upload image to storage: ${error.message} (Bucket 'media' missing?)`);
-            }
-
-            const { data: { publicUrl } } = supabase.storage
-                .from('media')
-                .getPublicUrl(storagePath);
-
-            return publicUrl;
-        } catch (error) {
-            console.error('[ComfyUIImageProvider] Upload failed:', error);
-            return localUrl;
         }
+
+        console.error('[ComfyUIImageProvider] All upload attempts failed. Last error:', lastError);
+        // Throwing prevents inconsistent states between devices (local vs cloud URL)
+        throw new Error(`Cloud upload failed after ${MAX_RETRIES} attempts. Please check Supabase Pro status and bucket 'autovideo-media'. Original error: ${lastError?.message}`);
     }
 }

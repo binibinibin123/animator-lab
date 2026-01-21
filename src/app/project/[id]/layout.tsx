@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import type { Project } from '@/types/database';
 import AutopilotWidget from '@/components/AutopilotWidget';
+import { VideoPollingProvider } from '@/context/VideoPollingContext';
 
 // Steps for project editing (영상 설정 제외)
 const PROJECT_STEPS = [
@@ -75,7 +76,6 @@ export default function ProjectLayout({
     children: React.ReactNode;
 }) {
     const params = useParams();
-    const router = useRouter();
     const projectId = params.id as string;
     const [project, setProject] = useState<Project | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -131,38 +131,40 @@ export default function ProjectLayout({
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            {/* Header */}
-            <header className="bg-white border-b">
-                <div className="max-w-7xl mx-auto px-4 py-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <Link href="/" className="text-xl font-bold text-violet-600">AutoVideo</Link>
-                            {project && (
-                                <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                                    {project.title || '제목 없음'}
-                                </span>
-                            )}
+        <VideoPollingProvider>
+            <div className="min-h-screen bg-gray-50">
+                {/* Header */}
+                <header className="bg-white border-b">
+                    <div className="max-w-7xl mx-auto px-4 py-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <Link href="/" className="text-xl font-bold text-violet-600">AutoVideo</Link>
+                                {project && (
+                                    <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                                        {project.title || '제목 없음'}
+                                    </span>
+                                )}
+                            </div>
+                            <Link href="/" className="text-sm text-gray-500 hover:text-violet-600">
+                                ← 대시보드
+                            </Link>
                         </div>
-                        <Link href="/" className="text-sm text-gray-500 hover:text-violet-600">
-                            ← 대시보드
-                        </Link>
                     </div>
-                </div>
-            </header>
+                </header>
 
-            {/* Stepper */}
-            <div className="max-w-5xl mx-auto px-4">
-                <ProjectStepper projectId={projectId} currentPath={typeof window !== 'undefined' ? window.location.pathname : ''} />
+                {/* Stepper */}
+                <div className="max-w-5xl mx-auto px-4">
+                    <ProjectStepper projectId={projectId} currentPath={typeof window !== 'undefined' ? window.location.pathname : ''} />
+                </div>
+
+                {/* Content */}
+                <main className="max-w-4xl mx-auto px-4 pb-8">
+                    <div className="bg-white rounded-xl shadow-sm border p-8">
+                        {children}
+                    </div>
+                </main>
+                <AutopilotWidget />
             </div>
-
-            {/* Content */}
-            <main className="max-w-4xl mx-auto px-4 pb-8">
-                <div className="bg-white rounded-xl shadow-sm border p-8">
-                    {children}
-                </div>
-            </main>
-            <AutopilotWidget />
-        </div>
+        </VideoPollingProvider>
     );
 }

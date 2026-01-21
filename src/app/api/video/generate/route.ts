@@ -7,6 +7,10 @@ import { createServerClient } from '@/lib/supabase';
 import { generateVideoPrompt } from '@/lib/ai/videoPrompt';
 import { getVideoProvider, VideoProviderType } from '@/lib/video';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+
 // POST /api/video/generate - Submit video generation job
 export async function POST(request: NextRequest) {
     try {
@@ -190,7 +194,7 @@ export async function GET(request: NextRequest) {
                 // Try lookup by external_job_id
                 const { data } = await supabase
                     .from('video_jobs')
-                    .select('*')
+                    .select('*, segments(video_prompt)')
                     .eq('external_job_id', requestId)
                     .single();
                 job = data;
@@ -202,12 +206,16 @@ export async function GET(request: NextRequest) {
 
         // If job found in DB, use it
         if (job) {
+            // [Self-Healing] Ensure variables are up to date
+            let currentStatus = job.status;
+            let currentVideoUrl = job.output_url;
+
             // If job is not in final state, check with provider
             if (job.status !== 'succeeded' && job.status !== 'failed') {
                 const provider = getVideoProvider(job.provider);
                 const statusResult = await provider.checkStatus(job.external_job_id);
 
-                console.log(`[VideoAPI] Provider status:`, statusResult);
+                console.log(`[VideoAPI] Provider status for ${jobId}:`, statusResult);
 
                 // Update job record
                 const updateData: any = {
@@ -217,6 +225,7 @@ export async function GET(request: NextRequest) {
 
                 if (statusResult.videoUrl) {
                     updateData.output_url = statusResult.videoUrl;
+                    currentVideoUrl = statusResult.videoUrl; // Update local var for self-healing
                 }
                 if (statusResult.error) {
                     updateData.error = statusResult.error;
@@ -225,20 +234,30 @@ export async function GET(request: NextRequest) {
                     updateData.finished_at = new Date().toISOString();
                 }
 
+                currentStatus = statusResult.status; // Update local var for self-healing
+
                 await supabase
                     .from('video_jobs')
                     .update(updateData)
                     .eq('id', job.id);
 
-                // Update segment with video URL if completed
-                if (statusResult.status === 'succeeded' && statusResult.videoUrl && job.segment_id) {
-                    await supabase
-                        .from('segments')
-                        .update({ video_url: statusResult.videoUrl })
-                        .eq('id', job.segment_id);
-                }
-
                 job = { ...job, ...updateData };
+            }
+
+            // [Self-Healing] ALWAYS Sync video_url to segments table if job is succeeded
+            // This fixes the "Zombie Job" issue where video_jobs has success but segments is empty
+            if (currentStatus === 'succeeded' && currentVideoUrl && job.segment_id) {
+                console.log(`[VideoAPI] 🔄 Enforcing segment persistence for job ${job.id}`);
+                const { error: segError } = await supabase
+                    .from('segments')
+                    .update({ video_url: currentVideoUrl })
+                    .eq('id', job.segment_id);
+
+                if (segError) {
+                    console.error('[VideoAPI] ❌ Failed to update segment video_url:', segError);
+                } else {
+                    console.log(`[VideoAPI] ✅ Segment ${job.segment_id} synced with video_url`);
+                }
             }
 
             return NextResponse.json({
@@ -249,6 +268,7 @@ export async function GET(request: NextRequest) {
                 status: job.status,
                 progress: job.progress,
                 videoUrl: job.output_url,
+                generatedPrompt: job.segments?.video_prompt || job.video_prompt,
                 error: job.error,
                 debug: {
                     rawStatus: job.status,
