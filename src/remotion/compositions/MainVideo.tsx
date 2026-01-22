@@ -1,6 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Audio, OffthreadVideo, Img, Easing, interpolate, useCurrentFrame, useVideoConfig, Sequence } from 'remotion';
 import { Subtitle } from '../components/Subtitle';
+import { Title } from '../components/Title';
 
 export interface Segment {
     id: string;
@@ -22,13 +23,17 @@ interface MainVideoProps {
     subtitleStyle?: string;
     settings?: VideoSettings;
     skipSubtitles?: boolean;
+    isShortsMode?: boolean;
+    title?: string;
 }
 
 export const MainVideo: React.FC<MainVideoProps> = ({
     segments,
     subtitleStyle = 'default',
     settings = { padding: 0.5, transitionType: 'slide' },
-    skipSubtitles = false
+    skipSubtitles = false,
+    isShortsMode = false,
+    title
 }) => {
     const { fps } = useVideoConfig();
     const { padding, transitionType } = settings;
@@ -96,10 +101,18 @@ export const MainVideo: React.FC<MainVideoProps> = ({
                             isFirst={index === 0}
                             transitionDuration={transitionDuration}
                             transitionType={currentTransitionType}
+                            isShortsMode={isShortsMode}
                         />
                     </Sequence>
                 );
             })}
+
+            {/* Title Layer (Persistent Overlay for Shorts) */}
+            {isShortsMode && title && (
+                <Sequence from={0} durationInFrames={Infinity} style={{ zIndex: 2000, pointerEvents: 'none' }}>
+                    <Title text={title} />
+                </Sequence>
+            )}
 
             {/* Subtitle Layer (only when not skipping) */}
             {!skipSubtitles && (
@@ -111,7 +124,11 @@ export const MainVideo: React.FC<MainVideoProps> = ({
                             durationInFrames={timing.subtitleDuration}
                         >
                             {timing.script_text && (
-                                <Subtitle text={timing.script_text} styleName={subtitleStyle} />
+                                <Subtitle
+                                    text={timing.script_text}
+                                    styleName={subtitleStyle}
+                                    isShortsMode={isShortsMode}
+                                />
                             )}
                         </Sequence>
                     ))}
@@ -126,7 +143,8 @@ const SegmentContainer: React.FC<{
     isFirst: boolean;
     transitionDuration: number;
     transitionType: string;
-}> = ({ segment, isFirst, transitionDuration, transitionType }) => {
+    isShortsMode?: boolean;
+}> = ({ segment, isFirst, transitionDuration, transitionType, isShortsMode }) => {
     const frame = useCurrentFrame();
     const { width, height } = useVideoConfig();
 
@@ -194,23 +212,61 @@ const SegmentContainer: React.FC<{
         }
     }
 
-    // Priority: upscaled_video_url > video_url
     const videoSrc = segment.upscaled_video_url || segment.video_url;
+
+    const renderMedia = (fit: 'cover' | 'contain') => {
+        if (videoSrc) {
+            return (
+                <OffthreadVideo
+                    src={videoSrc}
+                    style={{ width: '100%', height: '100%', objectFit: fit }}
+                />
+            );
+        } else if (segment.image_url) {
+            return (
+                <Img
+                    src={segment.image_url}
+                    style={{ width: '100%', height: '100%', objectFit: fit }}
+                />
+            );
+        }
+        return null;
+    };
+
+    if (isShortsMode) {
+        return (
+            <AbsoluteFill style={{ ...style }}>
+                {/* 1. Blurred Background Layer */}
+                <AbsoluteFill style={{ zIndex: 0, overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', inset: -20, filter: 'blur(30px)', transform: 'scale(1.2)' }}>
+                        {renderMedia('cover')}
+                    </div>
+                    <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(10px)' }} />
+                </AbsoluteFill>
+
+                {/* 2. Main Content Layer (Centered) */}
+                <AbsoluteFill style={{ zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{
+                        width: '100%',
+                        aspectRatio: '16/9',
+                        maxWidth: '100%',
+                        boxShadow: '0 10px 40px rgba(0,0,0,0.6)',
+                        borderRadius: '12px',
+                        overflow: 'hidden'
+                    }}>
+                        {renderMedia('cover')}
+                    </div>
+                </AbsoluteFill>
+
+                {segment.audio_url && <Audio src={segment.audio_url} />}
+            </AbsoluteFill>
+        );
+    }
 
     return (
         <AbsoluteFill style={{ ...style, filter }}>
             <AbsoluteFill>
-                {videoSrc ? (
-                    <OffthreadVideo
-                        src={videoSrc}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                ) : segment.image_url ? (
-                    <Img
-                        src={segment.image_url}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                ) : null}
+                {renderMedia('cover')}
             </AbsoluteFill>
 
             {segment.audio_url && <Audio src={segment.audio_url} />}

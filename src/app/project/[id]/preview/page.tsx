@@ -10,6 +10,7 @@ import { Player } from '@remotion/player';
 import { MainVideo } from '@/remotion/compositions/MainVideo';
 import { SUBTITLE_STYLES } from '@/remotion/constants/subtitleStyles';
 import LogViewer, { LogMessage } from '@/components/ui/LogViewer';
+import { Sparkles, Download, Wand2 } from 'lucide-react';
 
 export default function PreviewPage() {
     const router = useRouter();
@@ -34,6 +35,12 @@ export default function PreviewPage() {
     const [selectedFps, setSelectedFps] = useState<30 | 60>(30);
     const [isUpscaling, setIsUpscaling] = useState(false);
     const [upscaleProgress, setUpscaleProgress] = useState({ current: 0, total: 0 });
+
+    // Shorts Mode State
+    const [viewMode, setViewMode] = useState<'original' | 'shorts'>('original');
+    const [shortsPlan, setShortsPlan] = useState<{ selectedSegmentIds: string[], reasoning: string, title?: string } | null>(null);
+    const [shortsTitle, setShortsTitle] = useState(''); // Editable Title
+    const [isAnalyzingShorts, setIsAnalyzingShorts] = useState(false);
 
     // Data Loading Log State
     const [dataLogs, setDataLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
@@ -153,8 +160,55 @@ export default function PreviewPage() {
         }
     }, [isLoading, segments, isRendering, renderStatus]);
 
+    const handleCreateShorts = async () => {
+        if (shortsPlan) {
+            setViewMode('shorts');
+            return;
+        }
+
+        setIsAnalyzingShorts(true);
+        addDataLog('info', '🧠 AI가 숏폼 구성 및 타이틀을 분석 중입니다... (Gemini 3 Flash)');
+
+        try {
+            const res = await fetch('/api/ai/plan-shorts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ segments })
+            });
+
+            if (!res.ok) throw new Error('Analysis failed');
+
+            const plan = await res.json();
+            setShortsPlan(plan);
+            if (plan.title) setShortsTitle(plan.title); // Set initial title
+
+            // Validate Segments
+            const matchedCount = segments.filter(s => plan.selectedSegmentIds?.includes(s.id)).length;
+            if (matchedCount === 0) {
+                addDataLog('error', `⚠️ AI가 선택한 세그먼트 ID가 유효하지 않습니다. (AI Ids: ${plan.selectedSegmentIds.join(', ')})`);
+            } else {
+                setViewMode('shorts');
+                addDataLog('success', `✨ 숏폼 분석 완료! (${matchedCount}개 컷, 타이틀: ${plan.title})`);
+            }
+            if (plan.reasoning) {
+                // Optional: Store reasoning to show in UI
+                console.log('AI Logic:', plan.reasoning);
+            }
+        } catch (error: any) {
+            addDataLog('error', `숏폼 분석 실패: ${error.message}`);
+            alert('분석에 실패했습니다.');
+        } finally {
+            setIsAnalyzingShorts(false);
+        }
+    };
+
+    // Filter segments for Shorts Mode
+    const activeSegments = (viewMode === 'shorts' && shortsPlan)
+        ? segments.filter(s => shortsPlan.selectedSegmentIds.includes(s.id))
+        : segments;
+
     // Remotion 용 데이터 변환
-    const remotionSegments = segments.map(s => ({
+    const remotionSegments = activeSegments.map(s => ({
         id: s.id,
         video_url: s.video_url,
         audio_url: s.audio_url,
@@ -188,7 +242,9 @@ export default function PreviewPage() {
                         settings: {
                             padding,
                             transitionType
-                        }
+                        },
+                        isShortsMode: isShorts, // Pass shorts mode flag
+                        title: isShorts ? shortsTitle : undefined
                     })
                 });
 
@@ -424,12 +480,17 @@ export default function PreviewPage() {
         }
     };
 
-    const totalDuration = segments.reduce((acc, s) => acc + (s.duration_ms || 0), 0);
+    const totalDuration = activeSegments.reduce((acc, s) => acc + (s.duration_ms || 0), 0);
     const minutes = Math.floor(totalDuration / 60000);
     const seconds = Math.floor((totalDuration % 60000) / 1000);
 
-    const width = project?.aspect_ratio === '9:16' ? 1080 : 1920;
-    const height = project?.aspect_ratio === '9:16' ? 1920 : 1080;
+    // Dynamic Resolution based on View Mode
+    const isShorts = viewMode === 'shorts';
+    // If original project is already 9:16, 'original' mode is also 9:16.
+    // If 'shorts' mode is active, FORCE 9:16.
+    const projectIsVertical = project?.aspect_ratio === '9:16';
+    const effectiveWidth = (isShorts || projectIsVertical) ? 1080 : 1920;
+    const effectiveHeight = (isShorts || projectIsVertical) ? 1920 : 1080;
 
     return (
         <div className="space-y-8 pb-20">
@@ -454,11 +515,51 @@ export default function PreviewPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* View Mode Switcher */}
+            <div className="flex justify-center pb-4">
+                <div className="bg-gray-100 p-1 rounded-xl flex gap-1">
+                    <button
+                        onClick={() => setViewMode('original')}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'original' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        📺 원본 (가로)
+                    </button>
+                    <button
+                        onClick={handleCreateShorts}
+                        disabled={isAnalyzingShorts}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${viewMode === 'shorts' ? 'bg-white shadow text-violet-700' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        {isAnalyzingShorts ? (
+                            <>
+                                <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
+                                분석 중...
+                            </>
+                        ) : (
+                            <>⚡ 숏폼 (세로)</>
+                        )}
+                    </button>
+                </div>
+            </div>
+
+            <div className={`grid grid-cols-1 ${isShorts ? 'lg:grid-cols-2' : 'lg:grid-cols-3'} gap-8`}>
                 {/* Left: Video Player */}
-                <div className="lg:col-span-2 space-y-6">
-                    <div className="bg-gray-900 rounded-2xl overflow-hidden border-4 border-gray-100 flex items-center justify-center relative shadow-2xl" style={{ aspectRatio: '16/9' }}>
-                        {segments.length > 0 ? (
+                <div className={`${isShorts ? 'lg:col-span-1 flex justify-center' : 'lg:col-span-2'} space-y-6`}>
+                    <div
+                        className={`bg-gray-900 rounded-2xl overflow-hidden border-4 border-gray-100 flex items-center justify-center relative shadow-2xl min-h-[500px]`}
+                        style={{
+                            aspectRatio: isShorts ? '9/16' : '16/9',
+                            maxWidth: isShorts ? '400px' : '100%',
+                            margin: '0 auto'
+                        }}
+                    >
+                        {remotionSegments.length === 0 && isShorts ? (
+                            <div className="text-center text-red-400 p-6">
+                                <div className="text-3xl mb-2">⚠️</div>
+                                <p className="font-bold">선택된 세그먼트가 없습니다.</p>
+                                <p className="text-sm mt-2">AI가 선택한 컷이 원본에 없습니다.</p>
+                                <p className="text-xs text-gray-400 mt-1">{shortsPlan?.selectedSegmentIds?.join(', ')}</p>
+                            </div>
+                        ) : segments.length > 0 ? (
                             <Player
                                 component={MainVideo}
                                 inputProps={{
@@ -467,12 +568,19 @@ export default function PreviewPage() {
                                     settings: {
                                         padding,
                                         transitionType
-                                    }
+                                    },
+                                    isShortsMode: isShorts, // Pass shorts mode flag
+                                    title: isShorts ? shortsTitle : undefined // Pass title only in shorts mode
                                 }}
                                 durationInFrames={totalDurationInFrames || 30 * 5}
-                                compositionWidth={width}
-                                compositionHeight={height}
+                                compositionWidth={effectiveWidth}
+                                compositionHeight={effectiveHeight}
                                 fps={30}
+                                errorFallback={(error) => (
+                                    <div className="text-white flex items-center justify-center h-full">
+                                        Render Error: {error.message}
+                                    </div>
+                                )}
                                 style={{
                                     width: '100%',
                                     height: '100%',
@@ -491,6 +599,21 @@ export default function PreviewPage() {
 
                 {/* Right: Controls & Options */}
                 <div className="space-y-6">
+                    {/* Shorts Info Panel */}
+                    {isShorts && shortsPlan && (
+                        <div className="bg-violet-50 p-6 rounded-2xl border border-violet-100 space-y-3">
+                            <h3 className="font-bold text-violet-800 flex items-center gap-2">
+                                🤖 AI 큐레이션 완료
+                            </h3>
+                            <p className="text-sm text-violet-700">
+                                전체 {segments.length}개 컷 중 <span className="font-bold">{shortsPlan.selectedSegmentIds.length}개 핵심 컷</span>을 선별했습니다.
+                            </p>
+                            <div className="text-xs text-violet-600 bg-white p-3 rounded-lg border border-violet-100">
+                                {shortsPlan.reasoning || "기승전결이 있는 숏폼 구성을 완료했습니다."}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Subtitle Style Selector */}
                     <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
                         <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -574,11 +697,11 @@ export default function PreviewPage() {
                         </div>
                         <div className="flex justify-between">
                             <span className="text-gray-500">해상도</span>
-                            <span className="font-bold text-gray-900">{width}x{height}</span>
+                            <span className="font-bold text-gray-900">{effectiveWidth}x{effectiveHeight}</span>
                         </div>
                         <div className="flex justify-between">
                             <span className="text-gray-500">컷 수</span>
-                            <span className="font-bold text-gray-900">{segments.length} Cut</span>
+                            <span className="font-bold text-gray-900">{activeSegments.length} Cut</span>
                         </div>
                     </div>
                 </div>
@@ -670,6 +793,36 @@ export default function PreviewPage() {
                         <div className="bg-white p-6 rounded-2xl border-2 border-green-100 shadow-xl space-y-4 animate-in zoom-in-95 duration-500">
                             <div className="flex items-center gap-2 text-green-700 font-bold text-lg">
                                 <span>🎉 렌더링 성공!</span>
+                            </div>
+
+                            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl mb-6 border border-blue-100 dark:border-blue-800">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                    <h3 className="font-semibold text-blue-900 dark:text-blue-100">AI Curation Complete</h3>
+                                </div>
+                                <p className="text-sm text-blue-800 dark:text-blue-200 mb-3 leading-relaxed">
+                                    {shortsPlan.reasoning || 'AI has selected the optimal segments for higher engagement.'}
+                                </p>
+
+                                {/* Title Editor */}
+                                <div className="mt-3">
+                                    <label className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1 block">
+                                        Generated Viral Title
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={shortsTitle}
+                                        onChange={(e) => setShortsTitle(e.target.value)}
+                                        className="w-full text-lg font-bold p-2 rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-2 mt-3 text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                    <div className="px-2 py-0.5 bg-blue-200 dark:bg-blue-800 rounded">
+                                        {shortsPlan.selectedSegmentIds.length} Segments
+                                    </div>
+                                    <span>selected from original video</span>
+                                </div>
                             </div>
 
                             <div className="overflow-hidden rounded-xl bg-black aspect-video border border-gray-100">
