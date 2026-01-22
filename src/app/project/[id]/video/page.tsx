@@ -45,6 +45,11 @@ export default function VideoPage() {
     const [isGlobalGenerating, setIsGlobalGenerating] = useState(false);
     const isGlobalGeneratingRef = useRef(false); // Ref for access inside effects/timeouts
 
+    // Sync Ref with State (Must be before Auto-Advance effect)
+    useEffect(() => {
+        isGlobalGeneratingRef.current = isGlobalGenerating;
+    }, [isGlobalGenerating]);
+
     // ...
     // ...
     // Logs state moved to Context
@@ -318,8 +323,7 @@ export default function VideoPage() {
         } else {
             setIsGlobalGenerating(true);
             addLog('info', '🚀 전체 생성 시작 (자동 페이지 넘김)');
-            // Trigger handled by useEffect
-            processCurrentPage();
+            // Trigger handled by useEffect (processCurrentPage called there)
         }
     };
 
