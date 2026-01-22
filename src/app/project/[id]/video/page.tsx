@@ -201,31 +201,37 @@ export default function VideoPage() {
 
     // Polling logic moved to Context
 
-    const handleGenerateVideo = async (segment: Segment, waitForCompletion = false): Promise<boolean> => {
+    const handleGenerateVideo = async (segment: Segment, waitForCompletion = false, manualPrompt?: string): Promise<boolean> => {
         if (!segment.image_url) {
             alert('이미지를 먼저 생성해 주세요.');
             return false;
         }
 
         const logLabel = selectedProvider === 'comfyui' ? selectedWorkflow : selectedModel;
+        const promptToUse = manualPrompt !== undefined ? manualPrompt : (segment.video_prompt || 'auto');
 
         // Optimistically show spinner via Context
         addGeneratingId(segment.id);
 
         addLog('info', `🎬 영상 생성 시작 (${logLabel})`);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
         try {
             addLog('info', `이미지 분석 및 프롬프트 생성 중...`);
             const response = await fetch('/api/video/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
                 body: JSON.stringify({
                     imageUrl: segment.image_url,
                     model: selectedModel,
                     scriptText: segment.script_text,
                     visualDescription: segment.visual_description,
                     provider: selectedProvider,
-                    motion: videoPrompt || 'auto',
-                    segmentId: segment.id, // Fixed: Added segmentId for persistence
+                    motion: promptToUse,
+                    segmentId: segment.id,
                     workflowId: selectedProvider === 'comfyui' ? selectedWorkflow : undefined
                 }),
             });
@@ -270,12 +276,17 @@ export default function VideoPage() {
                 return true;
             }
             return false;
-        } catch (error) {
+        } catch (error: any) {
             console.error('Video Generation Error:', error);
-            addLog('error', `❌ 에러: ${error}`);
-            // alert('영상 생성 시작에 실패했습니다.'); // Remove alert to not block UI in batch
+            if (error.name === 'AbortError') {
+                addLog('error', `❌ 시간 초과 (60s): 서버 응답이 지연되어 취소됨`);
+            } else {
+                addLog('error', `❌ 에러: ${error}`);
+            }
             removeGeneratingId(segment.id);
             return false;
+        } finally {
+            clearTimeout(timeoutId);
         }
     };
 
@@ -316,7 +327,8 @@ export default function VideoPage() {
             }
 
             // Create submission promise
-            const p = handleGenerateVideo(seg, false).then(() => {
+            // Pass 'undefined' for manualPrompt so it uses segment.video_prompt (DB) or 'auto'
+            const p = handleGenerateVideo(seg, false, undefined).then(() => {
                 // When submission is done (not generation, just API call)
                 activePromises.delete(p);
             });
@@ -331,8 +343,25 @@ export default function VideoPage() {
         // Note: We don't need to wait for VIDEO generation, just the API Handshake.
         await Promise.all(activePromises);
 
-        addLog('success', `🎉 모든 큐 요청 완료! (백그라운드에서 계속 생성됩니다)`);
-        setIsGlobalGenerating(false);
+        addLog('success', `🎉 현재 배치 요청 완료!`);
+
+        // Watchdog: Check if any items remain ungenerated
+        const remainingStragglers = segments.filter(s => !s.video_url && !generatingIds.has(s.id));
+        if (remainingStragglers.length > 0 && isGlobalGeneratingRef.current) {
+            addLog('warn', `⚠️ 미완료된 ${remainingStragglers.length}개 항목 재시도 중... (Watchdog)`);
+            await new Promise(resolve => setTimeout(resolve, 3000)); // 3s delay
+            processCurrentPage(); // Recursion
+        } else if (segments.every(s => s.video_url)) {
+            addLog('success', `🎉 모든 영상 생성 완료!`);
+            setIsGlobalGenerating(false);
+        } else {
+            // Maybe user stopped it, or generatingIds has them
+            if (!isGlobalGeneratingRef.current) {
+                addLog('warn', '🛑 전체 생성 중단됨');
+            } else {
+                addLog('info', '⏳ 생성 중인 작업 대기 중...');
+            }
+        }
     };
 
     const checkNextPage = () => {
@@ -396,6 +425,30 @@ export default function VideoPage() {
         }
     };
 
+    const handleDeleteAllVideos = async () => {
+        if (!confirm('정말로 모든 영상을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+
+        // Stop any running generations first
+        if (isGlobalGenerating || generatingIds.size > 0) {
+            await handleCancelAll();
+        }
+
+        try {
+            const { error } = await supabase
+                .from('segments')
+                .update({ video_url: null } as never)
+                .eq('project_id', projectId);
+
+            if (error) throw error;
+
+            setSegments(prev => prev.map(s => ({ ...s, video_url: null })));
+            addLog('success', '🗑️ 모든 영상이 삭제되었습니다.');
+        } catch (error) {
+            console.error('Delete all videos error:', error);
+            addLog('error', '전체 영상 삭제 실패');
+        }
+    };
+
     const selectedSegment = segments.find(s => s.id === selectedSegmentId);
 
     return (
@@ -415,6 +468,12 @@ export default function VideoPage() {
                         className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
                     >
                         🔄 상태 갱신
+                    </button>
+                    <button
+                        onClick={handleDeleteAllVideos}
+                        className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
+                    >
+                        🗑️ 전체 삭제
                     </button>
                     <button
                         onClick={() => {
@@ -562,7 +621,7 @@ export default function VideoPage() {
                                         <span className="text-5xl">🎞️</span>
                                         <p>영상을 생성하세요</p>
                                         <button
-                                            onClick={() => handleGenerateVideo(selectedSegment)}
+                                            onClick={() => handleGenerateVideo(selectedSegment, false, videoPrompt)}
                                             className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
                                         >
                                             현재 컷 생성하기
@@ -648,9 +707,9 @@ export default function VideoPage() {
                                 <p className="text-gray-600 italic text-center py-4">대기 중...</p>
                             ) : logs.map((log) => (
                                 <div key={log.id} className={`flex gap-2 break-all ${log.type === 'error' ? 'text-red-400' :
-                                        log.type === 'success' ? 'text-green-400' :
-                                            log.type === 'warn' ? 'text-yellow-400' :
-                                                'text-gray-300'
+                                    log.type === 'success' ? 'text-green-400' :
+                                        log.type === 'warn' ? 'text-yellow-400' :
+                                            'text-gray-300'
                                     }`}>
                                     <span className="text-gray-600 flex-shrink-0 select-none">
                                         {new Date(log.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}

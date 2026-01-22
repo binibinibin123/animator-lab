@@ -215,6 +215,28 @@ export default function ImagePage() {
         addLog('success', `🎉 전체 생성 완료!`);
     };
 
+    const handleDeleteAllImages = async () => {
+        if (!confirm('정말로 모든 이미지를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+
+        try {
+            const response = await fetch('/api/project/reset-media', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId, type: 'image' }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to reset images');
+            }
+
+            setSegments(prev => prev.map(s => ({ ...s, image_url: null })));
+            addLog('success', '🗑️ 모든 이미지가 삭제되었습니다.');
+        } catch (error) {
+            console.error('Delete all images error:', error);
+            addLog('error', '전체 이미지 삭제 실패');
+        }
+    };
+
     const handleDeleteImage = async (segmentId: string) => {
         if (!confirm('이미지를 삭제하시겠습니까?')) return;
 
@@ -254,6 +276,13 @@ export default function ImagePage() {
                     className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
                 >
                     {isGenerating ? '생성 중...' : '▶ 전체 생성'}
+                </button>
+                <button
+                    onClick={handleDeleteAllImages}
+                    disabled={isGenerating}
+                    className="ml-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50 text-sm font-medium"
+                >
+                    🗑️ 전체 삭제
                 </button>
             </div>
 
