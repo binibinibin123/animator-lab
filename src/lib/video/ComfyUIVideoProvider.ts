@@ -72,8 +72,30 @@ export class ComfyUIVideoProvider implements VideoProvider {
             const response = await fetch(`${COMFYUI_BASE_URL}/history/${externalJobId}`);
 
             if (!response.ok) {
-                // Job might still be queued
+                // Job might still be queued OR deleted
+                // We must verify with /queue endpoint
                 if (response.status === 404) {
+                    try {
+                        const queueRes = await fetch(`${COMFYUI_BASE_URL}/queue`);
+                        if (queueRes.ok) {
+                            const queueData = await queueRes.json();
+                            // Check running
+                            const isRunning = queueData.queue_running?.some((item: any) => item[1] === externalJobId);
+                            // Check pending
+                            const isPending = queueData.queue_pending?.some((item: any) => item[1] === externalJobId);
+
+                            if (isRunning) return { status: 'running', progress: 0.1 };
+                            if (isPending) return { status: 'queued', progress: 0 };
+
+                            // Not in history, not in queue => It's gone (deleted or failed silently)
+                            console.warn(`[ComfyUIVideoProvider] Job ${externalJobId} not found in history or queue.`);
+                            return { status: 'failed', progress: 0, error: 'Job not found (possibly deleted)' };
+                        }
+                    } catch (qErr) {
+                        console.warn('Failed to check queue:', qErr);
+                    }
+
+                    // Fallback if queue check fails
                     return { status: 'queued', progress: 0 };
                 }
                 throw new Error(`Failed to get history: ${response.status}`);
@@ -83,7 +105,20 @@ export class ComfyUIVideoProvider implements VideoProvider {
             const entry = history[externalJobId] as ComfyUIHistoryEntry | undefined;
 
             if (!entry) {
-                return { status: 'queued', progress: 0 };
+                // Double check queue
+                try {
+                    const queueRes = await fetch(`${COMFYUI_BASE_URL}/queue`);
+                    if (queueRes.ok) {
+                        const queueData = await queueRes.json();
+                        const isRunning = queueData.queue_running?.some((item: any) => item[1] === externalJobId);
+                        const isPending = queueData.queue_pending?.some((item: any) => item[1] === externalJobId);
+
+                        if (isRunning) return { status: 'running', progress: 0.1 };
+                        if (isPending) return { status: 'queued', progress: 0 };
+                    }
+                } catch (e) { }
+
+                return { status: 'failed', progress: 0, error: 'Job entry invalid' };
             }
 
             // Check if completed
@@ -153,8 +188,31 @@ export class ComfyUIVideoProvider implements VideoProvider {
 
     async cancelJob(externalJobId: string): Promise<boolean> {
         try {
-            console.log(`[ComfyUIVideoProvider] Interrupting ComfyUI for job: ${externalJobId}`);
+            console.log(`[ComfyUIVideoProvider] Attempting cancellation for job: ${externalJobId}`);
 
+            // 1. Check if it's in the pending queue
+            const queueRes = await fetch(`${COMFYUI_BASE_URL}/queue`);
+            if (queueRes.ok) {
+                const queueData = await queueRes.json();
+
+                // Check pending items (format: [id, prompt_id, ...])
+                const isPending = queueData.queue_pending?.some((item: any) => item[1] === externalJobId);
+
+                if (isPending) {
+                    console.log(`[ComfyUIVideoProvider] Deleting job from pending queue: ${externalJobId}`);
+                    // Delete from queue
+                    const deleteRes = await fetch(`${COMFYUI_BASE_URL}/queue`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ delete: [externalJobId] })
+                    });
+
+                    if (deleteRes.ok) return true;
+                }
+            }
+
+            // 2. If it wasn't pending or delete failed, try interrupt (incase it's running)
+            console.log(`[ComfyUIVideoProvider] Interrupting ComfyUI execution (if running).`);
             const response = await fetch(`${COMFYUI_BASE_URL}/interrupt`, {
                 method: 'POST',
             });
@@ -164,7 +222,6 @@ export class ComfyUIVideoProvider implements VideoProvider {
                 return false;
             }
 
-            console.log(`[ComfyUIVideoProvider] ComfyUI interrupt signal sent successfully.`);
             return true;
         } catch (error) {
             console.error('[ComfyUIVideoProvider] Cancel error:', error);

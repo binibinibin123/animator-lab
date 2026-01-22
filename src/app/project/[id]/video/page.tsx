@@ -43,7 +43,12 @@ export default function VideoPage() {
 
     // Auto-Advance Generation State
     const [isGlobalGenerating, setIsGlobalGenerating] = useState(false);
-    const isGlobalGeneratingRef = useRef(false); // Ref for access inside effects/timeouts
+    const isGlobalGeneratingRef = useRef(false);
+
+    // Sync ref with state
+    useEffect(() => {
+        isGlobalGeneratingRef.current = isGlobalGenerating;
+    }, [isGlobalGenerating]);
 
     // ...
     // ...
@@ -136,6 +141,7 @@ export default function VideoPage() {
             } else if (data) {
                 console.log(`[VideoPage] Loaded ${data.length} segments metadata`);
                 setSegments(data as Segment[]); // Initialize with partial data
+                setTotalCount(data.length); // Fixed: Set total count for pagination logic
 
                 if (data.length > 0 && !selectedSegmentId) {
                     const firstSeg = (data as Segment[])[0];
@@ -214,6 +220,7 @@ export default function VideoPage() {
                     visualDescription: segment.visual_description,
                     provider: selectedProvider,
                     motion: videoPrompt || 'auto',
+                    segmentId: segment.id, // Fixed: Added segmentId for persistence
                     workflowId: selectedProvider === 'comfyui' ? selectedWorkflow : undefined
                 }),
             });
@@ -234,14 +241,14 @@ export default function VideoPage() {
 
             if (data.status === 'running' || data.status === 'in_progress') {
                 addLog('warn', `⏳ 비동기 생성 시작, 폴링 대기...`);
+                // Always start polling regardless of waitForCompletion
+                // waitForCompletion only affects whether this function waits for the *result*
+                const pollingPromise = startPolling(segment.id, data.externalJobId, selectedProvider);
+
                 if (waitForCompletion) {
-                    // 순차 실행 모드: 완료될 때까지 기다림
-                    return await startPolling(segment.id, data.externalJobId, selectedProvider);
-                } else {
-                    // 개별 실행 모드: 폴링 시작하고 바로 리턴
-                    startPolling(segment.id, data.externalJobId, selectedProvider);
-                    return true;
+                    return await pollingPromise;
                 }
+                return true;
             } else if ((data.status === 'completed' || data.status === 'succeeded') && data.videoUrl) {
                 addLog('success', `✅ 즉시 완료!`);
                 setSegments(prev => prev.map(s =>
@@ -254,9 +261,6 @@ export default function VideoPage() {
                 if (selectedSegmentId === segment.id) {
                     setVideoPrompt(data.generatedPrompt || '');
                 }
-                if (selectedSegmentId === segment.id) {
-                    setVideoPrompt(data.generatedPrompt || '');
-                }
                 removeGeneratingId(segment.id);
                 return true;
             }
@@ -264,9 +268,7 @@ export default function VideoPage() {
         } catch (error) {
             console.error('Video Generation Error:', error);
             addLog('error', `❌ 에러: ${error}`);
-            alert('영상 생성 시작에 실패했습니다.');
-            addLog('error', `❌ 에러: ${error}`);
-            alert('영상 생성 시작에 실패했습니다.');
+            // alert('영상 생성 시작에 실패했습니다.'); // Remove alert to not block UI in batch
             removeGeneratingId(segment.id);
             return false;
         }
@@ -274,16 +276,20 @@ export default function VideoPage() {
 
     const processCurrentPage = async () => {
         console.log('[AutoAdvance] Processing current page...');
-        // Filter segments that need generation (exclude already done or generating)
         const pendingSegments = segments.filter(seg => !seg.video_url && seg.image_url && !generatingIds.has(seg.id));
+        const skippedCount = segments.length - pendingSegments.length;
 
         if (pendingSegments.length === 0) {
             console.log('[AutoAdvance] No pending items on this page.');
-            checkNextPage();
+            addLog('info', `✅ 대기 중인 작업이 없습니다. (완료: ${skippedCount}개)`);
+            setIsGlobalGenerating(false);
             return;
         }
 
-        addLog('info', `🚀 [Auto-Advance] 현재 페이지 ${pendingSegments.length}개 생성 시작`);
+        addLog('info', `🚀 전체 생성 시작: 총 ${segments.length}개 중 ${pendingSegments.length}개 요청 (완료/진행중: ${skippedCount}개)`);
+
+        const MAX_CONCURRENT_REQUESTS = 3; // Prevent DB connection pool exhaustion
+        const activePromises = new Set<Promise<any>>();
 
         for (let i = 0; i < pendingSegments.length; i++) {
             // Check cancellation
@@ -292,24 +298,42 @@ export default function VideoPage() {
                 return;
             }
 
+            // Concurrency Control: Wait if we reached limit
+            if (activePromises.size >= MAX_CONCURRENT_REQUESTS) {
+                await Promise.race(activePromises);
+            }
+
             const seg = pendingSegments[i];
-            await handleGenerateVideo(seg, true); // Wait for completion
+
+            // Log progress
+            if (i % 5 === 0) {
+                console.log(`[AutoAdvance] Queueing ${i + 1}/${pendingSegments.length}`);
+            }
+
+            // Create submission promise
+            const p = handleGenerateVideo(seg, false).then(() => {
+                // When submission is done (not generation, just API call)
+                activePromises.delete(p);
+            });
+
+            activePromises.add(p);
+
+            // Minimal delay to be gentle to CPU/EventLoop
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        checkNextPage();
+        // Wait for remaining submissions to finish
+        // Note: We don't need to wait for VIDEO generation, just the API Handshake.
+        await Promise.all(activePromises);
+
+        addLog('success', `🎉 모든 큐 요청 완료! (백그라운드에서 계속 생성됩니다)`);
+        setIsGlobalGenerating(false);
     };
 
     const checkNextPage = () => {
+        // Legacy pagination check - no longer used for auto-advance
         if (!isGlobalGeneratingRef.current) return;
-
-        const maxPage = Math.ceil(totalCount / PAGE_SIZE) - 1;
-        if (currentPage < maxPage) {
-            addLog('info', `⏩ 현재 페이지 완료. 다음 페이지(${currentPage + 2}/${maxPage + 1})로 이동합니다...`);
-            setCurrentPage(prev => prev + 1);
-        } else {
-            addLog('success', `🎉 모든 페이지 생성 완료!`);
-            setIsGlobalGenerating(false);
-        }
+        // Keep for manual button references if any
     };
 
     const handleGenerateAll = () => {
@@ -389,11 +413,24 @@ export default function VideoPage() {
                         🔄 상태 갱신
                     </button>
                     <button
-                        onClick={handleGenerateAll}
-                        disabled={generatingIds.size > 0}
-                        className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
+                        onClick={() => {
+                            if (isGlobalGenerating || generatingIds.size > 0) {
+                                handleCancelAll();
+                            } else {
+                                handleGenerateAll();
+                            }
+                        }}
+                        className={`px-6 py-2 text-white rounded-lg transition-colors ${isGlobalGenerating || generatingIds.size > 0
+                            ? 'bg-red-500 hover:bg-red-600'
+                            : 'bg-violet-600 hover:bg-violet-700'
+                            }`}
                     >
-                        {isGlobalGenerating ? '🛑 전체 중단' : '▶ 전체 생성 시작'}
+                        {isGlobalGenerating
+                            ? '🛑 큐잉 중단'
+                            : generatingIds.size > 0
+                                ? `🚨 전체 취소 (${generatingIds.size})`
+                                : '▶ 전체 생성 시작'
+                        }
                     </button>
                 </div>
             </div>
@@ -556,44 +593,72 @@ export default function VideoPage() {
                 </div>
             </div>
 
-            {/* Debug Log Panel */}
-            {showLogs && (
-                <div className="fixed right-4 top-20 w-96 max-h-[70vh] bg-gray-900 text-gray-100 rounded-xl shadow-2xl border border-gray-700 overflow-hidden z-50">
-                    <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
-                        <span className="text-sm font-bold">📋 실시간 로그</span>
-                        <div className="flex gap-2">
-                            <button onClick={() => { /* Context doesn't expose clearLogs but we can add it or just ignore */ }} className="text-xs text-gray-400 hover:text-white">지우기</button>
-                            <button onClick={() => setShowLogs(false)} className="text-gray-400 hover:text-white">✕</button>
+            {/* Status & Log Panel */}
+            <div className="fixed right-4 top-24 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50 flex flex-col max-h-[80vh]">
+                {/* Header & Progress */}
+                <div className="p-4 bg-gray-50 border-b flex-shrink-0">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                            <span>📊 작업 현황</span>
+                            {generatingIds.size > 0 && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-800 animate-pulse">
+                                    {generatingIds.size}개 처리 중
+                                </span>
+                            )}
+                        </h3>
+                        <button
+                            onClick={() => setShowLogs(!showLogs)}
+                            className="text-xs text-gray-500 hover:text-gray-800 underline"
+                        >
+                            {showLogs ? '로그 접기' : '로그 펼치기'}
+                        </button>
+                    </div>
+
+                    <div className="space-y-2">
+                        <div className="flex justify-between text-xs text-gray-600 font-medium">
+                            <span>진행률</span>
+                            <span>{Math.round((segments.filter(s => s.video_url).length / Math.max(1, segments.length)) * 100)}%</span>
+                        </div>
+                        <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-violet-600 transition-all duration-500 ease-out"
+                                style={{ width: `${(segments.filter(s => s.video_url).length / Math.max(1, segments.length)) * 100}%` }}
+                            />
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-500">
+                            <span>완료: {segments.filter(s => s.video_url).length}</span>
+                            <span>전체: {segments.length}</span>
                         </div>
                     </div>
-                    <div className="p-3 overflow-y-auto max-h-[60vh] font-mono text-xs space-y-1">
-                        {logs.length === 0 ? (
-                            <p className="text-gray-500">로그가 없습니다.</p>
-                        ) : logs.map((log) => (
-                            <div key={log.id} className={`flex gap-2 ${log.type === 'error' ? 'text-red-400' :
-                                log.type === 'success' ? 'text-green-400' :
-                                    log.type === 'warn' ? 'text-yellow-400' :
-                                        'text-gray-300'
-                                }`}>
-                                <span className="text-gray-500 flex-shrink-0">
-                                    {new Date(log.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                </span>
-                                <span>{log.message}</span>
-                            </div>
-                        ))}
-                        <div ref={logsEndRef} />
-                    </div>
                 </div>
-            )}
 
-            {!showLogs && (
-                <button
-                    onClick={() => setShowLogs(true)}
-                    className="fixed right-4 top-20 px-3 py-2 bg-gray-900 text-white rounded-lg shadow-lg text-sm hover:bg-gray-800 z-50"
-                >
-                    📋 로그 보기
-                </button>
-            )}
+                {/* Live Logs */}
+                {showLogs && (
+                    <div className="flex-1 bg-gray-900 text-gray-100 overflow-hidden flex flex-col min-h-[200px]">
+                        <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700 text-xs">
+                            <span className="font-bold text-gray-400">📋 시스템 로그</span>
+                            <button onClick={() => { /* clear logs if needed */ }} className="text-gray-500 hover:text-gray-300">지우기</button>
+                        </div>
+                        <div className="p-3 overflow-y-auto font-mono text-xs space-y-1.5 flex-1">
+                            {logs.length === 0 ? (
+                                <p className="text-gray-600 italic text-center py-4">대기 중...</p>
+                            ) : logs.map((log) => (
+                                <div key={log.id} className={`flex gap-2 break-all ${log.type === 'error' ? 'text-red-400' :
+                                        log.type === 'success' ? 'text-green-400' :
+                                            log.type === 'warn' ? 'text-yellow-400' :
+                                                'text-gray-300'
+                                    }`}>
+                                    <span className="text-gray-600 flex-shrink-0 select-none">
+                                        {new Date(log.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                    </span>
+                                    <span>{log.message}</span>
+                                </div>
+                            ))}
+                            <div ref={logsEndRef} />
+                        </div>
+                    </div>
+                )}
+            </div>
 
             {/* Navigation */}
             <div className="flex justify-between pt-6 border-t">
