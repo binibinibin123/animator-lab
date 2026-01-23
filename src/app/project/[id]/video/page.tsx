@@ -55,6 +55,16 @@ export default function VideoPage() {
         isGlobalGeneratingRef.current = isGlobalGenerating;
     }, [isGlobalGenerating]);
 
+    const segmentsRef = useRef(segments);
+    useEffect(() => {
+        segmentsRef.current = segments;
+    }, [segments]);
+
+    const generatingIdsRef = useRef(generatingIds);
+    useEffect(() => {
+        generatingIdsRef.current = generatingIds;
+    }, [generatingIds]);
+
     // ...
     // ...
     // Logs state moved to Context
@@ -292,8 +302,13 @@ export default function VideoPage() {
 
     const processCurrentPage = async () => {
         console.log('[AutoAdvance] Processing current page...');
-        const pendingSegments = segments.filter(seg => !seg.video_url && seg.image_url && !generatingIds.has(seg.id));
-        const skippedCount = segments.length - pendingSegments.length;
+
+        // Use Refs to get fresh state during async execution
+        const currentSegments = segmentsRef.current;
+        const currentGeneratingIds = generatingIdsRef.current;
+
+        const pendingSegments = currentSegments.filter(seg => !seg.video_url && seg.image_url && !currentGeneratingIds.has(seg.id));
+        const skippedCount = currentSegments.length - pendingSegments.length;
 
         if (pendingSegments.length === 0) {
             console.log('[AutoAdvance] No pending items on this page.');
@@ -302,7 +317,7 @@ export default function VideoPage() {
             return;
         }
 
-        addLog('info', `🚀 전체 생성 시작: 총 ${segments.length}개 중 ${pendingSegments.length}개 요청 (완료/진행중: ${skippedCount}개)`);
+        addLog('info', `🚀 전체 생성 시작: 총 ${currentSegments.length}개 중 ${pendingSegments.length}개 요청 (완료/진행중: ${skippedCount}개)`);
 
         const MAX_CONCURRENT_REQUESTS = 3; // Prevent DB connection pool exhaustion
         const activePromises = new Set<Promise<any>>();
@@ -315,11 +330,26 @@ export default function VideoPage() {
             }
 
             // Concurrency Control: Wait if we reached limit
+            const MAX_ACTIVE_JOBS = 2; // Only keep 2 jobs in ComfyUI queue/polling at a time
+            while (generatingIdsRef.current.size >= MAX_ACTIVE_JOBS) {
+                if (!isGlobalGeneratingRef.current) {
+                    addLog('warn', '🛑 전체 생성 중단됨');
+                    return;
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            // Request Concurrency Control (Secondary)
             if (activePromises.size >= MAX_CONCURRENT_REQUESTS) {
                 await Promise.race(activePromises);
             }
 
             const seg = pendingSegments[i];
+
+            // Double check if it's already generated or generating (race condition check)
+            if (generatingIdsRef.current.has(seg.id) || segmentsRef.current.find(s => s.id === seg.id)?.video_url) {
+                continue;
+            }
 
             // Log progress
             if (i % 5 === 0) {
@@ -346,12 +376,17 @@ export default function VideoPage() {
         addLog('success', `🎉 현재 배치 요청 완료!`);
 
         // Watchdog: Check if any items remain ungenerated
-        const remainingStragglers = segments.filter(s => !s.video_url && !generatingIds.has(s.id));
+        // Use REFS again for fresh check
+        const freshSegments = segmentsRef.current;
+        const freshGeneratingIds = generatingIdsRef.current;
+
+        const remainingStragglers = freshSegments.filter(s => !s.video_url && !freshGeneratingIds.has(s.id));
+
         if (remainingStragglers.length > 0 && isGlobalGeneratingRef.current) {
             addLog('warn', `⚠️ 미완료된 ${remainingStragglers.length}개 항목 재시도 중... (Watchdog)`);
             await new Promise(resolve => setTimeout(resolve, 3000)); // 3s delay
             processCurrentPage(); // Recursion
-        } else if (segments.every(s => s.video_url)) {
+        } else if (freshSegments.every(s => s.video_url)) {
             addLog('success', `🎉 모든 영상 생성 완료!`);
             setIsGlobalGenerating(false);
         } else {
@@ -408,6 +443,18 @@ export default function VideoPage() {
         if (!confirm('정말로 이 영상을 삭제하시겠습니까?')) return;
 
         try {
+            // 1. Delete the job execution record first (to prevent auto-healing/restore)
+            const { error: jobError } = await supabase
+                .from('video_jobs')
+                .delete()
+                .eq('segment_id', segmentId);
+
+            if (jobError) {
+                console.error('Failed to delete video job:', jobError);
+                // Continue anyway to delete the segment URL
+            }
+
+            // 2. Clear the video URL in segments table
             const { error } = await supabase
                 .from('segments')
                 .update({ video_url: null } as never)
@@ -418,6 +465,10 @@ export default function VideoPage() {
             setSegments(prev => prev.map(s =>
                 s.id === segmentId ? { ...s, video_url: null } : s
             ));
+
+            // Remove from local polling/generating state just in case
+            removeGeneratingId(segmentId);
+
             addLog('info', `🗑️ 영상 삭제 완료`);
         } catch (error) {
             console.error('Delete video error:', error);
@@ -434,6 +485,18 @@ export default function VideoPage() {
         }
 
         try {
+            const segmentIds = segments.map(s => s.id);
+            if (segmentIds.length > 0) {
+                // 1. Delete all job execution records (to prevent auto-healing)
+                const { error: jobError } = await supabase
+                    .from('video_jobs')
+                    .delete()
+                    .in('segment_id', segmentIds);
+
+                if (jobError) console.error('Failed to delete video jobs:', jobError);
+            }
+
+            // 2. Clear video URLs
             const { error } = await supabase
                 .from('segments')
                 .update({ video_url: null } as never)

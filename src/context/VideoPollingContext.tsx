@@ -56,50 +56,42 @@ export function VideoPollingProvider({ children }: { children: React.ReactNode }
 
         let retryCount = 0;
 
-        // Immediate first check
-        try {
-            const initialCheckRes = await fetch(`/api/video/generate?requestId=${requestId}&segmentId=${segmentId}&provider=${provider}`);
-            if (initialCheckRes.ok) {
-                const data = await initialCheckRes.json();
-                if (data.status === 'completed' || data.status === 'succeeded') {
-                    addLog('success', `✅ 이미 완료된 작업 확인!`);
-                    setGeneratingIds(prev => {
-                        const next = new Set(prev);
-                        next.delete(segmentId);
-                        return next;
-                    });
-                    return true;
-                }
-            }
-        } catch (e) {
-            console.error('Initial check failed', e);
-        }
-
-        const interval = setInterval(async () => {
+        const poll = async () => {
             try {
+                // Check if we should still be polling
+                // (If it was deleted/cancelled externally, the key might be gone)
+                // However, we set the key *before* calling this loop unless it's the first run.
+                // We'll manage the key setting at the end of this function for the next run.
+
                 const res = await fetch(`/api/video/generate?requestId=${requestId}&segmentId=${segmentId}&provider=${provider}`);
 
                 if (!res.ok) {
                     retryCount++;
                     addLog('warn', `상태 확인 실패 (${res.status}), 재시도 ${retryCount}`);
-                    if (res.status >= 500 && retryCount > 5) { // Only stop on persistent 500s
-                        // However, we want to be very resilient, so maybe we don't stop even then?
-                        // Let's keep it running but log error.
+                    if (res.status >= 500 && retryCount > 5) {
+                        // Persistent error, maybe backoff more?
+                    }
+                    // Schedule next try with standard delay
+                    if (pollingIntervals.current[segmentId]) {
+                        pollingIntervals.current[segmentId] = setTimeout(poll, 10000);
                     }
                     return;
                 }
 
                 retryCount = 0;
                 const data = await res.json();
+                const status = data.status;
 
                 // Visual feedback for long running jobs
-                if (data.status === 'running' && Math.random() < 0.1) { // 10% chance to log heartbeat
-                    addLog('info', `⏳ 영상 생성 진행 중... (Status: ${data.status})`);
+                if (status === 'running' && Math.random() < 0.1) {
+                    addLog('info', `⏳ 영상 생성 진행 중... (Status: ${status})`);
                 }
 
-                if (data.status === 'completed' || data.status === 'failed' || data.status === 'succeeded' || data.status === 'cancelled') {
+                // Completion Check
+                if (status === 'completed' || status === 'failed' || status === 'succeeded' || status === 'cancelled') {
+                    // Cleanup
                     if (pollingIntervals.current[segmentId]) {
-                        clearInterval(pollingIntervals.current[segmentId]);
+                        clearTimeout(pollingIntervals.current[segmentId]);
                         delete pollingIntervals.current[segmentId];
                     }
 
@@ -109,25 +101,58 @@ export function VideoPollingProvider({ children }: { children: React.ReactNode }
                         return next;
                     });
 
-                    if (data.status === 'completed' || data.status === 'succeeded') {
+                    if (status === 'completed' || status === 'succeeded') {
                         addLog('success', `✅ 영상 생성 완료!`);
                         if (data.videoUrl) {
                             setLastCompletedJob({ segmentId, videoUrl: data.videoUrl });
                         }
-                    } else if (data.status === 'cancelled') {
+                    } else if (status === 'cancelled') {
                         addLog('warn', `🛑 영상 생성 취소됨`);
                     } else {
-                        addLog('error', `❌ 영상 생성 실패`);
+                        addLog('error', `❌ 영상 생성 실패: ${data.error || 'Unknown'}`);
                     }
+                    return; // Stop polling
                 }
+
+                // Schedule next poll based on status
+                let nextDelay = 10000; // Default 10s
+                if (status === 'queued') {
+                    nextDelay = 30000; // Slow down for queued items (30s)
+                } else if (status === 'running') {
+                    nextDelay = 10000; // Standard 10s for running
+                }
+
+                // Add random jitter +/- 2000ms to prevent thundering herd
+                const jitter = Math.random() * 4000 - 2000;
+                nextDelay = Math.max(5000, nextDelay + jitter);
+
+                if (pollingIntervals.current[segmentId]) {
+                    pollingIntervals.current[segmentId] = setTimeout(poll, nextDelay);
+                }
+
             } catch (error) {
                 console.error('Polling error:', error);
                 retryCount++;
                 addLog('warn', `폴링 에러: ${error}`);
+                // Retry with standard delay
+                if (pollingIntervals.current[segmentId]) {
+                    pollingIntervals.current[segmentId] = setTimeout(poll, 10000);
+                }
             }
-        }, 10000); // 10 seconds
+        };
 
-        pollingIntervals.current[segmentId] = interval;
+        // Register the poller (using a dummy timeout initially to reserve the slot, checking logic relies on key existence)
+        // We set it to the recursive function's next tick basically.
+        // Actually, we can just call poll() and set the key to something truthy or the timeout of the first schedule.
+        // But poll() is async.
+
+        // Let's set a placeholder or run first poll immediately?
+        // To allow 'immediate check' feel, we run it now, but we need to set the key first so safeguards work.
+        // We'll use a dummy timeout that resolves immediately to kick it off if we want validation or just call it.
+
+        // Better: Set key to an initial timeout
+        pollingIntervals.current[segmentId] = setTimeout(poll, 0);
+
         return true;
     }, [addLog]);
 
@@ -222,8 +247,8 @@ export function VideoPollingProvider({ children }: { children: React.ReactNode }
     // Clean up on unmount of the PROVIDER (which is when we leave the project layout)
     useEffect(() => {
         return () => {
-            // Cleanup intervals
-            Object.values(pollingIntervals.current).forEach(clearInterval);
+            // Cleanup timeouts
+            Object.values(pollingIntervals.current).forEach(t => clearTimeout(t));
             pollingIntervals.current = {};
         };
     }, []);
