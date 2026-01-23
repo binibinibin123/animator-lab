@@ -40,7 +40,7 @@ const getTiming = (index: number, segments: Segment[], transitionType: string, p
             currentTransitionType = MIXED_TYPES[mixIndex];
         }
         const transitionDuration = currentTransitionType === 'none' ? 0 : transitionFramesCount;
-        const baseDuration = (seg.duration || 3) + padding; // Correct default (3s)
+        const baseDuration = (seg.duration || 3) + padding;
         const durationInFrames = Math.max(Math.floor(baseDuration * fps), 1) + transitionDuration;
 
         if (i === index) {
@@ -72,10 +72,11 @@ export const MainVideo: React.FC<MainVideoProps> = ({
         };
     });
 
-    if (!segments || segments.length === 0) return <AbsoluteFill style={{ backgroundColor: 'black' }} />;
+    if (!segments || segments.length === 0) return <AbsoluteFill style={{ backgroundColor: 'transparent' }} />;
 
     return (
-        <AbsoluteFill style={{ backgroundColor: 'black' }}>
+        // Changed to transparent to prevent black background from bleeding through gaps during transitions
+        <AbsoluteFill style={{ backgroundColor: 'transparent' }}>
             {/* 1. LAYER: Background Blurred videos (Only for Shorts) */}
             {isShortsMode && segmentTimings.map((timing, index) => (
                 <Sequence
@@ -145,7 +146,6 @@ export const MainVideo: React.FC<MainVideoProps> = ({
     );
 };
 
-// Subtitle component that swaps exactly at segment boundaries for accurate sync
 const SubtitleOverlay: React.FC<{
     timings: any[];
     styleName: string;
@@ -155,7 +155,6 @@ const SubtitleOverlay: React.FC<{
     const { fps } = useVideoConfig();
     const transitionFramesCount = Math.round(20 * (fps / 30));
 
-    // We use the exact segment start point for subtitle switch (Zero sync-drift)
     const active = timings.find((t, i) => {
         const isLast = i === timings.length - 1;
         const transitionDuration = t.currentTransitionType === 'none' ? 0 : transitionFramesCount;
@@ -186,10 +185,11 @@ const SegmentContainer: React.FC<{
     const frame = useCurrentFrame();
     const { width } = useVideoConfig();
 
-    // Fundamental Stability: No backgrounds, no will-change on static items, no expensive filters
     const containerStyle: React.CSSProperties = {
         width: '100%',
         height: '100%',
+        boxShadow: 'none', // FORCE remove shadow
+        filter: 'none', // FORCE remove filters
     };
 
     if (!isFirst && transitionDuration > 0) {
@@ -201,10 +201,9 @@ const SegmentContainer: React.FC<{
 
         if (transitionType === 'slide') {
             containerStyle.transform = `translateX(${interpolate(progress, [0, 1], [width, 0])}px)`;
-            containerStyle.willChange = 'transform';
+            // Removed willChange to prevent color profile shifts
         } else if (transitionType === 'fade') {
             containerStyle.opacity = progress;
-            containerStyle.willChange = 'opacity';
         } else if (transitionType === 'wipe') {
             containerStyle.clipPath = `inset(0 0 0 ${interpolate(progress, [0, 1], [100, 0])}%)`;
         }
@@ -212,8 +211,16 @@ const SegmentContainer: React.FC<{
 
     const videoSrc = segment.upscaled_video_url || segment.video_url;
     const renderMedia = (fit: 'cover' | 'contain') => {
-        if (videoSrc) return <OffthreadVideo src={videoSrc} style={{ width: '100%', height: '100%', objectFit: fit }} />;
-        if (segment.image_url) return <Img src={segment.image_url} style={{ width: '100%', height: '100%', objectFit: fit }} />;
+        // Explicitly remove shadows from media elements
+        const mediaStyle: React.CSSProperties = {
+            width: '100%',
+            height: '100%',
+            objectFit: fit,
+            boxShadow: 'none',
+            filter: 'none'
+        };
+        if (videoSrc) return <OffthreadVideo src={videoSrc} style={mediaStyle} />;
+        if (segment.image_url) return <Img src={segment.image_url} style={mediaStyle} />;
         return null;
     };
 
@@ -236,8 +243,8 @@ const SegmentContainer: React.FC<{
                         width: '100%',
                         aspectRatio: '16/9',
                         borderRadius: '12px',
-                        overflow: 'hidden'
-                        // box-shadow removed because it causes alpha-stacking darkening under subtitles
+                        overflow: 'hidden',
+                        boxShadow: 'none' // Explicitly remove
                     }}>
                         {renderMedia('cover')}
                     </div>
@@ -247,10 +254,10 @@ const SegmentContainer: React.FC<{
         );
     }
 
-    // ORIGINAL (Horizontal) Mode - Rock-Solid Layout
+    // ORIGINAL (Horizontal) Mode
     return (
         <AbsoluteFill style={containerStyle}>
-            <div style={{ position: 'absolute', inset: 0 }}>
+            <div style={{ position: 'absolute', inset: 0, boxShadow: 'none' }}>
                 {renderMedia('cover')}
             </div>
             {segment.audio_url && <Audio src={segment.audio_url} />}
