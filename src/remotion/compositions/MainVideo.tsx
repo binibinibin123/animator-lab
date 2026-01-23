@@ -40,7 +40,7 @@ const getTiming = (index: number, segments: Segment[], transitionType: string, p
             currentTransitionType = MIXED_TYPES[mixIndex];
         }
         const transitionDuration = currentTransitionType === 'none' ? 0 : transitionFramesCount;
-        const baseDuration = (seg.duration || 3) + padding; // Match Root.tsx default (3s)
+        const baseDuration = (seg.duration || 3) + padding; // Correct default (3s)
         const durationInFrames = Math.max(Math.floor(baseDuration * fps), 1) + transitionDuration;
 
         if (i === index) {
@@ -76,7 +76,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({
 
     return (
         <AbsoluteFill style={{ backgroundColor: 'black' }}>
-            {/* 1. LAYER: Background (Blurred) - Only for Shorts */}
+            {/* 1. LAYER: Background Blurred videos (Only for Shorts) */}
             {isShortsMode && segmentTimings.map((timing, index) => (
                 <Sequence
                     key={`bg-${timing.id}-${index}`}
@@ -95,7 +95,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({
                 </Sequence>
             ))}
 
-            {/* 2. LAYER: Static Dimmer - Only for Shorts */}
+            {/* 2. LAYER: Global Dimmer (Only for Shorts) */}
             {isShortsMode && (
                 <AbsoluteFill
                     style={{
@@ -106,7 +106,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({
                 />
             )}
 
-            {/* 3. LAYER: Main Content (Video/Image) */}
+            {/* 3. LAYER: Main Content Foreground */}
             {segmentTimings.map((timing, index) => (
                 <Sequence
                     key={`fg-${timing.id}-${index}`}
@@ -145,6 +145,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({
     );
 };
 
+// Subtitle component that swaps exactly at segment boundaries for accurate sync
 const SubtitleOverlay: React.FC<{
     timings: any[];
     styleName: string;
@@ -154,17 +155,12 @@ const SubtitleOverlay: React.FC<{
     const { fps } = useVideoConfig();
     const transitionFramesCount = Math.round(20 * (fps / 30));
 
-    // To prevent "weirdness" during transitions (like Slides), 
-    // we switch the subtitle at the MIDPOINT of the transition.
+    // We use the exact segment start point for subtitle switch (Zero sync-drift)
     const active = timings.find((t, i) => {
+        const isLast = i === timings.length - 1;
         const transitionDuration = t.currentTransitionType === 'none' ? 0 : transitionFramesCount;
-        const start = t.from + (i === 0 ? 0 : Math.floor(transitionDuration / 2));
-
-        const next = timings[i + 1];
-        const nextTransitionDuration = next ? (next.currentTransitionType === 'none' ? 0 : transitionFramesCount) : 0;
-        const end = next ? (next.from + Math.floor(nextTransitionDuration / 2)) : (t.from + t.durationInFrames);
-
-        return frame >= start && frame < end;
+        const effectiveEnd = isLast ? (t.from + t.durationInFrames) : (t.from + t.durationInFrames - transitionDuration);
+        return frame >= t.from && frame < effectiveEnd;
     });
 
     if (!active || !active.script_text) return null;
@@ -188,15 +184,13 @@ const SegmentContainer: React.FC<{
     layer?: 'background' | 'foreground' | 'both';
 }> = ({ segment, isFirst, transitionDuration, transitionType, isShortsMode, layer = 'both' }) => {
     const frame = useCurrentFrame();
-    const { width, height } = useVideoConfig();
+    const { width } = useVideoConfig();
 
+    // Fundamental Stability: No backgrounds, no will-change on static items, no expensive filters
     const containerStyle: React.CSSProperties = {
         width: '100%',
         height: '100%',
-        willChange: 'transform, opacity'
     };
-
-    let filter = 'none';
 
     if (!isFirst && transitionDuration > 0) {
         const progress = interpolate(frame, [0, transitionDuration], [0, 1], {
@@ -207,10 +201,10 @@ const SegmentContainer: React.FC<{
 
         if (transitionType === 'slide') {
             containerStyle.transform = `translateX(${interpolate(progress, [0, 1], [width, 0])}px)`;
-            const blur = interpolate(frame, [0, transitionDuration / 2, transitionDuration], [0, 10, 0], { extrapolateRight: 'clamp' });
-            if (frame < transitionDuration) filter = `blur(${blur}px)`;
+            containerStyle.willChange = 'transform';
         } else if (transitionType === 'fade') {
             containerStyle.opacity = progress;
+            containerStyle.willChange = 'opacity';
         } else if (transitionType === 'wipe') {
             containerStyle.clipPath = `inset(0 0 0 ${interpolate(progress, [0, 1], [100, 0])}%)`;
         }
@@ -243,18 +237,19 @@ const SegmentContainer: React.FC<{
                         aspectRatio: '16/9',
                         borderRadius: '12px',
                         overflow: 'hidden'
+                        // box-shadow removed because it causes alpha-stacking darkening under subtitles
                     }}>
                         {renderMedia('cover')}
                     </div>
                 )}
-                {/* Audio only in foreground layer to prevent double audio */}
                 {(layer === 'foreground' || layer === 'both') && segment.audio_url && <Audio src={segment.audio_url} />}
             </AbsoluteFill>
         );
     }
 
+    // ORIGINAL (Horizontal) Mode - Rock-Solid Layout
     return (
-        <AbsoluteFill style={{ ...containerStyle, filter }}>
+        <AbsoluteFill style={containerStyle}>
             <div style={{ position: 'absolute', inset: 0 }}>
                 {renderMedia('cover')}
             </div>
