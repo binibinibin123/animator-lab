@@ -795,35 +795,37 @@ export default function PreviewPage() {
                                 <span>🎉 렌더링 성공!</span>
                             </div>
 
-                            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl mb-6 border border-blue-100 dark:border-blue-800">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                                    <h3 className="font-semibold text-blue-900 dark:text-blue-100">AI Curation Complete</h3>
-                                </div>
-                                <p className="text-sm text-blue-800 dark:text-blue-200 mb-3 leading-relaxed">
-                                    {shortsPlan.reasoning || 'AI has selected the optimal segments for higher engagement.'}
-                                </p>
-
-                                {/* Title Editor */}
-                                <div className="mt-3">
-                                    <label className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1 block">
-                                        Generated Viral Title
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={shortsTitle}
-                                        onChange={(e) => setShortsTitle(e.target.value)}
-                                        className="w-full text-lg font-bold p-2 rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                                    />
-                                </div>
-
-                                <div className="flex items-center gap-2 mt-3 text-xs text-blue-600 dark:text-blue-400 font-medium">
-                                    <div className="px-2 py-0.5 bg-blue-200 dark:bg-blue-800 rounded">
-                                        {shortsPlan.selectedSegmentIds.length} Segments
+                            {shortsPlan && (
+                                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl mb-6 border border-blue-100 dark:border-blue-800">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                        <h3 className="font-semibold text-blue-900 dark:text-blue-100">AI Curation Complete</h3>
                                     </div>
-                                    <span>selected from original video</span>
+                                    <p className="text-sm text-blue-800 dark:text-blue-200 mb-3 leading-relaxed">
+                                        {shortsPlan.reasoning || 'AI has selected the optimal segments for higher engagement.'}
+                                    </p>
+
+                                    {/* Title Editor */}
+                                    <div className="mt-3">
+                                        <label className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1 block">
+                                            Generated Viral Title
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={shortsTitle}
+                                            onChange={(e) => setShortsTitle(e.target.value)}
+                                            className="w-full text-lg font-bold p-2 rounded border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center gap-2 mt-3 text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                        <div className="px-2 py-0.5 bg-blue-200 dark:bg-blue-800 rounded">
+                                            {shortsPlan.selectedSegmentIds.length} Segments
+                                        </div>
+                                        <span>selected from original video</span>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
 
                             <div className="overflow-hidden rounded-xl bg-black aspect-video border border-gray-100">
                                 <video
