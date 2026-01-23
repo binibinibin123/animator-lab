@@ -19,7 +19,7 @@ export default function VideoPage() {
     const { generatingIds, logs, startPolling, addLog, resumePendingJobs, addGeneratingId, removeGeneratingId, lastCompletedJob } = useVideoPolling();
     const [selectedModel, setSelectedModel] = useState<'hailuo' | 'kling'>('hailuo');
     const [selectedProvider] = useState<'comfyui'>('comfyui');
-    const [selectedWorkflow, setSelectedWorkflow] = useState<string>('rapid-aio-mega-sage');
+    const [selectedWorkflow, setSelectedWorkflow] = useState<string>('rapid-aio-mega-sage-2');
 
     // Persistence logic for workflow
     useEffect(() => {
@@ -174,50 +174,51 @@ export default function VideoPage() {
         setIsLoading(false);
     };
 
-    // Lazy load media for segments one by one to avoid timeout
+    // Optimized batch loader
     const loadMediaForSegments = async (initialSegments: Segment[]) => {
-        console.log('[VideoPage] Starting background media loading...');
+        if (initialSegments.length === 0) return;
 
-        // Process in small batches or one by one
-        for (const seg of initialSegments) {
-            try {
-                const { data, error } = await supabase
-                    .from('segments')
-                    .select('id, image_url, video_url')
-                    .eq('id', seg.id)
-                    .single();
+        console.log('[VideoPage] Starting background media loading (batch)...');
 
-                if (data && !error) {
-                    const typedData = data as any;
-                    setSegments(prev => prev.map(s =>
-                        s.id === typedData.id ? { ...s, image_url: typedData.image_url, video_url: typedData.video_url } : s
-                    ));
-                }
-            } catch (e) {
-                console.warn(`[VideoPage] Failed to load media for segment ${seg.id}`, e);
+        try {
+            const ids = initialSegments.map(s => s.id);
+            const { data, error } = await supabase
+                .from('segments')
+                .select('id, image_url, video_url')
+                .in('id', ids);
+
+            if (data && !error) {
+                // Create a map for faster lookup
+                const mediaMap = new Map(data.map((item: any) => [item.id, item]));
+
+                setSegments(prev => prev.map(s => {
+                    const media = mediaMap.get(s.id);
+                    if (media) {
+                        return { ...s, image_url: media.image_url, video_url: media.video_url };
+                    }
+                    return s;
+                }));
+            } else {
+                console.error('[VideoPage] Batch media load error:', error);
             }
-            // Small delay to be gentle on the DB
-            await new Promise(resolve => setTimeout(resolve, 50));
+        } catch (e) {
+            console.error('[VideoPage] Batch media load exception:', e);
         }
 
-        const videoCount = segments.filter(s => s.video_url).length; // Note: using s.video_url from loop scope might be tricky if state not updated yet. 
-        // Better to check filtered list if possible, but state update is async.
-        // Actually, let's just use the simple log for now if this is hard to match.
-        // Wait, I can calculate based on what I just loaded? No, too complex.
-        // Let's just blindly replace the log line.
-        console.log('[VideoPage] Background media loading complete');
-        addLog('info', '미디어 로드 완료 (백그라운드)');
+        console.log('[VideoPage] Media loading complete');
+        addLog('info', '미디어 데이터 동기화 완료');
     };
 
     // Polling logic moved to Context
 
-    const handleGenerateVideo = async (segment: Segment, waitForCompletion = false, manualPrompt?: string): Promise<boolean> => {
+    const handleGenerateVideo = async (segment: Segment, waitForCompletion = false, manualPrompt?: string, workflowOverride?: string): Promise<boolean> => {
         if (!segment.image_url) {
             alert('이미지를 먼저 생성해 주세요.');
             return false;
         }
 
-        const logLabel = selectedProvider === 'comfyui' ? selectedWorkflow : selectedModel;
+        const effectiveWorkflow = workflowOverride || selectedWorkflow;
+        const logLabel = selectedProvider === 'comfyui' ? effectiveWorkflow : selectedModel;
         const promptToUse = manualPrompt !== undefined ? manualPrompt : (segment.video_prompt || 'auto');
 
         // Optimistically show spinner via Context
@@ -242,7 +243,7 @@ export default function VideoPage() {
                     provider: selectedProvider,
                     motion: promptToUse,
                     segmentId: segment.id,
-                    workflowId: selectedProvider === 'comfyui' ? selectedWorkflow : undefined
+                    workflowId: selectedProvider === 'comfyui' ? effectiveWorkflow : undefined
                 }),
             });
 
@@ -356,10 +357,29 @@ export default function VideoPage() {
                 console.log(`[AutoAdvance] Queueing ${i + 1}/${pendingSegments.length}`);
             }
 
-            // Create submission promise
-            // Pass 'undefined' for manualPrompt so it uses segment.video_prompt (DB) or 'auto'
-            const p = handleGenerateVideo(seg, false, undefined).then(() => {
-                // When submission is done (not generation, just API call)
+            // Create submission promise with Fallback Logic
+            const p = (async () => {
+                // Determine workflows (V1 <-> V2 fallback)
+                const currentWorkflow = selectedWorkflow; // use state or ref
+                const fallbackWorkflow = currentWorkflow === 'rapid-aio-mega-sage-2'
+                    ? 'rapid-aio-mega-sage'
+                    : 'rapid-aio-mega-sage-2';
+
+                // Try Primary
+                let success = await handleGenerateVideo(seg, false, undefined, currentWorkflow);
+
+                // Try Fallback if failed
+                if (!success && isGlobalGeneratingRef.current) {
+                    addLog('warn', `⚠️ [Fallback] ${currentWorkflow} 실패. ${fallbackWorkflow}로 재시도합니다...`);
+                    await new Promise(r => setTimeout(r, 2000)); // chill for 2s
+                    success = await handleGenerateVideo(seg, false, undefined, fallbackWorkflow);
+                }
+
+                if (!success) {
+                    addLog('error', `❌ [Final] 세그먼트 #${seg.order_index + 1} 생성 최종 실패.`);
+                }
+            })().then(() => {
+                // When submission is done
                 activePromises.delete(p);
             });
 
@@ -375,11 +395,9 @@ export default function VideoPage() {
 
         addLog('success', `🎉 현재 배치 요청 완료!`);
 
-        // Watchdog: Check if any items remain ungenerated
-        // Use REFS again for fresh check
+        // ... (watchdog logic remains same)
         const freshSegments = segmentsRef.current;
         const freshGeneratingIds = generatingIdsRef.current;
-
         const remainingStragglers = freshSegments.filter(s => !s.video_url && !freshGeneratingIds.has(s.id));
 
         if (remainingStragglers.length > 0 && isGlobalGeneratingRef.current) {
@@ -390,7 +408,6 @@ export default function VideoPage() {
             addLog('success', `🎉 모든 영상 생성 완료!`);
             setIsGlobalGenerating(false);
         } else {
-            // Maybe user stopped it, or generatingIds has them
             if (!isGlobalGeneratingRef.current) {
                 addLog('warn', '🛑 전체 생성 중단됨');
             } else {
