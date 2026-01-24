@@ -4,9 +4,26 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Channels table (NEW)
+CREATE TABLE IF NOT EXISTS channels (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  description TEXT,
+  type TEXT DEFAULT 'youtube',
+  visual_persona_url TEXT,
+  style_preset TEXT DEFAULT 'anime',
+  voice_id TEXT,
+  topic_source TEXT DEFAULT 'manual',
+  rss_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Projects table
 CREATE TABLE IF NOT EXISTS projects (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  channel_id UUID REFERENCES channels(id) ON DELETE SET NULL, -- NEW
+  is_test_run BOOLEAN DEFAULT false, -- NEW
   title TEXT NOT NULL,
   topic TEXT NOT NULL,
   aspect_ratio TEXT DEFAULT '16:9' CHECK (aspect_ratio IN ('16:9', '1:1', '3:4', '9:16')),
@@ -15,8 +32,8 @@ CREATE TABLE IF NOT EXISTS projects (
   duration INTEGER DEFAULT 60,
   video_url TEXT,
   thumbnail_url TEXT,
-  autopilot_status TEXT, -- 'generating_script', 'generating_voice', 'generating_images', 'completed', 'failed'
-  autopilot_progress INTEGER DEFAULT 0, -- 0 to 100
+  autopilot_status TEXT, 
+  autopilot_progress INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -30,9 +47,12 @@ CREATE TABLE IF NOT EXISTS segments (
   audio_url TEXT,
   image_url TEXT,
   video_url TEXT,
-  visual_description TEXT, -- AI-generated visual description
+  visual_description TEXT,
   duration_ms INTEGER,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  upscaled_video_url TEXT, -- Added from codebase analysis
+  video_prompt TEXT,       -- Added from codebase analysis
+  video_provider_override TEXT -- Added from codebase analysis
 );
 
 -- Index for faster segment queries
@@ -52,6 +72,13 @@ $$ language 'plpgsql';
 DROP TRIGGER IF EXISTS update_projects_updated_at ON projects;
 CREATE TRIGGER update_projects_updated_at
   BEFORE UPDATE ON projects
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- Apply trigger to channels table
+DROP TRIGGER IF EXISTS update_channels_updated_at ON channels;
+CREATE TRIGGER update_channels_updated_at
+  BEFORE UPDATE ON channels
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
@@ -87,7 +114,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
 CREATE TABLE IF NOT EXISTS video_jobs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   segment_id UUID REFERENCES segments(id) ON DELETE CASCADE,
-  external_job_id TEXT, -- ComfyUI prompt_id or Fal request_id
+  external_job_id TEXT, 
   provider TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
   progress FLOAT DEFAULT 0,

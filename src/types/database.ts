@@ -12,9 +12,52 @@ export type Json =
 export type Database = {
     public: {
         Tables: {
+            channels: {
+                Row: {
+                    id: string;
+                    name: string;
+                    description: string | null;
+                    type: string | null;
+                    visual_persona_url: string | null;
+                    style_preset: string | null;
+                    voice_id: string | null;
+                    topic_source: string | null;
+                    rss_url: string | null;
+                    created_at: string;
+                    updated_at: string;
+                };
+                Insert: {
+                    id?: string;
+                    name: string;
+                    description?: string | null;
+                    type?: string | null;
+                    visual_persona_url?: string | null;
+                    style_preset?: string | null;
+                    voice_id?: string | null;
+                    topic_source?: string | null;
+                    rss_url?: string | null;
+                    created_at?: string;
+                    updated_at?: string;
+                };
+                Update: {
+                    id?: string;
+                    name?: string;
+                    description?: string | null;
+                    type?: string | null;
+                    visual_persona_url?: string | null;
+                    style_preset?: string | null;
+                    voice_id?: string | null;
+                    topic_source?: string | null;
+                    rss_url?: string | null;
+                    created_at?: string;
+                    updated_at?: string;
+                };
+            };
             projects: {
                 Row: {
                     id: string;
+                    channel_id: string | null; // NEW
+                    is_test_run: boolean; // NEW
                     title: string;
                     topic: string;
                     aspect_ratio: string;
@@ -31,6 +74,8 @@ export type Database = {
                 };
                 Insert: {
                     id?: string;
+                    channel_id?: string | null;
+                    is_test_run?: boolean;
                     title: string;
                     topic: string;
                     aspect_ratio?: string;
@@ -47,6 +92,8 @@ export type Database = {
                 };
                 Update: {
                     id?: string;
+                    channel_id?: string | null;
+                    is_test_run?: boolean;
                     title?: string;
                     topic?: string;
                     aspect_ratio?: string;
@@ -156,6 +203,10 @@ export type Database = {
         Enums: Record<string, never>;
     };
 };
+
+export type Channel = Database['public']['Tables']['channels']['Row'];
+export type ChannelInsert = Database['public']['Tables']['channels']['Insert'];
+export type ChannelUpdate = Database['public']['Tables']['channels']['Update'];
 
 export type Project = Database['public']['Tables']['projects']['Row'];
 export type ProjectInsert = Database['public']['Tables']['projects']['Insert'];
