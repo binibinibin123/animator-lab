@@ -28,7 +28,60 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // Initialize Bot (Polling Mode)
 const bot = new TelegramBot(token, { polling: true });
 
-console.log('🤖 AutoVideo Bot is running...');
+// Notification State
+const notifiedProjects = new Set<string>();
+
+// Initialize and Start Polling
+async function startBot() {
+    console.log('🤖 AutoVideo Bot is running...');
+
+    // 1. Initial Load: Mark existing completed projects as 'notified' to avoid spam on restart
+    const { data: existing } = await supabase
+        .from('projects')
+        .select('id')
+        .not('video_url', 'is', null);
+
+    if (existing) {
+        existing.forEach(p => notifiedProjects.add(p.id));
+        console.log(`[Bot] Loaded ${existing.length} already completed projects.`);
+    }
+
+    // 2. Poll for new completions every 30 seconds
+    setInterval(checkCompletions, 30000);
+}
+
+startBot();
+
+// Loop Function
+async function checkCompletions() {
+    if (!allowedUserId) return;
+
+    try {
+        const { data: projects } = await supabase
+            .from('projects')
+            .select('id, title, video_url, is_test_run')
+            .not('video_url', 'is', null)
+            .order('updated_at', { ascending: false })
+            .limit(10); // Check recent only
+
+        if (!projects) return;
+
+        for (const p of projects) {
+            if (!notifiedProjects.has(p.id)) {
+                // New Completion!
+                notifiedProjects.add(p.id);
+
+                const typeLabel = p.is_test_run ? '🧪 Test Run' : '⚡ Project';
+                const msg = `✅ **${typeLabel} Completed!**\n\n**${p.title}**\n\n🎥 Video: ${p.video_url}`;
+
+                bot.sendMessage(allowedUserId, msg, { parse_mode: 'Markdown' });
+                console.log(`[Bot] Sent notification for ${p.id}`);
+            }
+        }
+    } catch (e) {
+        console.error('[Bot] Polling Error:', e);
+    }
+}
 
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
