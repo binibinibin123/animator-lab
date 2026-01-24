@@ -1,13 +1,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { generateRawText } from '@/lib/ai/gemini';
+import { getRealTags } from '@/lib/youtube-tags';
+import { createServerClient } from '@/lib/supabase';
 
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { projectId, scriptText } = body;
+        const { projectId, scriptText, mode = 'all' } = body;
 
-        console.log('[Metadata API] Generating metadata for project:', projectId);
+        console.log(`[Metadata API] Generating ${mode} for project:`, projectId);
 
         if (!projectId || !scriptText) {
             return NextResponse.json({ error: 'Missing projectId or scriptText' }, { status: 400 });
@@ -16,47 +18,78 @@ export async function POST(request: NextRequest) {
         // 1. Language Detection (Strict)
         const koreanCharCount = (scriptText.match(/[가-힣]/g) || []).length;
         const totalCharCount = scriptText.length;
-        const isKorean = (koreanCharCount / totalCharCount) > 0.1; // >10% Korean chars
-        const targetLang = isKorean ? 'Korean (한국어)' : 'English';
+        const isKorean = (koreanCharCount / totalCharCount) > 0.1;
+        const targetLang = isKorean ? 'Korean' : 'English';
 
-        console.log(`[Metadata API] Detected Language: ${targetLang} (Korean chars: ${koreanCharCount}/${totalCharCount})`);
+        let resultMetadata: any = {};
 
-        // 2. System Prompt with "Loss Aversion" + "Language Enforcement"
-        const prompt = `
-            You are a YouTube Marketing Expert specializing in "Loss Aversion" psychology.
-            Analyze the following video script and generate viral metadata.
+        // 2. Logic Split based on Mode
+        if (mode === 'all' || mode === 'titles' || mode === 'description') {
+            // Generate Titles/Description via LLM
+            const prompt = `
+                You are a YouTube Marketing Expert specializing in "Loss Aversion" psychology.
+                Analyze the script and generate viral metadata.
+                
+                LANGUAGE: ${targetLang.toUpperCase()} ONLY.
+                TASKS:
+                ${(mode === 'all' || mode === 'titles') ? `- Generate 5 Provocative Titles (Loss Aversion, FOMO).` : ''}
+                ${(mode === 'all' || mode === 'description') ? `- Generate a hook-heavy 3-sentence Description.` : ''}
 
-            CRITICAL INSTRUCTION:
-            - **OUTPUT MUST BE IN ${targetLang.toUpperCase()} ONLY.**
-            - If the script is Korean, the Titles and Description MUST be Korean.
-            - If the script is English, the Titles and Description MUST be English.
-            - Do NOT translate unless the target language is different from the input.
+                INPUT SCRIPT:
+                ${scriptText.slice(0, 1000)}...
 
-            STRATEGY (Loss Aversion):
-            - Focus on what the viewer LOSES by not watching (FOMO).
-            - Use negative framing (e.g., "Why you are failing...", "Don't do this...").
-            - ${isKorean ? 'Use Korean YouTube trends (e.g., "충격", "이유", "결국").' : 'Use uppercase for key words.'}
+                OUTPUT FORMAT (JSON only):
+                {
+                    ${(mode === 'all' || mode === 'titles') ? `"titles": ["Title 1", ...],` : ''}
+                    ${(mode === 'all' || mode === 'description') ? `"description": "Description text...",` : ''}
+                    ${mode === 'all' ? `"seed_keywords": ["A", "B"]` : ''} 
+                }
+            `;
 
-            INPUT SCRIPT:
-            ${scriptText.slice(0, 1000)}...
+            // Note: If mode is ALL, we also ask for seed_keywords here to save a call
 
-            OUTPUT FORMAT (JSON only):
-            {
-                "titles": [
-                    "Provocative Title 1",
-                    "Provocative Title 2",
-                    "Provocative Title 3..."
-                ],
-                "description": "2-3 sentences of hook-heavy description followed by hashtags.",
-                "tags": "comma, separated, tags, max, 10"
+            const jsonStr = await generateRawText(prompt);
+            const cleanJson = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
+            const aiData = JSON.parse(cleanJson);
+
+            if (aiData.titles) resultMetadata.titles = aiData.titles;
+            if (aiData.description) resultMetadata.description = aiData.description;
+            if (aiData.seed_keywords) resultMetadata.seed_keywords = aiData.seed_keywords;
+        }
+
+        // 3. Tags Generation (Separate Logic involved)
+        if (mode === 'all' || mode === 'tags') {
+            let seedKeywords = resultMetadata.seed_keywords;
+
+            // If we didn't get seeds from the previous step (e.g. mode='tags' only), ask LLM for seeds now
+            if (!seedKeywords) {
+                const seedPrompt = `
+                    Analyze script and extract 5 broad "Seed Keywords" for YouTube Search.
+                    LANGUAGE: ${targetLang}
+                    SCRIPT: ${scriptText.slice(0, 500)}...
+                    OUTPUT JSON: { "seed_keywords": ["k1", "k2", "k3", "k4", "k5"] }
+                `;
+                const seedJson = await generateRawText(seedPrompt);
+                try {
+                    seedKeywords = JSON.parse(seedJson.replace(/```json/g, '').replace(/```/g, '').trim()).seed_keywords;
+                } catch (e) {
+                    seedKeywords = [isKorean ? '투자' : 'Investment']; // Fallback
+                }
             }
-        `;
 
-        const jsonStr = await generateRawText(prompt);
-        const cleanJson = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
-        const metadata = JSON.parse(cleanJson);
+            console.log('[Metadata API] Fetching real tags for seeds:', seedKeywords);
 
-        return NextResponse.json({ metadata });
+            let realTags: string[] = [];
+            if (seedKeywords && Array.isArray(seedKeywords)) {
+                const promises = seedKeywords.map((seed: string) => getRealTags(seed, targetLang));
+                const results = await Promise.all(promises);
+                const allTags = results.flat();
+                realTags = Array.from(new Set(allTags)).slice(0, 15);
+            }
+            resultMetadata.tags = realTags.join(', ');
+        }
+
+        return NextResponse.json({ metadata: resultMetadata });
 
     } catch (error: any) {
         console.error('[Metadata API] Error:', error);

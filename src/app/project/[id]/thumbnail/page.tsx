@@ -109,6 +109,36 @@ export default function ThumbnailPage() {
         }
     };
 
+    const handleRegeneratePart = async (part: 'titles' | 'description' | 'tags') => {
+        if (!projectData || !metadata) return;
+
+        const originalText = part === 'titles' ? '제목' : part === 'description' ? '설명' : '태그';
+        const confirmMsg = `${originalText}만 다시 생성하시겠습니까?`;
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            const scriptInput = fullScriptText || projectData.topic || '';
+            const res = await fetch('/api/metadata/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    projectId,
+                    scriptText: scriptInput,
+                    mode: part
+                })
+            });
+
+            const data = await res.json();
+            if (data.metadata) {
+                setMetadata(prev => ({ ...prev!, ...data.metadata }));
+                alert(`${originalText} 재생성 완료!`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('재생성 실패');
+        }
+    };
+
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text);
         alert('복사되었습니다! 📋');
@@ -169,7 +199,10 @@ export default function ThumbnailPage() {
                     {metadata ? (
                         <div className="space-y-6 bg-white p-6 rounded-xl border shadow-sm">
                             <div className="space-y-3">
-                                <label className="text-sm font-medium text-gray-500">🔥 클릭을 부르는 제목 (5종)</label>
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-medium text-gray-500">🔥 클릭을 부르는 제목 (5종)</label>
+                                    <button onClick={() => handleRegeneratePart('titles')} className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded">🔄 제목만 재생성</button>
+                                </div>
                                 {metadata.titles.map((title, i) => (
                                     <div key={i} className="flex gap-2">
                                         <input readOnly value={title} className="flex-1 px-3 py-2 bg-gray-50 border rounded-lg text-gray-800 text-sm focus:ring-2 focus:ring-violet-500" />
@@ -180,14 +213,20 @@ export default function ThumbnailPage() {
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center">
                                     <label className="text-sm font-medium text-gray-500">📄 설명</label>
-                                    <button onClick={() => copyToClipboard(metadata.description)} className="text-xs text-violet-600 hover:underline">전체 복사</button>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleRegeneratePart('description')} className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded">🔄 설명만 재생성</button>
+                                        <button onClick={() => copyToClipboard(metadata.description)} className="text-xs text-violet-600 hover:underline">전체 복사</button>
+                                    </div>
                                 </div>
                                 <textarea readOnly value={metadata.description} rows={5} className="w-full px-3 py-2 bg-gray-50 border rounded-lg text-gray-800 text-sm resize-none focus:ring-2 focus:ring-violet-500" />
                             </div>
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center">
-                                    <label className="text-sm font-medium text-gray-500">🏷️ 태그</label>
-                                    <button onClick={() => copyToClipboard(metadata.tags)} className="text-xs text-violet-600 hover:underline">복사</button>
+                                    <label className="text-sm font-medium text-gray-500">🏷️ 태그 (실시간 검색어)</label>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleRegeneratePart('tags')} className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded">🔄 태그만 재생성</button>
+                                        <button onClick={() => copyToClipboard(metadata.tags)} className="text-xs text-violet-600 hover:underline">복사</button>
+                                    </div>
                                 </div>
                                 <div className="flex gap-2">
                                     <input readOnly value={metadata.tags} className="flex-1 px-3 py-2 bg-gray-50 border rounded-lg text-gray-800 text-sm focus:ring-2 focus:ring-violet-500" />
