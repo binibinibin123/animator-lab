@@ -61,6 +61,8 @@ export default function ScriptPage() {
     const [segments, setSegments] = useState<Segment[]>([]);
     const [projectStyle, setProjectStyle] = useState<string>('anime'); // Image style from project
 
+    const [projectInfo, setProjectInfo] = useState<{ is_test_run: boolean; autopilot_status: string } | null>(null);
+
     // Load existing data
     useEffect(() => {
         const fetchProjectAndSegments = async () => {
@@ -71,16 +73,20 @@ export default function ScriptPage() {
             // Fetch project info
             const { data: projectData, error: projectError } = await supabase
                 .from('projects')
-                .select('title, topic, duration, style')
+                .select('title, topic, duration, style, is_test_run, autopilot_status')
                 .eq('id', projectId)
                 .single();
 
-            const project = projectData as { title: string; topic: string; duration: number; style: string } | null;
+            const project = projectData as any; // simplified typing
 
             if (project && !projectError) {
                 setTitle(project.title || '');
                 if (project.duration) setDuration(project.duration);
                 if (project.style) setProjectStyle(project.style);
+                setProjectInfo({
+                    is_test_run: project.is_test_run,
+                    autopilot_status: project.autopilot_status
+                });
             }
 
             // Fetch existing segments (generated script)
@@ -106,6 +112,17 @@ export default function ScriptPage() {
 
         fetchProjectAndSegments();
     }, [projectId]);
+
+    // Auto-Advance logic
+    useEffect(() => {
+        if (hasExistingScript && projectInfo && (projectInfo.is_test_run || projectInfo.autopilot_status === 'generating')) {
+            console.log('Auto-advancing to Voice page...');
+            const timer = setTimeout(() => {
+                router.push(`/project/${projectId}/voice?autopilot=true`);
+            }, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [hasExistingScript, projectInfo, projectId, router]);
 
     const handleGenerate = async () => {
         if (!script) {

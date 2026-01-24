@@ -64,6 +64,36 @@ Archie와 Hackie의 토론을 통해 **"채널 = 프로젝트 팩토리(Channel 
     3.  **Script Gen**: 6초 분량(약 1~2문장) 대본 생성 -> 자동으로 1개 세그먼트만 생성됨.
     4.  **Auto Advance**: 기존 오토파일럿 로직이 "세그먼트가 1개뿐인 프로젝트"를 감지하고 순식간에 처리.
 
+## Phase 2.5: YouTube Channel Cloning (Completed)
+#### [NEW] [src/app/api/analyze-youtube/route.ts](file:///e:/coding/0118/autovideo/src/app/api/analyze-youtube/route.ts)
+*   **Input**: YouTube URL.
+*   **Logic**: Scrape -> Gemini Analyze -> JSON return.
+
+#### [MODIFY] [src/app/channels/new/page.tsx](file:///e:/coding/0118/autovideo/src/app/channels/new/page.tsx)
+*   Top section for URL input.
+*   Auto-populate form fields.
+
+## Phase 3: Core Logic & Topic Sources
+
+### Channel UX Improvements
+#### [NEW] [src/components/voice/VoiceSelector.tsx](file:///e:/coding/0118/autovideo/src/components/voice/VoiceSelector.tsx)
+- Extract voice selection grid from `VoicePage`.
+- Use in `NewChannelPage` and `EditChannelPage`.
+
+#### [NEW] [src/components/channel/ChannelForm.tsx](file:///e:/coding/0118/autovideo/src/components/channel/ChannelForm.tsx)
+- Reusable form for Create/Edit.
+
+#### [NEW] [src/app/channels/[id]/edit/page.tsx](file:///e:/coding/0118/autovideo/src/app/channels/%5Bid%5D/edit/page.tsx)
+- Page to load existing channel and render `ChannelForm`.
+
+#### [NEW] [src/components/dashboard/CreateProjectModal.tsx](file:///e:/coding/0118/autovideo/src/components/dashboard/CreateProjectModal.tsx)
+- Modal appearing when clicking "Auto Generate".
+- Inputs: Topic (override), Duration (slider/input).
+
+#### [MODIFY] [src/app/channels/page.tsx](file:///e:/coding/0118/autovideo/src/app/channels/page.tsx)
+- Add "Edit" button to Channel cards.
+- Connect "Auto Generate" button to `CreateProjectModal`.
+
 ## Verification Plan
 
 ### Automated Tests
@@ -75,3 +105,7 @@ Archie와 Hackie의 토론을 통해 **"채널 = 프로젝트 팩토리(Channel 
 2.  **원샷 테스트**: [테스트 실행] 버튼 클릭 -> 1분 내에 1컷짜리 영상 완성되는지 확인.
 3.  **톤 일관성**: 첫 번째 프로젝트(수동 생성)와 두 번째 프로젝트(자동 생성)의 대본 어투 비교.
 4.  **RSS 연동**: RSS 업데이트 후 [자동 생성] 클릭 시 해당 뉴스 내용으로 대본 나오는지 확인.
+### Manual Verification
+1. **Voice Preview**: Go to `/channels/new`, verify voice list loads and plays audio.
+2. **Edit Channel**: Create a channel, click Edit, change name/voice, save. Verify updates.
+3. **Auto Generate**: Click ⚡, set duration to 30s. Verify generated project has 30s duration.

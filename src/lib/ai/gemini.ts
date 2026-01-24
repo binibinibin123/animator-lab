@@ -145,8 +145,16 @@ export async function generateScript(
     durationSeconds: number,
     style: string = 'informative',
     language: string = 'ko',
-    persona: string = 'finance'
+    persona: string = 'finance',
+    referenceSample?: string,
+    isTestRun: boolean = false
 ): Promise<ScriptGenerationResult> {
+    // If test run, force 6 seconds (enough for 1-2 segments)
+    if (isTestRun) {
+        durationSeconds = 6;
+        console.log('[ScriptGen] Test Run detected: Duration forced to 6s');
+    }
+
     // Revert to fixed 4s pacing as requested
     const calculatedPacing = 4;
     const segmentCount = Math.ceil(durationSeconds / calculatedPacing);
@@ -168,6 +176,21 @@ export async function generateScript(
     const languageInstruction = language === 'ko'
         ? 'IMPORTANT: You MUST write the entire script in KOREAN (한국어).'
         : 'IMPORTANT: You MUST write the entire script in ENGLISH.';
+
+    // Tone Cloning Instruction
+    let toneInstruction = '';
+    if (referenceSample) {
+        toneInstruction = `
+TONE CLONING INSTRUCTION:
+Review the following writing style sample from a previous script. 
+You MUST clone this style (sentence length, vocabulary, attitude, ending pattern) EXACTLY.
+Do not just copy the text, but copy the "Soul" of the writing.
+
+[REFERENCE SAMPLE START]
+${referenceSample.slice(0, 500)}...
+[REFERENCE SAMPLE END]
+`;
+    }
 
     // Style-specific visual instructions
     let styleInstruction = '';
@@ -198,6 +221,8 @@ ALL visual descriptions MUST focus on the main character: **'a white 3D stickman
     const prompt = `
 ${personaPrompt}
 
+${toneInstruction}
+
 ${styleInstruction}
 
 Output format:
@@ -218,6 +243,7 @@ CRITICAL RULES FOR PACING AND LENGTH (Follow strictly):
    - Bad: "The economy is crashing because interest rates are rising." (1 segment)
    - Good: "The economy is crashing." (Segment 1) + "Why? Because interest rates are rising." (Segment 2)
 5. **VISUAL VARIETY**: Every segment needs a NEW visual description. Do not repeat the same visual for consecutive segments.
+6. **LOGICAL FLOW**: Ensure smooth transitions between cuts.
 
 ---
 
@@ -268,8 +294,8 @@ Respond in JSON format:
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`[ScriptGen] Gemini API Error: ${response.status}`, errorText);
-            throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+            console.error(`[ScriptGen] Gemini API Error: ${response.status} `, errorText);
+            throw new Error(`Gemini API error: ${response.status} - ${errorText} `);
         }
 
         const data = await response.json();
@@ -333,6 +359,33 @@ Respond in JSON format:
     } catch (error) {
         console.error('Gemini API error:', error);
         throw error;
+    }
+}
+
+export async function generateTopic(channelDescription: string): Promise<string> {
+    const prompt = `
+Generate a single, provocative, short video topic based on this channel description:
+"${channelDescription}"
+
+The topic should be surprising, specific, and suitable for a 1-minute YouTube Short.
+Output ONLY the topic text. No quotes, no intro.
+Language: Korean.
+`;
+
+    try {
+        const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+            }),
+        });
+
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'AI News';
+    } catch (e) {
+        console.error('Generate Topic Error:', e);
+        return 'AI Issue';
     }
 }
 

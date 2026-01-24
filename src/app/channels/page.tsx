@@ -2,12 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { Channel } from '@/types/database';
+import CreateProjectModal, { ProjectConfig } from '@/components/dashboard/CreateProjectModal';
 
 export default function ChannelsPage() {
+    const router = useRouter();
     const [channels, setChannels] = useState<Channel[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [processingId, setProcessingId] = useState<string | null>(null);
 
     useEffect(() => {
         fetchChannels();
@@ -24,6 +28,52 @@ export default function ChannelsPage() {
             setChannels(data as Channel[]);
         }
         setIsLoading(false);
+    };
+
+    const [modalConfig, setModalConfig] = useState<{ isOpen: boolean; channelId: string; channelName: string; isTestRun: boolean } | null>(null);
+
+    const openModal = (channelId: string, channelName: string, isTestRun: boolean) => {
+        setModalConfig({
+            isOpen: true,
+            channelId,
+            channelName,
+            isTestRun
+        });
+    };
+
+    const closeModal = () => {
+        setModalConfig(null);
+    };
+
+    const handleStartProject = async (config: ProjectConfig) => {
+        if (!modalConfig || processingId) return;
+
+        const { channelId, isTestRun } = modalConfig;
+        closeModal();
+        setProcessingId(channelId);
+
+        try {
+            const res = await fetch('/api/project', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    channel_id: channelId,
+                    isTestRun: isTestRun,
+                    duration: config.duration,
+                    topic: config.topicOverride
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to create project');
+
+            // Redirect to project page
+            router.push(`/project/${data.project.id}`);
+        } catch (e: any) {
+            console.error('Automation failed:', e);
+            alert('자동 생성 실패: ' + e.message);
+            setProcessingId(null);
+        }
     };
 
     const handleDelete = async (e: React.MouseEvent, channelId: string) => {
@@ -119,6 +169,15 @@ export default function ChannelsPage() {
                                     <div className="absolute bottom-4 left-4 text-white">
                                         <h3 className="text-xl font-bold shadow-black drop-shadow-md">{channel.name}</h3>
                                     </div>
+
+                                    {/* Loading Overlay */}
+                                    {processingId === channel.id && (
+                                        <div className="absolute inset-0 bg-violet-900/80 flex flex-col items-center justify-center text-white z-10 backdrop-blur-sm">
+                                            <div className="animate-spin text-3xl mb-2">⚡</div>
+                                            <span className="font-bold">생성 중...</span>
+                                            <span className="text-xs opacity-75">AI가 대본을 쓰고 있습니다</span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Content */}
@@ -139,15 +198,31 @@ export default function ChannelsPage() {
                                     </div>
 
                                     <div className="mt-auto flex gap-2">
-                                        <button className="flex-1 py-2.5 bg-violet-600 text-white text-sm font-bold rounded-lg hover:bg-violet-700 transition-colors flex items-center justify-center gap-2">
+                                        <button
+                                            onClick={() => openModal(channel.id, channel.name, false)}
+                                            disabled={!!processingId}
+                                            className="flex-1 py-2.5 bg-violet-600 text-white text-sm font-bold rounded-lg hover:bg-violet-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                                        >
                                             <span>⚡</span> 자동 생성
                                         </button>
-                                        <button className="flex-1 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-bold rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors">
+                                        <button
+                                            onClick={() => openModal(channel.id, channel.name, true)}
+                                            disabled={!!processingId}
+                                            className="flex-1 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-bold rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50"
+                                        >
                                             🧪 테스트
                                         </button>
+                                        <Link
+                                            href={`/channels/${channel.id}/edit`}
+                                            className="px-3 py-2.5 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-violet-50 hover:text-violet-600 hover:border-violet-200 transition-colors disabled:opacity-50 flex items-center justify-center"
+                                            title="수정"
+                                        >
+                                            ✏️
+                                        </Link>
                                         <button
                                             onClick={(e) => handleDelete(e, channel.id)}
-                                            className="px-3 py-2.5 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors"
+                                            disabled={!!processingId}
+                                            className="px-3 py-2.5 bg-white border border-gray-200 text-gray-400 rounded-lg hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors disabled:opacity-50"
                                             title="삭제"
                                         >
                                             🗑️
@@ -157,6 +232,16 @@ export default function ChannelsPage() {
                             </div>
                         ))}
                     </div>
+                )}
+
+                {modalConfig && (
+                    <CreateProjectModal
+                        isOpen={modalConfig.isOpen}
+                        onClose={closeModal}
+                        onStart={handleStartProject}
+                        isTestRun={modalConfig.isTestRun}
+                        channelName={modalConfig.channelName}
+                    />
                 )}
             </main>
         </div>

@@ -5,13 +5,8 @@ import Link from 'next/link';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { Segment } from '@/types/database';
+import VoiceSelector from '@/components/voice/VoiceSelector';
 
-interface Voice {
-    voiceId: string;
-    name: string;
-    category: string;
-    previewUrl?: string;
-}
 
 export default function VoicePage() {
     const router = useRouter();
@@ -21,37 +16,22 @@ export default function VoicePage() {
 
     const [segments, setSegments] = useState<Segment[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [voices, setVoices] = useState<Voice[]>([]);
     const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
     const [generatingId, setGeneratingId] = useState<string | null>(null);
-    const [playingPreviewId, setPlayingPreviewId] = useState<string | null>(null);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    const [projectAutopilot, setProjectAutopilot] = useState(false);
 
     useEffect(() => {
         if (projectId) {
             fetchSegments();
-            fetchVoices();
+            fetchProjectInfo();
         }
     }, [projectId]);
 
-    const fetchVoices = async () => {
-        try {
-            const response = await fetch('/api/voices');
-            if (!response.ok) throw new Error('Failed to fetch voices');
-            const data = await response.json();
-            const voiceList: Voice[] = data.voices || [];
-
-            console.log('[VoicePage] Received voices:', voiceList.length);
-            if (voiceList.length > 0) {
-                console.log('[VoicePage] First voice:', voiceList[0]);
-            }
-
-            setVoices(voiceList);
-            if (voiceList.length > 0 && !selectedVoiceId) {
-                setSelectedVoiceId(voiceList[0].voiceId);
-            }
-        } catch (error) {
-            console.error('Error fetching voices:', error);
+    const fetchProjectInfo = async () => {
+        const { data } = await supabase.from('projects').select('is_test_run, autopilot_status').eq('id', projectId).single();
+        if (data && (data.is_test_run || data.autopilot_status === 'generating')) {
+            setProjectAutopilot(true);
         }
     };
 
@@ -60,21 +40,14 @@ export default function VoicePage() {
         try {
             console.log('[VoicePage] Fetching segments for project:', projectId);
 
-            const { data, error, status, statusText } = await supabase
+            const { data, error } = await supabase
                 .from('segments')
                 .select('id, project_id, order_index, script_text, audio_url')
                 .eq('project_id', projectId)
                 .order('order_index', { ascending: true });
 
             if (error) {
-                console.error('Error fetching segments:', {
-                    message: error.message,
-                    details: error.details,
-                    hint: error.hint,
-                    code: error.code,
-                    status,
-                    statusText
-                });
+                console.error('Error fetching segments:', error);
             } else if (data) {
                 console.log(`[VoicePage] Loaded ${data.length} segments`);
                 setSegments(data);
@@ -88,7 +61,7 @@ export default function VoicePage() {
     // Autopilot Logic
     useEffect(() => {
         const checkAutopilot = async () => {
-            const autopilot = searchParams.get('autopilot') === 'true';
+            const autopilot = searchParams.get('autopilot') === 'true' || projectAutopilot;
             if (!autopilot || isLoading || segments.length === 0) return;
 
             // Check if all segments have audio
@@ -96,28 +69,24 @@ export default function VoicePage() {
 
             if (allHasAudio) {
                 // Done! Move to next step
-                const targetStep = searchParams.get('targetStep');
                 console.log('[Autopilot] Voice generation complete. Moving to Image step...');
-                router.push(`/project/${projectId}/image?autopilot=true&targetStep=${targetStep}`);
+                router.push(`/project/${projectId}/image?autopilot=true`);
             } else if (!generatingId) {
                 // Not done, trigger generation
-                // Check if voice is selected
-                if (!selectedVoiceId && voices.length > 0) {
-                    setSelectedVoiceId(voices[0].voiceId);
-                }
 
+                // Wait for voice selection (VoiceSelector selects default automatically)
                 if (selectedVoiceId) {
                     console.log('[Autopilot] Triggering auto-generation for voices...');
-                    await handleGenerateAll();
+                    setTimeout(() => handleGenerateAll(selectedVoiceId), 500);
                 } else {
                     console.log('[Autopilot] Waiting for voice selection...');
                 }
             }
         };
 
-        const timeout = setTimeout(checkAutopilot, 1000); // Small delay to ensure state is settled
+        const timeout = setTimeout(checkAutopilot, 2000);
         return () => clearTimeout(timeout);
-    }, [isLoading, segments, selectedVoiceId, generatingId, voices, searchParams, projectId, router]);
+    }, [isLoading, segments, selectedVoiceId, generatingId, searchParams, projectId, router, projectAutopilot]);
 
     const handleScriptChange = async (id: string, text: string) => {
         setSegments(prev => prev.map(s => s.id === id ? { ...s, script_text: text } : s));
@@ -127,8 +96,9 @@ export default function VoicePage() {
             .eq('id', id);
     };
 
-    const handleGenerateVoice = async (segment: Segment) => {
-        if (!selectedVoiceId) {
+    const handleGenerateVoice = async (segment: Segment, overrideVoiceId?: string) => {
+        const vid = overrideVoiceId || selectedVoiceId;
+        if (!vid) {
             alert('보이스를 선택해주세요.');
             return;
         }
@@ -140,7 +110,7 @@ export default function VoicePage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     text: segment.script_text,
-                    voiceId: selectedVoiceId,
+                    voiceId: vid,
                     segmentId: segment.id,
                 }),
             });
@@ -154,34 +124,18 @@ export default function VoicePage() {
             await fetchSegments();
         } catch (error: any) {
             console.error('TTS error:', error);
-            alert('음성 생성에 실패했습니다: ' + error.message);
+            // alert('음성 생성에 실패했습니다: ' + error.message); // Suppress alert in autopilot if desired, or keep it
         } finally {
             setGeneratingId(null);
         }
     };
 
-    const handleGenerateAll = async () => {
+    const handleGenerateAll = async (overrideVoiceId?: string) => {
         for (const segment of segments) {
             if (!segment.audio_url) {
-                await handleGenerateVoice(segment);
+                await handleGenerateVoice(segment, overrideVoiceId);
             }
         }
-    };
-
-    const playPreview = (voiceId: string, url: string | undefined) => {
-        if (!url) return;
-
-        if (playingPreviewId === voiceId) {
-            audioRef.current?.pause();
-            setPlayingPreviewId(null);
-            return;
-        }
-
-        audioRef.current?.pause();
-        audioRef.current = new Audio(url);
-        audioRef.current.play().catch(console.error);
-        setPlayingPreviewId(voiceId);
-        audioRef.current.onended = () => setPlayingPreviewId(null);
     };
 
     const handleSplit = async (segmentId: string, text: string, splitIndex: number) => {
@@ -238,7 +192,7 @@ export default function VoicePage() {
                     <p className="text-gray-500 mt-1">각 컷의 스크립트를 편집하고 AI 음성을 생성하세요.</p>
                 </div>
                 <button
-                    onClick={handleGenerateAll}
+                    onClick={() => handleGenerateAll()}
                     disabled={!selectedVoiceId || segments.length === 0}
                     className="px-4 py-2 border border-violet-600 text-violet-600 rounded-lg hover:bg-violet-50 transition-colors disabled:opacity-50"
                 >
@@ -249,59 +203,10 @@ export default function VoicePage() {
             <div className="grid grid-cols-3 gap-8">
                 {/* Voice List */}
                 <div className="col-span-1">
-                    <div className="bg-gray-50 p-6 rounded-xl border space-y-4">
-                        <h3 className="font-semibold text-gray-800">
-                            AI 보이스 선택 <span className="text-xs text-gray-500">({voices.length}개)</span>
-                        </h3>
-
-                        <div className="space-y-2 max-h-[450px] overflow-y-auto">
-                            {voices.length === 0 ? (
-                                <p className="text-gray-400 text-sm text-center py-4">로딩 중...</p>
-                            ) : (
-                                voices.map((voice) => {
-                                    const isSelected = selectedVoiceId === voice.voiceId;
-                                    const isPlaying = playingPreviewId === voice.voiceId;
-
-                                    return (
-                                        <div
-                                            key={voice.voiceId}
-                                            onClick={() => setSelectedVoiceId(voice.voiceId)}
-                                            className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${isSelected
-                                                ? 'bg-violet-100 border-2 border-violet-500'
-                                                : 'bg-white border border-gray-200 hover:border-violet-300'
-                                                }`}
-                                        >
-                                            {/* Preview Button */}
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    playPreview(voice.voiceId, voice.previewUrl);
-                                                }}
-                                                disabled={!voice.previewUrl}
-                                                className={`w-8 h-8 flex items-center justify-center rounded-full text-sm flex-shrink-0 ${!voice.previewUrl
-                                                    ? 'bg-gray-100 text-gray-300'
-                                                    : isPlaying
-                                                        ? 'bg-violet-600 text-white'
-                                                        : 'bg-gray-200 text-gray-600 hover:bg-violet-200'
-                                                    }`}
-                                            >
-                                                {isPlaying ? '■' : '▶'}
-                                            </button>
-
-                                            {/* Voice Info */}
-                                            <div className="flex-1 min-w-0">
-                                                <div className="font-medium text-sm truncate">{voice.name}</div>
-                                                <div className="text-xs text-gray-400">{voice.category}</div>
-                                            </div>
-
-                                            {/* Selected Indicator */}
-                                            {isSelected && <span className="text-violet-600 font-bold">✓</span>}
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-                    </div>
+                    <VoiceSelector
+                        selectedVoiceId={selectedVoiceId}
+                        onSelect={setSelectedVoiceId}
+                    />
                 </div>
 
                 {/* Segments */}
