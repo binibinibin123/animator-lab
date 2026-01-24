@@ -7,7 +7,8 @@ const STEPS = [
     { id: 2, path: 'voice', label: '음성' },
     { id: 3, path: 'image', label: '이미지' },
     { id: 4, path: 'video', label: '영상' },
-    { id: 5, path: 'preview', label: '렌더링' },
+    { id: 5, path: 'thumbnail', label: '썸네일' },
+    { id: 6, path: 'preview', label: '완료' },
 ];
 
 export default function AutopilotWidget() {

@@ -389,6 +389,34 @@ Language: Korean.
     }
 }
 
+// Generic text generation for any prompt
+export async function generateRawText(prompt: string): Promise<string> {
+    try {
+        const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.7,
+                    maxOutputTokens: 2048,
+                }
+            }),
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`Gemini API Error: ${err}`);
+        }
+
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    } catch (error) {
+        console.error('GenerateText Error:', error);
+        throw error;
+    }
+}
+
 // Simple test function
 export async function testGeminiConnection(): Promise<boolean> {
     try {

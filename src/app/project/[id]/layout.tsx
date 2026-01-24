@@ -14,8 +14,8 @@ const PROJECT_STEPS = [
     { id: 2, path: 'voice', label: '음성 생성' },
     { id: 3, path: 'image', label: '이미지 생성' },
     { id: 4, path: 'video', label: '영상 생성' },
-    { id: 5, path: 'preview', label: '영상 확인' },
-    { id: 6, path: 'upscale', label: '업스케일' },
+    { id: 5, path: 'thumbnail', label: '썸네일' },
+    { id: 6, path: 'preview', label: '영상 확인' },
 ] as const;
 
 function ProjectStepper({ projectId, currentPath }: { projectId: string; currentPath: string }) {

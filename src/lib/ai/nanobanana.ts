@@ -61,7 +61,8 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
         fullPrompt += `\n\nStyle: ${styleModifier}`;
     }
 
-    fullPrompt += "\n\nNO text, NO watermarks.";
+    // fullPrompt += "\n\nNO text, NO watermarks."; // Removed to allow text if requested
+    fullPrompt += "\n\nHigh quality, no watermarks.";
 
     const parts: any[] = [{ text: fullPrompt }];
 
