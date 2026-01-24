@@ -46,11 +46,8 @@ Archie와 Hackie의 토론을 통해 **"채널 = 프로젝트 팩토리(Channel 
     *   만약 `channel_id`가 있으면, 해당 채널의 **가장 오래된(첫 번째) 프로젝트**를 DB에서 조회.
     *   그 프로젝트의 `script_text`를 가져와 `generateScript`에 `referenceSample`로 전달.
 *   **Topic Source Handling**:
-    *   `rss`: 지정된 RSS URL에서 최신 항목 파싱 (API Route 필요)
+    *   `manual`: 사용자 입력 주제 사용.
     *   `random`: 채널 `description`을 기반으로 Gemini에게 주제 생성 요청
-
-#### [NEW] `src/app/api/utils/rss/route.ts`
-*   RSS URL을 받아 파싱하여 최신 뉴스 5개를 반환하는 프록시 API.
 
 #### [MODIFY] `src/lib/ai/gemini.ts`
 *   `generateScript` 함수 확장:

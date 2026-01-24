@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
 import type { ProjectInsert } from '@/types/database';
 import { generateScript, generateTopic } from '@/lib/ai/gemini';
-import Parser from 'rss-parser';
+
 
 // GET /api/project - List all projects
 export async function GET() {
@@ -73,20 +73,7 @@ export async function POST(request: NextRequest) {
 
                     // B. Topic Source
                     if (!topic) {
-                        if (channel.topic_source === 'rss' && channel.rss_url) {
-                            try {
-                                const parser = new Parser();
-                                const feed = await parser.parseURL(channel.rss_url);
-                                if (feed.items && feed.items.length > 0) {
-                                    const item = feed.items[0];
-                                    topic = `News: ${item.title}. \nContent: ${item.contentSnippet?.slice(0, 200) || ''}`;
-                                    console.log('[CreateProject] Fetched RSS Topic:', topic.slice(0, 50));
-                                }
-                            } catch (e) {
-                                console.error('[CreateProject] RSS Error:', e);
-                                topic = 'AI Automation News'; // Fallback
-                            }
-                        } else if (channel.topic_source === 'random') {
+                        if (channel.topic_source === 'random') {
                             topic = await generateTopic(channel.description || 'General Tech');
                             console.log('[CreateProject] Generated Random Topic:', topic);
                         }
