@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { generateRawText } from '@/lib/ai/gemini';
 import { getRealTags } from '@/lib/youtube-tags';
@@ -46,8 +45,6 @@ export async function POST(request: NextRequest) {
                 }
             `;
 
-            // Note: If mode is ALL, we also ask for seed_keywords here to save a call
-
             const jsonStr = await generateRawText(prompt);
             const cleanJson = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
             const aiData = JSON.parse(cleanJson);
@@ -87,6 +84,38 @@ export async function POST(request: NextRequest) {
                 realTags = Array.from(new Set(allTags)).slice(0, 15);
             }
             resultMetadata.tags = realTags.join(', ');
+        }
+
+        // 4. Save to DB (Persistence Fix)
+        const supabase = createServerClient();
+
+        // Fetch existing metadata first to merge if necessary (e.g. if partial update)
+        let newMetadata = resultMetadata;
+
+        if (mode !== 'all') {
+            const { data: currentProject } = await supabase
+                .from('projects')
+                .select('youtube_metadata')
+                .eq('id', projectId)
+                .single();
+
+            const existingMetadata = (currentProject as any)?.youtube_metadata || {};
+            newMetadata = { ...existingMetadata, ...resultMetadata };
+        }
+
+        // Use RPC to update to bypass schema cache issues (PGRST204)
+        const { error } = await supabase
+            .rpc('update_project_metadata' as any, {
+                p_id: projectId,
+                p_metadata: newMetadata
+            });
+
+        if (error) {
+            console.error('[Metadata API] DB Update Error:', error);
+            // Don't fail the request, just log it, but user warned so maybe we should return it?
+            // proceeding to return metadata anyway so UI updates
+        } else {
+            console.log('[Metadata API] Successfully saved metadata to DB');
         }
 
         return NextResponse.json({ metadata: resultMetadata });

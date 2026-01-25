@@ -34,9 +34,35 @@ export default function ThumbnailPage() {
             .eq('id', projectId)
             .single();
 
+        if (error) {
+            console.error('[ThumbnailPage] Fetch Error:', error);
+            alert('프로젝트 로딩 실패: ' + error.message);
+            return;
+        }
+
         if (project) {
             setProjectData(project);
             if (project.thumbnail_url) setImageUrl(project.thumbnail_url);
+
+            // 1. Try fetching from project object (fastest, if cache updated)
+            let dbMetadata = (project as any).youtube_metadata;
+
+            // 2. If missing, try RPC (Bulletproof fallback)
+            if (!dbMetadata) {
+                console.log('[ThumbnailPage] Metadata missing in select, trying RPC...');
+                const { data: rpcData, error: rpcError } = await supabase
+                    .rpc('get_project_metadata' as any, { p_id: projectId });
+
+                if (!rpcError && rpcData) {
+                    console.log('[ThumbnailPage] RPC recovered metadata:', rpcData);
+                    dbMetadata = rpcData;
+                }
+            }
+
+            // Populate metadata
+            if (dbMetadata && (dbMetadata.titles || dbMetadata.description || dbMetadata.tags)) {
+                setMetadata(dbMetadata);
+            }
 
             // Fetch Segments to get the REAL script language
             const { data: segments } = await supabase
@@ -68,6 +94,33 @@ export default function ThumbnailPage() {
             }, 2000);
         }
     }, [projectData, imageUrl, metadata, isGenerating]);
+
+    const handleGenerateMetadata = async () => {
+        if (!projectData) {
+            console.error('[ThumbnailPage] Cannot generate: Project data missing');
+            return;
+        }
+        setIsGenerating(true);
+        const scriptInput = fullScriptText || projectData.topic || '';
+
+        try {
+            const metaRes = await fetch('/api/metadata/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    projectId,
+                    scriptText: scriptInput
+                })
+            }).then(r => r.json());
+
+            if (metaRes.metadata) setMetadata(metaRes.metadata);
+        } catch (e) {
+            console.error(e);
+            alert('메타데이터 생성 실패');
+        } finally {
+            setIsGenerating(false);
+        }
+    };
 
     const handleGenerateAll = async () => {
         if (!projectData) return;
@@ -235,8 +288,23 @@ export default function ThumbnailPage() {
                             </div>
                         </div>
                     ) : (
-                        <div className="h-full bg-gray-50 rounded-xl border border-dashed border-gray-300 flex items-center justify-center text-gray-400">
-                            {isGenerating ? '심리학적 분석 중...' : '생성 버튼을 눌러주세요'}
+                        <div className="h-full bg-gray-50 rounded-xl border border-dashed border-gray-300 flex flex-col items-center justify-center gap-4 p-8">
+                            {isGenerating ? (
+                                <span className="text-violet-600 font-medium animate-pulse">심리학적 분석 중...</span>
+                            ) : (
+                                <>
+                                    <div className="text-center">
+                                        <p className="text-gray-500 mb-1">메타데이터가 아직 없습니다</p>
+                                        <p className="text-sm text-gray-400">영상 내용을 분석하여 최적의 제목과 태그를 생성하세요</p>
+                                    </div>
+                                    <button
+                                        onClick={handleGenerateMetadata}
+                                        className="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all flex items-center gap-2 shadow-sm"
+                                    >
+                                        <span>✨</span> 메타데이터만 생성
+                                    </button>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>
