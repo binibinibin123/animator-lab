@@ -49,27 +49,55 @@ export default function CreateProjectModal({ isOpen, onClose, onStart, isTestRun
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                    {/* Duration Slider */}
-                    <div className="space-y-2">
-                        <label className="flex justify-between text-sm font-medium text-gray-700">
-                            <span>영상 길이 목표</span>
-                            <span className="text-violet-600 font-bold">{duration}초</span>
-                        </label>
-                        <input
-                            type="range"
-                            min="30"
-                            max="180"
-                            step="10"
-                            value={duration}
-                            onChange={(e) => setDuration(Number(e.target.value))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-violet-600"
-                        />
-                        <div className="flex justify-between text-xs text-gray-400">
-                            <span>30s</span>
-                            <span>60s</span>
-                            <span>90s</span>
-                            <span>120s</span>
-                            <span>180s</span>
+                    {/* Duration Selection */}
+                    <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                            <label className="text-sm font-medium text-gray-700">
+                                영상 길이 목표
+                            </label>
+                            <span className="text-xs font-bold text-violet-600 bg-violet-50 px-2 py-1 rounded-md">
+                                현재: {duration}초
+                            </span>
+                        </div>
+
+                        {/* Presets */}
+                        <div className="grid grid-cols-2 gap-2">
+                            {[
+                                { label: '⚡ 30초 쇼츠', value: 30 },
+                                { label: '📹 3분 롱폼', value: 180 },
+                                { label: '🎬 6분 롱폼', value: 360 },
+                                { label: '🎥 10분 롱폼', value: 600 },
+                            ].map((preset) => (
+                                <button
+                                    key={preset.value}
+                                    type="button"
+                                    onClick={() => setDuration(preset.value)}
+                                    className={`px-3 py-2.5 text-sm font-bold rounded-xl border transition-all ${
+                                        duration === preset.value
+                                            ? 'bg-violet-600 text-white border-violet-600 shadow-md ring-2 ring-violet-200'
+                                            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
+                                    }`}
+                                >
+                                    {preset.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Manual Input */}
+                        <div className="relative group">
+                            <label className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-medium group-focus-within:text-violet-600 transition-colors">
+                                직접 입력
+                            </label>
+                            <input
+                                type="number"
+                                min="10"
+                                value={duration}
+                                onChange={(e) => setDuration(Math.max(0, Number(e.target.value)))}
+                                className="w-full pl-20 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-right font-bold text-gray-900 focus:bg-white focus:ring-2 focus:ring-violet-500 outline-none transition-all"
+                            />
+                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-gray-500 font-bold">
+                                초
+                            </span>
                         </div>
                     </div>
 
