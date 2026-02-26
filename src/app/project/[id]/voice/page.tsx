@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import type { Segment } from '@/types/database';
+import type { Project, Segment } from '@/types/database';
 import VoiceSelector from '@/components/voice/VoiceSelector';
 
 
@@ -18,6 +18,7 @@ export default function VoicePage() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
     const [generatingId, setGeneratingId] = useState<string | null>(null);
+    const [projectVisualMode, setProjectVisualMode] = useState<'legacy' | 'character_fixed' | 'style_fixed'>('legacy');
 
     const [projectAutopilot, setProjectAutopilot] = useState(false);
 
@@ -29,9 +30,18 @@ export default function VoicePage() {
     }, [projectId]);
 
     const fetchProjectInfo = async () => {
-        const { data } = await supabase.from('projects').select('is_test_run, autopilot_status').eq('id', projectId).single();
-        if (data && (data.is_test_run || data.autopilot_status === 'generating')) {
+        const { data } = await supabase
+            .from('projects')
+            .select('is_test_run, autopilot_status, visual_mode')
+            .eq('id', projectId)
+            .single();
+
+        const project = data as Pick<Project, 'is_test_run' | 'autopilot_status' | 'visual_mode'> | null;
+        if (project && (project.is_test_run || project.autopilot_status === 'generating')) {
             setProjectAutopilot(true);
+        }
+        if (project?.visual_mode) {
+            setProjectVisualMode(project.visual_mode);
         }
     };
 
@@ -190,6 +200,11 @@ export default function VoicePage() {
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900">스크립트 & AI 보이스</h2>
                     <p className="text-gray-500 mt-1">각 컷의 스크립트를 편집하고 AI 음성을 생성하세요.</p>
+                    <div className="mt-2">
+                        <span className="px-2 py-1 rounded-full bg-violet-100 text-violet-700 text-xs font-semibold">
+                            모드: {projectVisualMode === 'character_fixed' ? '캐릭터 고정' : projectVisualMode === 'style_fixed' ? '스타일 고정' : '레거시'}
+                        </span>
+                    </div>
                 </div>
                 <button
                     onClick={() => handleGenerateAll()}

@@ -62,11 +62,16 @@ export type Database = {
                     topic: string;
                     aspect_ratio: string;
                     style: string;
+                    style_text: string | null;
+                    visual_mode: 'legacy' | 'character_fixed' | 'style_fixed';
+                    character_reference_url: string | null;
+                    style_reference_url: string | null;
                     status: string;
                     duration: number;
                     video_provider: string;
                     video_url: string | null;
                     thumbnail_url: string | null;
+                    youtube_metadata: Json | null;
                     autopilot_status: string | null;
                     autopilot_progress: number | null;
                     created_at: string;
@@ -80,11 +85,16 @@ export type Database = {
                     topic: string;
                     aspect_ratio?: string;
                     style?: string;
+                    style_text?: string | null;
+                    visual_mode?: 'legacy' | 'character_fixed' | 'style_fixed';
+                    character_reference_url?: string | null;
+                    style_reference_url?: string | null;
                     status?: string;
                     duration?: number;
                     video_provider?: string;
                     video_url?: string | null;
                     thumbnail_url?: string | null;
+                    youtube_metadata?: Json | null;
                     autopilot_status?: string | null;
                     autopilot_progress?: number | null;
                     created_at?: string;
@@ -98,11 +108,16 @@ export type Database = {
                     topic?: string;
                     aspect_ratio?: string;
                     style?: string;
+                    style_text?: string | null;
+                    visual_mode?: 'legacy' | 'character_fixed' | 'style_fixed';
+                    character_reference_url?: string | null;
+                    style_reference_url?: string | null;
                     status?: string;
                     duration?: number;
                     video_provider?: string;
                     video_url?: string | null;
                     thumbnail_url?: string | null;
+                    youtube_metadata?: Json | null;
                     autopilot_status?: string | null;
                     autopilot_progress?: number | null;
                     created_at?: string;
@@ -118,10 +133,8 @@ export type Database = {
                     audio_url: string | null;
                     image_url: string | null;
                     video_url: string | null;
-                    upscaled_video_url: string | null;
                     visual_description: string | null;
                     duration_ms: number | null;
-                    video_provider_override: string | null;
                     video_prompt: string | null;
                     created_at: string;
                 };
@@ -133,10 +146,8 @@ export type Database = {
                     audio_url?: string | null;
                     image_url?: string | null;
                     video_url?: string | null;
-                    upscaled_video_url?: string | null;
                     visual_description?: string | null;
                     duration_ms?: number | null;
-                    video_provider_override?: string | null;
                     video_prompt?: string | null;
                     created_at?: string;
                 };
@@ -148,10 +159,8 @@ export type Database = {
                     audio_url?: string | null;
                     image_url?: string | null;
                     video_url?: string | null;
-                    upscaled_video_url?: string | null;
                     visual_description?: string | null;
                     duration_ms?: number | null;
-                    video_provider_override?: string | null;
                     video_prompt?: string | null;
                     created_at?: string;
                 };
@@ -199,7 +208,16 @@ export type Database = {
             };
         };
         Views: Record<string, never>;
-        Functions: Record<string, never>;
+        Functions: {
+            get_project_metadata: {
+                Args: { p_id: string };
+                Returns: Json;
+            };
+            update_project_metadata: {
+                Args: { p_id: string; p_metadata: Json };
+                Returns: void;
+            };
+        };
         Enums: Record<string, never>;
     };
 };

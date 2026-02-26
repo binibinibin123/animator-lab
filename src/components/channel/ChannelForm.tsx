@@ -108,20 +108,20 @@ export default function ChannelForm({ initialData, channelId }: ChannelFormProps
                 visual_persona_url: formData.visual_persona_url || null,
             };
 
-            let error;
+            let error: unknown = null;
 
             if (isEditMode && channelId) {
                 // Update
                 const res = await supabase
                     .from('channels')
-                    .update(payload)
+                    .update(payload as never)
                     .eq('id', channelId);
                 error = res.error;
             } else {
                 // Insert
-                const res = await (supabase
-                    .from('channels') as any)
-                    .insert(payload as ChannelInsert);
+                const res = await supabase
+                    .from('channels')
+                    .insert(payload as never);
                 error = res.error;
             }
 

@@ -60,6 +60,8 @@ export default function ScriptPage() {
     const [hasExistingScript, setHasExistingScript] = useState(false);
     const [segments, setSegments] = useState<Segment[]>([]);
     const [projectStyle, setProjectStyle] = useState<string>('anime'); // Image style from project
+    const [projectVisualMode, setProjectVisualMode] = useState<'legacy' | 'character_fixed' | 'style_fixed'>('legacy');
+    const [hasCharacterReference, setHasCharacterReference] = useState(false);
 
     const [projectInfo, setProjectInfo] = useState<{ is_test_run: boolean; autopilot_status: string } | null>(null);
 
@@ -73,7 +75,7 @@ export default function ScriptPage() {
             // Fetch project info
             const { data: projectData, error: projectError } = await supabase
                 .from('projects')
-                .select('title, topic, duration, style, is_test_run, autopilot_status')
+                .select('title, topic, duration, style, visual_mode, character_reference_url, is_test_run, autopilot_status')
                 .eq('id', projectId)
                 .single();
 
@@ -83,6 +85,8 @@ export default function ScriptPage() {
                 setTitle(project.title || '');
                 if (project.duration) setDuration(project.duration);
                 if (project.style) setProjectStyle(project.style);
+                if (project.visual_mode) setProjectVisualMode(project.visual_mode);
+                setHasCharacterReference(!!project.character_reference_url);
                 setProjectInfo({
                     is_test_run: project.is_test_run,
                     autopilot_status: project.autopilot_status
@@ -167,6 +171,16 @@ export default function ScriptPage() {
             <div>
                 <h2 className="text-2xl font-bold text-gray-900">어떤 영상을 만들고 싶으세요?</h2>
                 <p className="text-gray-500 mt-1">주제나 대본을 입력하면 구조화를 도와드립니다.</p>
+                <div className="mt-2 text-xs flex items-center gap-2">
+                    <span className="px-2 py-1 rounded-full bg-violet-100 text-violet-700 font-semibold">
+                        모드: {projectVisualMode === 'character_fixed' ? '캐릭터 고정' : projectVisualMode === 'style_fixed' ? '스타일 고정' : '레거시'}
+                    </span>
+                    {projectVisualMode === 'character_fixed' && !hasCharacterReference && (
+                        <span className="px-2 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700">
+                            참조 이미지 없음 - 일관성 best-effort
+                        </span>
+                    )}
+                </div>
             </div>
 
             {/* Project Title */}

@@ -9,10 +9,12 @@ export interface ImageGenerationOptions {
     prompt: string;
     negativePrompt?: string;
     style?: string;
+    styleText?: string | null;
     aspectRatio?: '16:9' | '1:1' | '3:4' | '9:16';
     resolution?: '2K' | '4K';
     referenceImage?: string; // Base64 encoded image data
     referenceMimeType?: string; // e.g., 'image/png' or 'image/jpeg'
+    referenceIntent?: 'character' | 'style' | null;
 }
 
 export interface ImageResult {
@@ -43,9 +45,11 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
     const {
         prompt,
         style = 'anime',
+        styleText,
         aspectRatio = '16:9',
         referenceImage,
         referenceMimeType = 'image/png',
+        referenceIntent,
     } = options;
 
     const styleModifier = STYLE_PRESETS[style] || '';
@@ -53,8 +57,16 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
     // Build prompt
     let fullPrompt = `${prompt}`;
 
+    if (styleText?.trim()) {
+        fullPrompt += `\n\nStyle guidance: ${styleText.trim()}`;
+    }
+
     if (referenceImage) {
-        fullPrompt += "\n\nIMPORTANT: Keep the character's identity from the reference image. Follow the scene description above for action and pose.";
+        if (referenceIntent === 'style') {
+            fullPrompt += "\n\nIMPORTANT: Keep the visual style from the reference image while following the scene description.";
+        } else {
+            fullPrompt += "\n\nIMPORTANT: Keep the character's identity from the reference image. Follow the scene description above for action and pose.";
+        }
     }
 
     if (styleModifier) {

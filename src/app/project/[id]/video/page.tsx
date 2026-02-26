@@ -18,22 +18,7 @@ export default function VideoPage() {
     const [isLoading, setIsLoading] = useState(true);
     const { generatingIds, logs, startPolling, addLog, resumePendingJobs, addGeneratingId, removeGeneratingId, lastCompletedJob } = useVideoPolling();
     const [selectedModel, setSelectedModel] = useState<'hailuo' | 'kling'>('hailuo');
-    const [selectedProvider] = useState<'comfyui'>('comfyui');
-    const [selectedWorkflow, setSelectedWorkflow] = useState<string>('rapid-aio-mega-sage-2');
-
-    // Persistence logic for workflow
-    useEffect(() => {
-        const savedWorkflow = localStorage.getItem('autovideo_selected_workflow');
-        if (savedWorkflow) {
-            setSelectedWorkflow(savedWorkflow);
-        }
-    }, []);
-
-    useEffect(() => {
-        if (selectedWorkflow) {
-            localStorage.setItem('autovideo_selected_workflow', selectedWorkflow);
-        }
-    }, [selectedWorkflow]);
+    const selectedProvider = 'fal';
     const [videoPrompt, setVideoPrompt] = useState('');
 
     // Pagination State
@@ -211,14 +196,13 @@ export default function VideoPage() {
 
     // Polling logic moved to Context
 
-    const handleGenerateVideo = async (segment: Segment, waitForCompletion = false, manualPrompt?: string, workflowOverride?: string): Promise<boolean> => {
+    const handleGenerateVideo = async (segment: Segment, waitForCompletion = false, manualPrompt?: string): Promise<boolean> => {
         if (!segment.image_url) {
             alert('이미지를 먼저 생성해 주세요.');
             return false;
         }
 
-        const effectiveWorkflow = workflowOverride || selectedWorkflow;
-        const logLabel = selectedProvider === 'comfyui' ? effectiveWorkflow : selectedModel;
+        const logLabel = selectedModel;
         const promptToUse = manualPrompt !== undefined ? manualPrompt : (segment.video_prompt || 'auto');
 
         // Optimistically show spinner via Context
@@ -243,7 +227,6 @@ export default function VideoPage() {
                     provider: selectedProvider,
                     motion: promptToUse,
                     segmentId: segment.id,
-                    workflowId: selectedProvider === 'comfyui' ? effectiveWorkflow : undefined
                 }),
             });
 
@@ -331,7 +314,7 @@ export default function VideoPage() {
             }
 
             // Concurrency Control: Wait if we reached limit
-            const MAX_ACTIVE_JOBS = 2; // Only keep 2 jobs in ComfyUI queue/polling at a time
+            const MAX_ACTIVE_JOBS = 2;
             while (generatingIdsRef.current.size >= MAX_ACTIVE_JOBS) {
                 if (!isGlobalGeneratingRef.current) {
                     addLog('warn', '🛑 전체 생성 중단됨');
@@ -357,23 +340,9 @@ export default function VideoPage() {
                 console.log(`[AutoAdvance] Queueing ${i + 1}/${pendingSegments.length}`);
             }
 
-            // Create submission promise with Fallback Logic
+            // Create submission promise
             const p = (async () => {
-                // Determine workflows (V1 <-> V2 fallback)
-                const currentWorkflow = selectedWorkflow; // use state or ref
-                const fallbackWorkflow = currentWorkflow === 'rapid-aio-mega-sage-2'
-                    ? 'rapid-aio-mega-sage'
-                    : 'rapid-aio-mega-sage-2';
-
-                // Try Primary
-                let success = await handleGenerateVideo(seg, false, undefined, currentWorkflow);
-
-                // Try Fallback if failed
-                if (!success && isGlobalGeneratingRef.current) {
-                    addLog('warn', `⚠️ [Fallback] ${currentWorkflow} 실패. ${fallbackWorkflow}로 재시도합니다...`);
-                    await new Promise(r => setTimeout(r, 2000)); // chill for 2s
-                    success = await handleGenerateVideo(seg, false, undefined, fallbackWorkflow);
-                }
+                const success = await handleGenerateVideo(seg, false);
 
                 if (!success) {
                     addLog('error', `❌ [Final] 세그먼트 #${seg.order_index + 1} 생성 최종 실패.`);
@@ -582,22 +551,7 @@ export default function VideoPage() {
             <div className="flex items-center gap-6 p-4 bg-gray-50 border rounded-xl flex-wrap">
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">생성기:</span>
-                    <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">💻 ComfyUI (로컬)</span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">워크플로우:</span>
-                    <select
-                        value={selectedWorkflow}
-                        onChange={(e) => setSelectedWorkflow(e.target.value)}
-                        className="px-3 py-1.5 border rounded-lg text-sm bg-white max-w-[300px]"
-                    >
-                        <option value="lf-i2v-v1.1">LF i2v (Batch) v1.1</option>
-                        <option value="rapid-aio-mega">Rapid AIO Mega</option>
-                        <option value="rapid-aio-mega-sage">Rapid AIO Mega + Sage</option>
-                        <option value="rapid-aio-mega-sage-2">Rapid AIO Mega + Sage v2</option>
-                        <option value="ltx-video-default">LTX Video (Fast)</option>
-                    </select>
+                    <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">☁️ fal.ai (클라우드)</span>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-gray-500 bg-white px-4 py-1.5 border rounded-lg">
                     <span>형식: <span className="text-gray-900 font-medium">MP4</span></span>

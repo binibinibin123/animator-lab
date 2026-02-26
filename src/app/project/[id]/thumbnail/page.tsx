@@ -1,10 +1,11 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
+import type { Project } from '@/types/database';
 
 export default function ThumbnailPage() {
     const router = useRouter();
@@ -18,14 +19,11 @@ export default function ThumbnailPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [projectData, setProjectData] = useState<any>(null);
     const [fullScriptText, setFullScriptText] = useState<string>('');
+    const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'warn' | 'error'; message: string } | null>(null);
+    const [confirmTarget, setConfirmTarget] = useState<'titles' | 'description' | 'tags' | null>(null);
 
     // Initial Load
-    useEffect(() => {
-        if (!projectId) return;
-        fetchProjectData();
-    }, [projectId]);
-
-    const fetchProjectData = async () => {
+    const fetchProjectData = useCallback(async () => {
         setIsLoading(true);
         // Fetch Project
         const { data: project, error } = await supabase
@@ -36,32 +34,26 @@ export default function ThumbnailPage() {
 
         if (error) {
             console.error('[ThumbnailPage] Fetch Error:', error);
-            alert('프로젝트 로딩 실패: ' + error.message);
+            setNotice({ type: 'error', message: `프로젝트 로딩 실패: ${error.message}` });
+            setIsLoading(false);
             return;
         }
 
         if (project) {
-            setProjectData(project);
-            if (project.thumbnail_url) setImageUrl(project.thumbnail_url);
+            const projectRow = project as Project;
+            setProjectData(projectRow);
+            if (projectRow.thumbnail_url) setImageUrl(projectRow.thumbnail_url);
 
             // 1. Try fetching from project object (fastest, if cache updated)
-            let dbMetadata = (project as any).youtube_metadata;
-
-            // 2. If missing, try RPC (Bulletproof fallback)
-            if (!dbMetadata) {
-                console.log('[ThumbnailPage] Metadata missing in select, trying RPC...');
-                const { data: rpcData, error: rpcError } = await supabase
-                    .rpc('get_project_metadata' as any, { p_id: projectId });
-
-                if (!rpcError && rpcData) {
-                    console.log('[ThumbnailPage] RPC recovered metadata:', rpcData);
-                    dbMetadata = rpcData;
-                }
-            }
+            let dbMetadata = projectRow.youtube_metadata as { titles?: string[]; description?: string; tags?: string } | null;
 
             // Populate metadata
             if (dbMetadata && (dbMetadata.titles || dbMetadata.description || dbMetadata.tags)) {
-                setMetadata(dbMetadata);
+                setMetadata({
+                    titles: dbMetadata.titles || [],
+                    description: dbMetadata.description || '',
+                    tags: dbMetadata.tags || '',
+                });
             }
 
             // Fetch Segments to get the REAL script language
@@ -72,28 +64,17 @@ export default function ThumbnailPage() {
                 .order('order_index');
 
             if (segments) {
-                const text = segments.map(s => s.script_text).join(' ');
+                const text = (segments as Array<{ script_text: string }>).map((s) => s.script_text).join(' ');
                 setFullScriptText(text);
-                console.log('[ThumbnailPage] Loaded full script text length:', text.length);
             }
         }
         setIsLoading(false);
-    };
+    }, [projectId]);
 
-    // Autopilot Logic
     useEffect(() => {
-        const autopilot = searchParams.get('autopilot') === 'true';
-        if (autopilot && projectData && !imageUrl && !isGenerating) {
-            console.log('[Autopilot] No thumbnail found. Generating packaging...');
-            handleGenerateAll();
-        } else if (autopilot && imageUrl && metadata) {
-            const targetStep = searchParams.get('targetStep');
-            console.log('[Autopilot] Packaging done. Moving to Final Preview...');
-            setTimeout(() => {
-                router.push(`/project/${projectId}/preview?autopilot=true&targetStep=${targetStep}`);
-            }, 2000);
-        }
-    }, [projectData, imageUrl, metadata, isGenerating]);
+        if (!projectId) return;
+        fetchProjectData();
+    }, [projectId, fetchProjectData]);
 
     const handleGenerateMetadata = async () => {
         if (!projectData) {
@@ -116,13 +97,13 @@ export default function ThumbnailPage() {
             if (metaRes.metadata) setMetadata(metaRes.metadata);
         } catch (e) {
             console.error(e);
-            alert('메타데이터 생성 실패');
+            setNotice({ type: 'error', message: '메타데이터 생성에 실패했습니다.' });
         } finally {
             setIsGenerating(false);
         }
     };
 
-    const handleGenerateAll = async () => {
+    const handleGenerateAll = useCallback(async () => {
         if (!projectData) return;
         setIsGenerating(true);
 
@@ -156,18 +137,27 @@ export default function ThumbnailPage() {
 
         } catch (e) {
             console.error('Generation failed', e);
-            alert('생성 중 오류가 발생했습니다.');
+            setNotice({ type: 'error', message: '생성 중 오류가 발생했습니다.' });
         } finally {
             setIsGenerating(false);
         }
-    };
+    }, [fullScriptText, projectData, projectId]);
+
+    // Autopilot Logic
+    useEffect(() => {
+        const autopilot = searchParams.get('autopilot') === 'true';
+        if (autopilot && projectData && !imageUrl && !isGenerating) {
+            handleGenerateAll();
+        } else if (autopilot && imageUrl && metadata) {
+            const targetStep = searchParams.get('targetStep');
+            setTimeout(() => {
+                router.push(`/project/${projectId}/preview?autopilot=true&targetStep=${targetStep}`);
+            }, 2000);
+        }
+    }, [projectData, imageUrl, metadata, isGenerating, handleGenerateAll, projectId, router, searchParams]);
 
     const handleRegeneratePart = async (part: 'titles' | 'description' | 'tags') => {
         if (!projectData || !metadata) return;
-
-        const originalText = part === 'titles' ? '제목' : part === 'description' ? '설명' : '태그';
-        const confirmMsg = `${originalText}만 다시 생성하시겠습니까?`;
-        if (!confirm(confirmMsg)) return;
 
         try {
             const scriptInput = fullScriptText || projectData.topic || '';
@@ -184,29 +174,50 @@ export default function ThumbnailPage() {
             const data = await res.json();
             if (data.metadata) {
                 setMetadata(prev => ({ ...prev!, ...data.metadata }));
-                alert(`${originalText} 재생성 완료!`);
+                const originalText = part === 'titles' ? '제목' : part === 'description' ? '설명' : '태그';
+                setNotice({ type: 'success', message: `${originalText} 재생성이 완료되었습니다.` });
             }
         } catch (e) {
             console.error(e);
-            alert('재생성 실패');
+            setNotice({ type: 'error', message: '재생성에 실패했습니다.' });
+        } finally {
+            setConfirmTarget(null);
         }
     };
 
-    const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text);
-        alert('복사되었습니다! 📋');
+    const copyToClipboard = async (text: string) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setNotice({ type: 'success', message: '클립보드에 복사되었습니다.' });
+        } catch {
+            setNotice({ type: 'error', message: '복사에 실패했습니다. 다시 시도해 주세요.' });
+        }
     };
 
     if (isLoading) return <div className="p-12 text-center">로딩 중...</div>;
 
     return (
         <div className="space-y-6">
+            {notice && (
+                <div className={`rounded-xl border px-4 py-3 text-sm ${notice.type === 'error'
+                    ? 'bg-red-50 border-red-200 text-red-700'
+                    : notice.type === 'warn'
+                        ? 'bg-amber-50 border-amber-200 text-amber-700'
+                        : notice.type === 'success'
+                            ? 'bg-green-50 border-green-200 text-green-700'
+                            : 'bg-blue-50 border-blue-200 text-blue-700'
+                    }`}>
+                    {notice.message}
+                </div>
+            )}
+
             <div className="flex justify-between items-end">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900">📦 패키징 (썸네일 & 메타데이터)</h2>
                     <p className="text-gray-500 mt-1">유튜브 업로드를 위한 최적의 패키지를 생성합니다. (손실 회피 심리학 적용)</p>
                 </div>
                 <button
+                    type="button"
                     onClick={handleGenerateAll}
                     disabled={isGenerating}
                     className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50 flex items-center gap-2"
@@ -225,7 +236,7 @@ export default function ThumbnailPage() {
                                 <img src={imageUrl} alt="Thumbnail" className="w-full h-full object-cover" />
                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
                                     <a href={imageUrl} download="thumbnail.png" className="px-4 py-2 bg-white text-gray-900 rounded-lg hover:bg-gray-100 font-medium">⬇️ 다운로드</a>
-                                    <button onClick={handleGenerateAll} className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 font-medium">🔄 다시 생성</button>
+                                    <button type="button" onClick={handleGenerateAll} className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 font-medium">🔄 다시 생성</button>
                                 </div>
                             </>
                         ) : (
@@ -253,37 +264,37 @@ export default function ThumbnailPage() {
                         <div className="space-y-6 bg-white p-6 rounded-xl border shadow-sm">
                             <div className="space-y-3">
                                 <div className="flex justify-between items-center">
-                                    <label className="text-sm font-medium text-gray-500">🔥 클릭을 부르는 제목 (5종)</label>
-                                    <button onClick={() => handleRegeneratePart('titles')} className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded">🔄 제목만 재생성</button>
+                                    <p className="text-sm font-medium text-gray-500">🔥 클릭을 부르는 제목 (5종)</p>
+                                    <button type="button" onClick={() => setConfirmTarget('titles')} className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded">🔄 제목만 재생성</button>
                                 </div>
-                                {metadata.titles.map((title, i) => (
-                                    <div key={i} className="flex gap-2">
+                                {metadata.titles.map((title) => (
+                                    <div key={title} className="flex gap-2">
                                         <input readOnly value={title} className="flex-1 px-3 py-2 bg-gray-50 border rounded-lg text-gray-800 text-sm focus:ring-2 focus:ring-violet-500" />
-                                        <button onClick={() => copyToClipboard(title)} className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">📋</button>
+                                        <button type="button" onClick={() => copyToClipboard(title)} className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">📋</button>
                                     </div>
                                 ))}
                             </div>
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center">
-                                    <label className="text-sm font-medium text-gray-500">📄 설명</label>
+                                    <p className="text-sm font-medium text-gray-500">📄 설명</p>
                                     <div className="flex gap-2">
-                                        <button onClick={() => handleRegeneratePart('description')} className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded">🔄 설명만 재생성</button>
-                                        <button onClick={() => copyToClipboard(metadata.description)} className="text-xs text-violet-600 hover:underline">전체 복사</button>
+                                        <button type="button" onClick={() => setConfirmTarget('description')} className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded">🔄 설명만 재생성</button>
+                                        <button type="button" onClick={() => copyToClipboard(metadata.description)} className="text-xs text-violet-600 hover:underline">전체 복사</button>
                                     </div>
                                 </div>
                                 <textarea readOnly value={metadata.description} rows={5} className="w-full px-3 py-2 bg-gray-50 border rounded-lg text-gray-800 text-sm resize-none focus:ring-2 focus:ring-violet-500" />
                             </div>
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center">
-                                    <label className="text-sm font-medium text-gray-500">🏷️ 태그 (실시간 검색어)</label>
+                                    <p className="text-sm font-medium text-gray-500">🏷️ 태그 (실시간 검색어)</p>
                                     <div className="flex gap-2">
-                                        <button onClick={() => handleRegeneratePart('tags')} className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded">🔄 태그만 재생성</button>
-                                        <button onClick={() => copyToClipboard(metadata.tags)} className="text-xs text-violet-600 hover:underline">복사</button>
+                                        <button type="button" onClick={() => setConfirmTarget('tags')} className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded">🔄 태그만 재생성</button>
+                                        <button type="button" onClick={() => copyToClipboard(metadata.tags)} className="text-xs text-violet-600 hover:underline">복사</button>
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
                                     <input readOnly value={metadata.tags} className="flex-1 px-3 py-2 bg-gray-50 border rounded-lg text-gray-800 text-sm focus:ring-2 focus:ring-violet-500" />
-                                    <button onClick={() => copyToClipboard(metadata.tags)} className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">📋</button>
+                                    <button type="button" onClick={() => copyToClipboard(metadata.tags)} className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">📋</button>
                                 </div>
                             </div>
                         </div>
@@ -298,6 +309,7 @@ export default function ThumbnailPage() {
                                         <p className="text-sm text-gray-400">영상 내용을 분석하여 최적의 제목과 태그를 생성하세요</p>
                                     </div>
                                     <button
+                                        type="button"
                                         onClick={handleGenerateMetadata}
                                         className="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all flex items-center gap-2 shadow-sm"
                                     >
@@ -318,6 +330,33 @@ export default function ThumbnailPage() {
                     완료 (미리보기) →
                 </Link>
             </div>
+
+            {confirmTarget && (
+                <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+                    <div className="w-full max-w-md bg-white rounded-2xl border shadow-xl p-6 space-y-4">
+                        <h3 className="text-lg font-bold text-gray-900">재생성 확인</h3>
+                        <p className="text-sm text-gray-600">
+                            {confirmTarget === 'titles' ? '제목' : confirmTarget === 'description' ? '설명' : '태그'}만 다시 생성할까요?
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setConfirmTarget(null)}
+                                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                            >
+                                취소
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleRegeneratePart(confirmTarget)}
+                                className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+                            >
+                                재생성
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

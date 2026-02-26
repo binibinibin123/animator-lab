@@ -3,10 +3,40 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
 import type { ProjectInsert } from '@/types/database';
 import { generateScript, generateTopic } from '@/lib/ai/gemini';
+import { auth } from '@/auth';
+import {
+    normalizeStyleInput,
+    parseCreateVisualMode,
+    parseUpdateVisualMode,
+} from '@/lib/api/visualModeValidation';
+
+function errorResponse(status: number, code: string, message: string, details?: unknown) {
+    return NextResponse.json(
+        {
+            error: {
+                code,
+                message,
+                ...(details !== undefined ? { details } : {}),
+            },
+        },
+        { status }
+    );
+}
+
+async function requireAuth() {
+    const session = await auth();
+    if (!session?.user) {
+        return errorResponse(401, 'UNAUTHORIZED', 'Authentication required');
+    }
+    return null;
+}
 
 
 // GET /api/project - List all projects
 export async function GET() {
+    const unauthorized = await requireAuth();
+    if (unauthorized) return unauthorized;
+
     try {
         const supabase = createServerClient();
 
@@ -20,18 +50,23 @@ export async function GET() {
         return NextResponse.json({ projects: data });
     } catch (error) {
         console.error('Failed to fetch projects:', error);
-        return NextResponse.json(
-            { error: 'Failed to fetch projects' },
-            { status: 500 }
-        );
+        return errorResponse(500, 'INTERNAL_ERROR', 'Failed to fetch projects');
     }
 }
 
 // POST /api/project - Create or duplicate project
 export async function POST(request: NextRequest) {
+    const unauthorized = await requireAuth();
+    if (unauthorized) return unauthorized;
+
     try {
         const body = await request.json();
         const supabase = createServerClient();
+
+        const inputVisualMode = parseCreateVisualMode(body.visualMode);
+        if (inputVisualMode === null) {
+            return errorResponse(400, 'INVALID_VISUAL_MODE', 'Invalid visual mode value');
+        }
 
         // ---------------------------------------------------------
         // 1. Channel Automation / Test Run Logic
@@ -41,9 +76,15 @@ export async function POST(request: NextRequest) {
 
             let topic = body.topic;
             let style = body.style || 'economy-1';
+            let styleText = body.styleText || null;
+            let visualMode = inputVisualMode;
             let duration = body.duration || 60;
             let referenceSample = undefined;
             let channel = null;
+
+            const initialStyle = normalizeStyleInput(style, styleText);
+            style = initialStyle.style;
+            styleText = initialStyle.styleText;
 
             // Fetch Channel Info if exists
             if (body.channel_id) {
@@ -56,6 +97,9 @@ export async function POST(request: NextRequest) {
                 if (ch && !chErr) {
                     channel = ch;
                     style = ch.style_preset || style;
+                    const channelStyle = normalizeStyleInput(style, styleText);
+                    style = channelStyle.style;
+                    styleText = channelStyle.styleText;
 
                     // A. Tone Cloning (Fetch reference from ANY previous project of this channel)
                     // Try to find a project with segments
@@ -103,6 +147,10 @@ export async function POST(request: NextRequest) {
                 title: scriptResult.title || topic,
                 topic: topic,
                 style: style,
+                style_text: styleText,
+                visual_mode: visualMode,
+                character_reference_url: body.characterReferenceUrl || null,
+                style_reference_url: body.styleReferenceUrl || null,
                 aspect_ratio: '9:16', // Shorts default
                 duration: scriptResult.totalDurationMs / 1000,
                 status: 'script', // Ready for TTS/Image
@@ -160,6 +208,10 @@ export async function POST(request: NextRequest) {
                     topic: original.topic,
                     aspect_ratio: original.aspect_ratio,
                     style: original.style,
+                    style_text: original.style_text,
+                    visual_mode: original.visual_mode || 'legacy',
+                    character_reference_url: original.character_reference_url || null,
+                    style_reference_url: original.style_reference_url || null,
                     status: 'draft',
                     duration: original.duration,
                     video_provider: original.video_provider,
@@ -193,11 +245,17 @@ export async function POST(request: NextRequest) {
         // ---------------------------------------------------------
         // 3. Manual Creation (Existing)
         // ---------------------------------------------------------
+        const normalizedStyle = normalizeStyleInput(body.style, body.styleText);
+
         const projectData: ProjectInsert = {
             title: body.title || '새 프로젝트',
             topic: body.topic || '',
             aspect_ratio: body.aspectRatio || '16:9',
-            style: body.style || 'anime',
+            style: normalizedStyle.style,
+            style_text: normalizedStyle.styleText,
+            visual_mode: inputVisualMode,
+            character_reference_url: body.characterReferenceUrl || null,
+            style_reference_url: body.styleReferenceUrl || null,
             duration: body.duration || 60,
             status: 'settings',
             video_provider: body.videoProvider || 'fal',
@@ -214,20 +272,20 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ project: data });
     } catch (error: any) {
         console.error('Failed to create project:', error);
-        return NextResponse.json(
-            { error: 'Failed to create project', details: error.message },
-            { status: 500 }
-        );
+        return errorResponse(500, 'INTERNAL_ERROR', 'Failed to create project', error.message);
     }
 }
 
 // DELETE /api/project?id=xxx - 프로젝트 삭제
 export async function DELETE(request: NextRequest) {
+    const unauthorized = await requireAuth();
+    if (unauthorized) return unauthorized;
+
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get('id');
 
     if (!projectId) {
-        return NextResponse.json({ error: 'Project ID required' }, { status: 400 });
+        return errorResponse(400, 'INVALID_INPUT', 'Project ID required');
     }
 
     try {
@@ -243,24 +301,70 @@ export async function DELETE(request: NextRequest) {
         return NextResponse.json({ success: true });
     } catch (error: any) {
         console.error('Delete project error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return errorResponse(500, 'INTERNAL_ERROR', 'Failed to delete project', error.message);
     }
 }
 
-// PATCH /api/project - 프로젝트 이름 변경
+// PATCH /api/project - 프로젝트 정보 업데이트
 export async function PATCH(request: NextRequest) {
-    try {
-        const { id, title } = await request.json();
+    const unauthorized = await requireAuth();
+    if (unauthorized) return unauthorized;
 
-        if (!id || !title) {
-            return NextResponse.json({ error: 'ID and title required' }, { status: 400 });
+    try {
+        const body = await request.json();
+        const { id, title, visualMode, characterReferenceUrl, styleReferenceUrl } = body;
+        const hasStyleInput = body.style !== undefined || body.styleText !== undefined;
+
+        if (!id) {
+            return errorResponse(400, 'INVALID_INPUT', 'Project ID is required');
         }
 
         const supabase = createServerClient();
+        const updates: Record<string, unknown> = {};
+
+        if (title !== undefined) {
+            const trimmedTitle = typeof title === 'string' ? title.trim() : '';
+            if (!trimmedTitle) {
+                return errorResponse(400, 'INVALID_INPUT', 'Title must not be empty');
+            }
+            updates.title = trimmedTitle;
+        }
+
+        const parsedVisualMode = parseUpdateVisualMode(visualMode);
+        if (parsedVisualMode === null) {
+            return errorResponse(400, 'INVALID_VISUAL_MODE', 'Invalid visual mode value');
+        }
+        if (parsedVisualMode !== undefined) {
+            updates.visual_mode = parsedVisualMode;
+        }
+
+        if (characterReferenceUrl !== undefined) {
+            updates.character_reference_url = characterReferenceUrl || null;
+        }
+
+        if (styleReferenceUrl !== undefined) {
+            updates.style_reference_url = styleReferenceUrl || null;
+        }
+
+        if (hasStyleInput) {
+            const normalizedStyle = normalizeStyleInput(body.style, body.styleText);
+            updates.style = normalizedStyle.style;
+            updates.style_text = normalizedStyle.styleText;
+        }
+
+        if (Object.keys(updates).length === 0) {
+            return errorResponse(
+                400,
+                'INVALID_INPUT',
+                'Provide at least one field to update'
+            );
+        }
+
+        updates.updated_at = new Date().toISOString();
 
         const { data, error } = await supabase
             .from('projects')
-            .update({ title, updated_at: new Date().toISOString() })
+            .update(updates)
             .eq('id', id)
             .select()
             .single();
@@ -270,6 +374,6 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ project: data });
     } catch (error: any) {
         console.error('Update project error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return errorResponse(500, 'INTERNAL_ERROR', 'Failed to update project', error.message);
     }
 }

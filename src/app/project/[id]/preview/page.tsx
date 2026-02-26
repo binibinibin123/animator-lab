@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -31,11 +31,6 @@ export default function PreviewPage() {
     const [progress, setProgress] = useState(0);
     const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
 
-    // Upscale + 60fps State
-    const [selectedFps, setSelectedFps] = useState<30 | 60>(30);
-    const [isUpscaling, setIsUpscaling] = useState(false);
-    const [upscaleProgress, setUpscaleProgress] = useState({ current: 0, total: 0 });
-
     // Shorts Mode State
     const [viewMode, setViewMode] = useState<'original' | 'shorts'>('original');
     const [shortsPlan, setShortsPlan] = useState<{ selectedSegmentIds: string[], reasoning: string, title?: string } | null>(null);
@@ -46,12 +41,13 @@ export default function PreviewPage() {
     const [dataLogs, setDataLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
     const [showDataLogs, setShowDataLogs] = useState(true);
     const dataLogsEndRef = useRef<HTMLDivElement>(null);
+    const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'warn' | 'error'; message: string } | null>(null);
 
-    const addDataLog = (type: 'info' | 'success' | 'error' | 'warn', message: string) => {
+    const addDataLog = useCallback((type: 'info' | 'success' | 'error' | 'warn', message: string) => {
         const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setDataLogs(prev => [...prev.slice(-50), { time, type, message }]);
         setTimeout(() => dataLogsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    };
+    }, []);
 
     // Load saved settings on mount
     useEffect(() => {
@@ -79,13 +75,7 @@ export default function PreviewPage() {
         }
     }, [projectId, padding, transitionType, subtitleStyle]);
 
-    useEffect(() => {
-        if (projectId) {
-            fetchProjectData();
-        }
-    }, [projectId]);
-
-    const fetchProjectData = async () => {
+    const fetchProjectData = useCallback(async () => {
         setIsLoading(true);
         setDataLogs([]);
         addDataLog('info', '📦 프로젝트 정보 로딩 중...');
@@ -143,22 +133,13 @@ export default function PreviewPage() {
             addDataLog('error', `예상치 못한 오류: ${err.message}`);
         }
         setIsLoading(false);
-    };
+    }, [projectId, addDataLog]);
 
-    // Autopilot Trigger
     useEffect(() => {
-        const autopilot = new URLSearchParams(window.location.search).get('autopilot') === 'true';
-        if (autopilot && !isLoading && segments.length > 0 && !isRendering && renderStatus === 'idle') {
-            const hasVideo = segments.every(s => s.video_url || s.image_url); // Minimal check
-            if (hasVideo) {
-                console.log('[Autopilot] Automatically starting render...');
-                // Default settings for autopilot
-                setPadding(0.3);
-                setTransitionType('mixed');
-                handleDownload('mp4');
-            }
+        if (projectId) {
+            fetchProjectData();
         }
-    }, [isLoading, segments, isRendering, renderStatus]);
+    }, [projectId, fetchProjectData]);
 
     const handleCreateShorts = async () => {
         if (shortsPlan) {
@@ -196,7 +177,7 @@ export default function PreviewPage() {
             }
         } catch (error: any) {
             addDataLog('error', `숏폼 분석 실패: ${error.message}`);
-            alert('분석에 실패했습니다.');
+            setNotice({ type: 'error', message: '숏폼 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.' });
         } finally {
             setIsAnalyzingShorts(false);
         }
@@ -224,7 +205,15 @@ export default function PreviewPage() {
         return acc + Math.max(Math.floor(durationWithPadding * 30), 1);
     }, 0) + (transitionType === 'none' ? 0 : 20);
 
-    const handleDownload = async (type: 'mp4' | 'srt' | 'thumbnail') => {
+    // Dynamic Resolution based on View Mode
+    const isShorts = viewMode === 'shorts';
+    // If original project is already 9:16, 'original' mode is also 9:16.
+    // If 'shorts' mode is active, FORCE 9:16.
+    const projectIsVertical = project?.aspect_ratio === '9:16';
+    const effectiveWidth = (isShorts || projectIsVertical) ? 1080 : 1920;
+    const effectiveHeight = (isShorts || projectIsVertical) ? 1920 : 1080;
+
+    const handleDownload = useCallback(async (type: 'mp4' | 'srt' | 'thumbnail') => {
         if (type === 'mp4') {
             setIsRendering(true);
             setRenderStatus('running');
@@ -299,201 +288,55 @@ export default function PreviewPage() {
                 console.error(e);
                 setRenderStatus('error');
                 setLogs(prev => [...prev, { message: `FATAL: ${e.message}`, timestamp: Date.now() }]);
-                alert('❌ 렌더링 실패: ' + e.message);
+                setNotice({ type: 'error', message: `렌더링 실패: ${e.message}` });
             } finally {
                 setIsRendering(false);
             }
         } else if (type === 'thumbnail' && segments[0]?.image_url) {
             window.open(segments[0].image_url, '_blank');
         } else {
-            alert(`${type} 다운로드 기능은 준비 중입니다.`);
+            setNotice({ type: 'info', message: `${type.toUpperCase()} 다운로드 기능은 준비 중입니다.` });
         }
-    };
+    }, [isShorts, padding, remotionSegments, segments, shortsTitle, subtitleStyle, transitionType]);
 
-    // Upscale + Render Orchestration
+    // Autopilot Trigger
+    useEffect(() => {
+        const autopilot = new URLSearchParams(window.location.search).get('autopilot') === 'true';
+        if (autopilot && !isLoading && segments.length > 0 && !isRendering && renderStatus === 'idle') {
+            const hasVideo = segments.every(s => s.video_url || s.image_url);
+            if (hasVideo) {
+                setPadding(0.3);
+                setTransitionType('mixed');
+                handleDownload('mp4');
+            }
+        }
+    }, [handleDownload, isLoading, isRendering, renderStatus, segments]);
+
+    // Render Orchestration
     const handleUpscaleAndRender = async () => {
-        const segmentsWithVideo = segments.filter(s => s.video_url);
-
-        // If 30fps selected, skip upscale and go straight to render
-        if (selectedFps === 30) {
-            handleDownload('mp4');
-            return;
-        }
-
-        // 60fps Merged Upscale Flow:
-        // 1. Render without subtitles (30fps)
-        // 2. Upscale merged video (→60fps)
-        // 3. Render with subtitles on upscaled video (60fps)
-
-        setIsUpscaling(true);
-        setLogs([]);
-        setRenderStatus('running');
-        setProgress(0);
-
-        try {
-            // Step 1: Render without subtitles
-            setLogs(prev => [...prev, { message: '📦 Step 1/3: 자막 없이 영상 렌더링 중...', timestamp: Date.now() }]);
-
-            const renderNoSubsResponse = await fetch('/api/render', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    segments: remotionSegments,
-                    subtitleStyle,
-                    settings: { padding, transitionType },
-                    fps: 30,
-                    skipSubtitles: true
-                })
-            });
-
-            if (!renderNoSubsResponse.ok) throw new Error('Failed to render without subtitles');
-
-            // Parse SSE to get the rendered video URL
-            let noSubsVideoUrl = '';
-            const reader1 = renderNoSubsResponse.body?.getReader();
-            const decoder1 = new TextDecoder();
-            if (!reader1) throw new Error('No response body');
-
-            while (true) {
-                const { done, value } = await reader1.read();
-                if (done) break;
-                const chunk = decoder1.decode(value);
-                const lines = chunk.split('\n\n');
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    const eventMatch = line.match(/event: (\w+)/);
-                    const dataMatch = line.match(/data: (.+)/);
-                    if (eventMatch && dataMatch) {
-                        try {
-                            const eventName = eventMatch[1];
-                            const data = JSON.parse(dataMatch[1]);
-                            if (eventName === 'log') {
-                                setLogs(prev => [...prev, data]);
-                            } else if (eventName === 'progress') {
-                                setProgress(Math.round(data.progress / 3)); // 0-33%
-                            } else if (eventName === 'result') {
-                                noSubsVideoUrl = `/api/download?filename=${data.filename}`;
-                            } else if (eventName === 'error') {
-                                throw new Error(data.message);
-                            }
-                        } catch (e) { /* ignore parse errors */ }
-                    }
-                }
-            }
-
-            if (!noSubsVideoUrl) throw new Error('No rendered video URL received');
-            setLogs(prev => [...prev, { message: '✅ Step 1/3 완료: 자막 없는 영상 생성됨', timestamp: Date.now() }]);
-
-            // Step 2: Upscale the merged video
-            setLogs(prev => [...prev, { message: '🚀 Step 2/3: 업스케일 + 60fps 보간 중... (최대 30분 소요)', timestamp: Date.now() }]);
-
-            // Convert download URL to full URL for upscale API
-            const fullVideoUrl = `${window.location.origin}${noSubsVideoUrl}`;
-
-            const upscaleResponse = await fetch('/api/upscale', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ video_url: fullVideoUrl })
-            });
-
-            if (!upscaleResponse.ok) {
-                const error = await upscaleResponse.json();
-                throw new Error(error.error || 'Upscale failed');
-            }
-
-            const upscaleResult = await upscaleResponse.json();
-            setProgress(66); // 66%
-            setLogs(prev => [...prev, { message: '✅ Step 2/3 완료: 업스케일 및 60fps 보간 완료', timestamp: Date.now() }]);
-
-            // Step 3: Final render with upscaled video and subtitles at 60fps
-            setLogs(prev => [...prev, { message: '🎬 Step 3/3: 자막 합성 및 최종 렌더링 중...', timestamp: Date.now() }]);
-            setIsUpscaling(false);
-            setIsRendering(true);
-
-            // For final render, we use the upscaled video as the base
-            // Since upscaled video is a single merged file, we create a single-segment composition
-            const finalRenderResponse = await fetch('/api/render', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    segments: [{
-                        id: 'upscaled-merged',
-                        video_url: upscaleResult.upscaled_video_url,
-                        script_text: '',
-                        duration: remotionSegments.reduce((acc, s) => acc + s.duration + padding, 0)
-                    }],
-                    subtitleStyle,
-                    settings: { padding: 0, transitionType: 'none' },
-                    fps: 60,
-                    skipSubtitles: false,
-                    // Pass original segments for subtitle timing
-                    originalSegments: remotionSegments
-                })
-            });
-
-            if (!finalRenderResponse.ok) throw new Error('Failed to render final video');
-
-            // Handle final render SSE
-            const reader3 = finalRenderResponse.body?.getReader();
-            const decoder3 = new TextDecoder();
-            if (!reader3) throw new Error('No response body');
-
-            while (true) {
-                const { done, value } = await reader3.read();
-                if (done) break;
-                const chunk = decoder3.decode(value);
-                const lines = chunk.split('\n\n');
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    const eventMatch = line.match(/event: (\w+)/);
-                    const dataMatch = line.match(/data: (.+)/);
-                    if (eventMatch && dataMatch) {
-                        try {
-                            const eventName = eventMatch[1];
-                            const data = JSON.parse(dataMatch[1]);
-                            if (eventName === 'log') {
-                                setLogs(prev => [...prev, data]);
-                            } else if (eventName === 'progress') {
-                                setProgress(66 + Math.round(data.progress / 3)); // 66-100%
-                            } else if (eventName === 'result') {
-                                setRenderedVideoUrl(`/api/download?filename=${data.filename}`);
-                            } else if (eventName === 'completed') {
-                                setRenderStatus('completed');
-                            } else if (eventName === 'error') {
-                                throw new Error(data.message);
-                            }
-                        } catch (e) { /* ignore parse errors */ }
-                    }
-                }
-            }
-
-            setLogs(prev => [...prev, { message: '🎉 완료! 60fps 업스케일 영상이 준비되었습니다.', timestamp: Date.now() }]);
-
-        } catch (e: any) {
-            console.error(e);
-            setRenderStatus('error');
-            setLogs(prev => [...prev, { message: `❌ 오류: ${e.message}`, timestamp: Date.now() }]);
-            alert('❌ 업스케일/렌더링 실패: ' + e.message);
-        } finally {
-            setIsUpscaling(false);
-            setIsRendering(false);
-        }
+        addDataLog('warn', '고급 업스케일 기능은 제거되었습니다. 기본 렌더링을 실행합니다.');
+        await handleDownload('mp4');
     };
 
     const totalDuration = activeSegments.reduce((acc, s) => acc + (s.duration_ms || 0), 0);
     const minutes = Math.floor(totalDuration / 60000);
     const seconds = Math.floor((totalDuration % 60000) / 1000);
 
-    // Dynamic Resolution based on View Mode
-    const isShorts = viewMode === 'shorts';
-    // If original project is already 9:16, 'original' mode is also 9:16.
-    // If 'shorts' mode is active, FORCE 9:16.
-    const projectIsVertical = project?.aspect_ratio === '9:16';
-    const effectiveWidth = (isShorts || projectIsVertical) ? 1080 : 1920;
-    const effectiveHeight = (isShorts || projectIsVertical) ? 1920 : 1080;
-
     return (
         <div className="space-y-8 pb-20">
+            {notice && (
+                <div className={`rounded-xl border px-4 py-3 text-sm ${notice.type === 'error'
+                    ? 'bg-red-50 border-red-200 text-red-700'
+                    : notice.type === 'warn'
+                        ? 'bg-amber-50 border-amber-200 text-amber-700'
+                        : notice.type === 'success'
+                            ? 'bg-green-50 border-green-200 text-green-700'
+                            : 'bg-blue-50 border-blue-200 text-blue-700'
+                    }`}>
+                    {notice.message}
+                </div>
+            )}
+
             <div className="flex justify-between items-end">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900">영상 확인 (Remotion)</h2>
@@ -501,13 +344,15 @@ export default function PreviewPage() {
                 </div>
                 <div className="flex gap-3">
                     <button
-                        onClick={() => router.push('/')}
+                        type="button"
+                        onClick={() => router.push('/projects')}
                         className="px-6 py-2 border rounded-lg hover:bg-gray-50 transition-colors"
                     >
                         대시보드로 이동
                     </button>
                     <button
-                        onClick={() => alert('프로젝트가 완료되었습니다!')}
+                        type="button"
+                        onClick={() => setNotice({ type: 'success', message: '프로젝트가 완료되었습니다.' })}
                         className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
                     >
                         프로젝트 완료 ✅
@@ -519,12 +364,14 @@ export default function PreviewPage() {
             <div className="flex justify-center pb-4">
                 <div className="bg-gray-100 p-1 rounded-xl flex gap-1">
                     <button
+                        type="button"
                         onClick={() => setViewMode('original')}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${viewMode === 'original' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
                     >
                         📺 원본 (가로)
                     </button>
                     <button
+                        type="button"
                         onClick={handleCreateShorts}
                         disabled={isAnalyzingShorts}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${viewMode === 'shorts' ? 'bg-white shadow text-violet-700' : 'text-gray-500 hover:text-gray-700'}`}
@@ -624,6 +471,7 @@ export default function PreviewPage() {
                             {Object.entries(SUBTITLE_STYLES).map(([key, style]) => (
                                 <button
                                     key={key}
+                                    type="button"
                                     onClick={() => setSubtitleStyle(key)}
                                     className={`p-3 rounded-xl border-2 text-sm font-medium transition-all
                                         ${subtitleStyle === key
@@ -646,7 +494,7 @@ export default function PreviewPage() {
                         {/* Padding Slider */}
                         <div className="space-y-3">
                             <div className="flex justify-between text-sm">
-                                <label className="font-medium text-gray-700">여유 시간 (Padding)</label>
+                                <p className="font-medium text-gray-700">여유 시간 (Padding)</p>
                                 <span className="text-violet-600 font-bold">{padding}초</span>
                             </div>
                             <input
@@ -663,7 +511,7 @@ export default function PreviewPage() {
 
                         {/* Transition Selector */}
                         <div className="space-y-3">
-                            <label className="font-medium text-sm text-gray-700 block">화면 전환 효과</label>
+                            <p className="font-medium text-sm text-gray-700 block">화면 전환 효과</p>
                             <div className="grid grid-cols-2 gap-2">
                                 {[
                                     { id: 'none', label: 'None (컷)', icon: '⚡' },
@@ -674,6 +522,7 @@ export default function PreviewPage() {
                                 ].map((t) => (
                                     <button
                                         key={t.id}
+                                        type="button"
                                         onClick={() => setTransitionType(t.id)}
                                         className={`p-3 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2
                                             ${transitionType === t.id
@@ -712,6 +561,7 @@ export default function PreviewPage() {
                 <h3 className="text-lg font-bold text-gray-800">결과물 내보내기</h3>
                 <div className="grid grid-cols-3 gap-6">
                     <button
+                        type="button"
                         onClick={() => !isRendering && handleDownload('mp4')}
                         disabled={isRendering}
                         className={`group p-6 bg-white border-2 rounded-2xl transition-all text-left relative overflow-hidden
@@ -733,6 +583,7 @@ export default function PreviewPage() {
                         <p className="text-sm text-gray-500 mt-1">SNS 및 유튜브 업로드용 (서버 렌더링)</p>
                     </button>
                     <button
+                        type="button"
                         onClick={() => handleDownload('srt')}
                         className="group p-6 bg-white border-2 rounded-2xl hover:border-violet-600 hover:bg-violet-50 transition-all text-left"
                     >
@@ -743,6 +594,7 @@ export default function PreviewPage() {
                         <p className="text-sm text-gray-500 mt-1">검수용 텍스트 자막</p>
                     </button>
                     <button
+                        type="button"
                         onClick={() => handleDownload('thumbnail')}
                         className="group p-6 bg-white border-2 rounded-2xl hover:border-violet-600 hover:bg-violet-50 transition-all text-left"
                     >
@@ -755,27 +607,7 @@ export default function PreviewPage() {
                 </div>
             </div>
 
-            {/* Upscale + Render Section */}
-            {/* Go to Upscale Page Link */}
-            <div className="bg-gradient-to-r from-violet-50 to-fuchsia-50 p-6 rounded-2xl border-2 border-violet-200">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                            🚀 업스케일 + 60fps
-                            <span className="text-xs font-normal text-violet-600 bg-violet-100 px-2 py-0.5 rounded-full">고급</span>
-                        </h3>
-                        <p className="text-sm text-gray-600 mt-1">
-                            ComfyUI로 영상을 업스케일하고 60fps로 변환합니다.
-                        </p>
-                    </div>
-                    <Link
-                        href={`/project/${projectId}/upscale`}
-                        className="px-6 py-3 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-700 transition-all"
-                    >
-                        업스케일 페이지로 →
-                    </Link>
-                </div>
-            </div>
+            {/* Upscale removed */}
 
             {/* Log Viewer for Rendering */}
             {(renderStatus !== 'idle') && (
@@ -807,9 +639,9 @@ export default function PreviewPage() {
 
                                     {/* Title Editor */}
                                     <div className="mt-3">
-                                        <label className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1 block">
+                                        <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1 block">
                                             Generated Viral Title
-                                        </label>
+                                        </p>
                                         <input
                                             type="text"
                                             value={shortsTitle}
@@ -832,7 +664,9 @@ export default function PreviewPage() {
                                     src={renderedVideoUrl}
                                     controls
                                     className="w-full h-full"
-                                />
+                                >
+                                    <track kind="captions" />
+                                </video>
                             </div>
 
                             <div className="flex justify-end">
@@ -861,13 +695,13 @@ export default function PreviewPage() {
                     <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
                         <span className="text-sm font-bold">📋 데이터 로딩 로그</span>
                         <div className="flex gap-2">
-                            <button onClick={() => setDataLogs([])} className="text-xs text-gray-400 hover:text-white">지우기</button>
-                            <button onClick={() => setShowDataLogs(false)} className="text-gray-400 hover:text-white">✕</button>
+                            <button type="button" onClick={() => setDataLogs([])} className="text-xs text-gray-400 hover:text-white">지우기</button>
+                            <button type="button" onClick={() => setShowDataLogs(false)} className="text-gray-400 hover:text-white">✕</button>
                         </div>
                     </div>
                     <div className="p-3 overflow-y-auto max-h-[60vh] font-mono text-xs space-y-1">
-                        {dataLogs.map((log, i) => (
-                            <div key={i} className={`flex gap-2 ${log.type === 'error' ? 'text-red-400' :
+                        {dataLogs.map((log) => (
+                            <div key={`${log.time}-${log.message}`} className={`flex gap-2 ${log.type === 'error' ? 'text-red-400' :
                                 log.type === 'success' ? 'text-green-400' :
                                     log.type === 'warn' ? 'text-yellow-400' :
                                         'text-gray-300'
@@ -883,6 +717,7 @@ export default function PreviewPage() {
 
             {!showDataLogs && dataLogs.length > 0 && (
                 <button
+                    type="button"
                     onClick={() => setShowDataLogs(true)}
                     className="fixed right-4 top-20 px-3 py-2 bg-gray-900 text-white rounded-lg shadow-lg text-sm hover:bg-gray-800 z-50"
                 >

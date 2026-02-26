@@ -103,12 +103,11 @@ export async function POST(request: NextRequest) {
             newMetadata = { ...existingMetadata, ...resultMetadata };
         }
 
-        // Use RPC to update to bypass schema cache issues (PGRST204)
+        // Persist metadata on project row
         const { error } = await supabase
-            .rpc('update_project_metadata' as any, {
-                p_id: projectId,
-                p_metadata: newMetadata
-            });
+            .from('projects')
+            .update({ youtube_metadata: newMetadata } as never)
+            .eq('id', projectId);
 
         if (error) {
             console.error('[Metadata API] DB Update Error:', error);

@@ -1,148 +1,238 @@
 # AutoVideo 기능 명세서
 
-> **AI 기반 자동 숏폼 영상 제작 솔루션**  
-> 버전: 1.0 | 최종 업데이트: 2026-01-19
+> AI 기반 숏폼 영상 제작/자동화 시스템  
+> 버전: 1.1 | 최종 업데이트: 2026-02-23
 
 ---
 
-## 📋 개요
+## 1. 제품 개요
 
-AutoVideo는 주제 입력만으로 스크립트, 음성, 이미지, 영상을 자동 생성하여 완성된 숏폼 비디오를 제작하는 AI 기반 솔루션입니다.
+AutoVideo는 주제(Topic) 입력을 시작점으로 대본 생성, TTS, 이미지 생성, 비디오 생성, 최종 렌더링까지 수행해 완성 영상을 만드는 워크플로우형 웹 앱이다.
 
----
+핵심은 다음 두 가지 모드다.
 
-## 🏗️ 시스템 아키텍처
-
-| 레이어 | 기술 스택 |
-|--------|----------|
-| **Frontend** | Next.js 14, React, TailwindCSS |
-| **Backend** | Next.js API Routes |
-| **Database** | Supabase (PostgreSQL) |
-| **AI APIs** | Google Gemini, ElevenLabs, fal.ai |
-| **Rendering** | Remotion (서버 사이드 렌더링) |
+1. 수동 단계 진행 모드: 사용자가 단계별로 결과를 확인/수정하며 제작
+2. 오토파일럿 모드: SSE 기반 스트림으로 생성 상태를 실시간 확인하며 자동 제작
 
 ---
 
-## ✨ 핵심 기능
+## 2. 사용자 및 사용 시나리오
 
-### 1. 프로젝트 관리
+### 2.1 주요 사용자
 
-| 기능 | 설명 |
-|------|------|
-| 대시보드 | 전체 프로젝트 목록 조회, 생성, 삭제 |
-| 프로젝트 생성 | 화면 비율(16:9, 9:16, 1:1) 및 아트 스타일 선택 |
-| 진행 상태 추적 | 단계별 진행 UI (스크립트 → 음성 → 이미지 → 비디오 → 프리뷰) |
+- 숏폼 콘텐츠 제작자 (빠른 반복 제작)
+- 채널 운영자 (주제/스타일 템플릿 기반 대량 생산)
+- 운영자/개발자 (AI 파이프라인 점검, 디버그)
 
-### 2. 스크립트 생성 (AI)
+### 2.2 대표 시나리오
 
-| 항목 | 내용 |
-|------|------|
-| **AI 모델** | Google Gemini 3 Flash |
-| **입력** | 주제/프롬프트, 영상 길이, 언어(한/영), 페르소나 |
-| **출력** | 세그먼트별 대본 + 시각적 설명 (visual_description) |
-| **페르소나** | 경제 유튜버, 교육자, 스토리텔러, 뉴스 앵커, 엔터테이너 |
+1. 대시보드에서 프로젝트 생성
+2. Script -> Voice -> Image -> Video -> Thumbnail -> Preview 단계 진행
+3. Render 완료 후 파일 다운로드
 
-### 3. TTS 음성 생성
+또는
 
-| 항목 | 내용 |
-|------|------|
-| **API** | ElevenLabs |
-| **기능** | 다국어 TTS, 음성 미리듣기, 세그먼트별 생성 |
-| **출력** | MP3 오디오 URL + duration_ms |
-
-### 4. 이미지 생성 (AI)
-
-| 항목 | 내용 |
-|------|------|
-| **AI 모델** | Google Gemini 2.5 Flash (Imagen) |
-| **스타일 프리셋** | 애니메이션, 실사, 3D, 수채화, 경제유튜브1 등 |
-| **레퍼런스 이미지** | 스타일별 레퍼런스 파일로 캐릭터 일관성 유지 |
-| **Negative Prompt** | 텍스트, 워터마크, 복잡한 배경 제거 |
-
-### 5. 비디오 생성 (AI)
-
-| 항목 | 내용 |
-|------|------|
-| **API** | fal.ai (Hailuo Minimax) |
-| **입력** | 이미지 URL + 모션 프롬프트 |
-| **모션 분석** | Gemini Vision으로 이미지 분석 후 최적 모션 생성 |
-| **스타일 최적화** | 카툰 스타일: 최소 움직임으로 변형 방지 |
-
-### 6. Remotion 렌더링
-
-| 항목 | 내용 |
-|------|------|
-| **합성 방식** | 비디오/이미지 + TTS 오디오 + 자막 오버레이 |
-| **자막 스타일** | 기본, 모던, 넷플릭스, 유튜브 쇼츠 등 |
-| **타이밍 기준** | TTS 오디오 길이 기준 (비디오 루프 지원) |
-| **출력** | MP4 (1080p/4K), 실시간 진행률 스트리밍 |
+1. 오토파일럿 페이지에서 주제만 입력
+2. 자동 생성 진행률/로그 확인
+3. 생성 완료 프로젝트로 이동 후 후편집 및 렌더링
 
 ---
 
-## 🔌 API 엔드포인트
+## 3. 기능 범위
 
-| 엔드포인트 | 메서드 | 설명 |
-|-----------|--------|------|
-| `/api/project` | POST | 새 프로젝트 생성 |
-| `/api/script/generate` | POST | AI 스크립트 생성 |
-| `/api/tts/generate` | POST | TTS 음성 생성 |
-| `/api/voices` | GET | 사용 가능한 음성 목록 |
-| `/api/image/generate` | POST | AI 이미지 생성 |
-| `/api/video/generate` | POST/GET | 비디오 생성 및 상태 확인 |
-| `/api/render` | POST | Remotion 서버 렌더링 (SSE) |
-| `/api/download` | GET | 렌더링된 파일 다운로드 |
-| `/api/segment` | POST/PATCH | 세그먼트 CRUD |
+### 3.1 프로젝트/세그먼트 관리
+
+- 프로젝트 생성/조회/수정/삭제
+- 프로젝트 복제, 테스트 런, 채널 자동화 생성 지원
+- 세그먼트 분할/병합/업데이트
+- 프로젝트 상태(`status`)와 오토파일럿 상태(`autopilot_status`, `autopilot_progress`) 관리
+
+### 3.2 AI 대본 생성
+
+- 주제, 길이, 스타일/페르소나 기반 대본 생성
+- 세그먼트 단위 대본 + 시각 설명(`visual_description`) 생성
+- 한국어/영어 혼합 환경 대응
+
+### 3.3 음성(TTS) 생성
+
+- ElevenLabs 기반 세그먼트별 음성 생성
+- 오디오 URL 저장 및 길이(`duration_ms`) 동기화
+- 음성 목록 조회 API 제공
+
+### 3.4 이미지 생성
+
+- 프롬프트 또는 대본 기반 이미지 생성
+- 스타일 프리셋 + `public/styles/*` 레퍼런스 이미지 적용
+- 생성 이미지 URL을 세그먼트/프로젝트 썸네일과 연동
+
+### 3.5 비디오 생성
+
+- 이미지 + 모션 프롬프트 기반 클립 생성
+- Fal 기반 비디오 생성 파이프라인
+- 비동기 잡 상태 조회(queued/running/succeeded/failed)
+- 성공 시 세그먼트 `video_url` self-healing 동기화
+
+### 3.6 썸네일 생성
+
+- 스크립트 분석 후 CTR 중심 텍스트/비주얼 기획
+- 기획 결과를 기반으로 썸네일 이미지 생성 및 프로젝트 반영
+
+### 3.7 렌더링/다운로드
+
+- Remotion 기반 최종 합성 렌더링
+- SSE로 진행률/로그/result 이벤트 스트리밍
+- 결과 파일을 임시 저장소에 생성 후 다운로드 API로 전달
+
+### 3.8 자동화/운영 기능
+
+- 오토파일럿 생성 스트림(`/api/autopilot/create`)
+- RSS/유튜브 분석 유틸 API
+- 텔레그램 봇 기반 완료 알림 및 상태 조회(`npm run bot`)
 
 ---
 
-## 📱 화면 구성
+## 4. 화면(UX) 명세
 
-| 경로 | 화면 | 기능 |
-|------|------|------|
-| `/` | 대시보드 | 프로젝트 목록, 생성, 삭제 |
-| `/create/new` | 프로젝트 생성 | 비율/스타일 선택 |
-| `/project/[id]/script` | 스크립트 | 주제 입력, AI 생성, 편집 |
-| `/project/[id]/voice` | 음성 | TTS 생성, 미리듣기 |
-| `/project/[id]/image` | 이미지 | AI 이미지 생성, 프롬프트 편집 |
-| `/project/[id]/video` | 비디오 | AI 비디오 생성, 상태 모니터링 |
-| `/project/[id]/preview` | 프리뷰 | Remotion 플레이어, MP4 다운로드 |
-
----
-
-## 🎨 지원 아트 스타일
-
-| ID | 이름 | 설명 |
-|----|------|------|
-| `economy-1` | 경제유튜브 1 | 노란 박스 모자 스틱맨 캐릭터 |
-| `anime` | 애니메이션 | 일본 애니메이션 스타일 |
-| `realistic` | 실사 | 포토리얼리스틱 |
-| `3d-render` | 3D 렌더 | 3D 그래픽 스타일 |
-| `watercolor` | 수채화 | 수채화 일러스트 |
-| `custom` | 커스텀 | 사용자 정의 프롬프트 |
+| 경로 | 화면 목적 | 핵심 동작 |
+|---|---|---|
+| `/` | 대시보드 | 프로젝트 목록, 정렬/검색, 생성/삭제/복제 |
+| `/create` | 제작 시작 허브 | 수동 생성/오토파일럿 진입 |
+| `/create/autopilot` | 오토파일럿 실행 | 주제 입력, 로그/진행률 스트림 수신 |
+| `/project/[id]/script` | 대본 단계 | 생성/편집/저장 |
+| `/project/[id]/voice` | 음성 단계 | TTS 생성/재생/저장 |
+| `/project/[id]/image` | 이미지 단계 | 이미지 생성/재생성/저장 |
+| `/project/[id]/video` | 비디오 단계 | 생성 요청/상태 폴링 |
+| `/project/[id]/thumbnail` | 썸네일 단계 | 썸네일 생성/적용 |
+| `/project/[id]/preview` | 프리뷰 단계 | 플레이/렌더/다운로드 |
 
 ---
 
-## 💾 데이터 모델 (Supabase)
+## 5. API 명세 (기능 관점)
 
-### Projects 테이블
+### 5.1 프로젝트/세그먼트
+
+- `/api/project` (GET/POST/PATCH/DELETE)
+- `/api/project/reset-media`, `/api/project/sync-thumbnails`
+- `/api/segment`, `/api/segment/update`
+- `/api/settings`
+
+### 5.2 생성 파이프라인
+
+- `/api/script/generate`
+- `/api/tts/generate`, `/api/voices`
+- `/api/image/generate`
+- `/api/video/generate` (POST 생성 + GET 상태조회)
+- `/api/thumbnail/generate`
+
+### 5.3 스트리밍/출력
+
+- `/api/autopilot/create` (SSE)
+- `/api/render` (SSE)
+- `/api/download`
+
+### 5.4 운영/유틸
+
+- `/api/analyze-youtube`
+- `/api/utils/rss`
+- `/api/debug/cleanup-base64`
+
+---
+
+## 6. 상태 전이 명세
+
+### 6.1 프로젝트 단계 상태
+
+대표 상태 흐름:
+
+`draft/settings -> script -> voice -> image -> video -> thumbnail -> preview/completed`
+
+특성:
+
+- 단계 페이지는 순차 제작을 돕지만, 사용자가 이전 단계 재작업 가능
+- 오토파일럿은 내부적으로 단계 상태를 자동 전이
+
+### 6.2 비디오 잡 상태
+
+`queued -> running -> succeeded | failed`
+
+특성:
+
+- `video_jobs` 기준 상태 조회
+- 최종 성공 시 세그먼트 URL 동기화 보장 로직 포함
+
+---
+
+## 7. 데이터 명세 (요약)
+
+### 7.1 projects
+
+- 식별/메타: `id`, `title`, `topic`, `created_at`, `updated_at`
+- 제작 설정: `style`, `aspect_ratio`, `duration`, `video_provider`
+- 상태: `status`, `autopilot_status`, `autopilot_progress`
+- 결과물: `thumbnail_url`, `video_url`
+
+### 7.2 segments
+
+- 기본: `id`, `project_id`, `order_index`, `script_text`, `visual_description`
+- 미디어: `audio_url`, `image_url`, `video_url`
+- 제어: `duration_ms`, `video_prompt`
+
+### 7.3 video_jobs
+
+- `id`, `segment_id`, `provider`, `external_job_id`
+- `status`, `progress`, `output_url`, `error`
+- `started_at`, `finished_at`
+
+---
+
+## 8. 비기능 요구사항
+
+### 8.1 성능/응답
+
+- 장시간 작업은 동기 응답 대신 SSE 스트리밍 제공
+- 상태 폴링 및 진행률 업데이트는 사용자에게 지속 피드백 제공
+
+### 8.2 안정성
+
+- 외부 Provider 실패 시 오류 로그 및 상태 반영
+- 일부 단계는 실패 허용/재시도 가능한 구조
+- 렌더/다운로드는 임시 파일 경로 검증 포함
+
+### 8.3 보안
+
+- 서버 쓰기 작업은 service-role 서버 클라이언트 사용
+- 다운로드 API는 파일명 경로 탐색 방지 검사 수행
+- 비밀키는 `.env.local` 기반 서버 환경변수로 관리
+
+### 8.4 운영성
+
+- 봇/스크립트로 운영 점검 가능
+- 마이그레이션은 SQL 파일 기반으로 관리(자동 러너 없음)
+
+---
+
+## 9. 제약 및 제외 범위
+
+### 9.1 제약
+
+- 렌더/다운로드 경로는 로컬 파일시스템 의존성이 있음
+- 외부 AI API 쿼터/요금/지연에 직접 영향 받음
+- 테스트 프레임워크가 기본 구성되어 있지 않음
+
+### 9.2 제외 범위(현재 버전)
+
+- 완전한 CI 기반 마이그레이션 자동 적용
+- 서버리스 무상태 환경만을 전제한 렌더 구조
+- 전면적인 다중 테넌트 권한 체계
+
+---
+
+## 10. 운영 커맨드
+
+```bash
+npm run dev
+npm run build
+npm run start
+npm run lint
+npm run bot
 ```
-id, title, topic, aspect_ratio, style, status, duration, created_at
-```
-
-### Segments 테이블
-```
-id, project_id, order_index, script_text, visual_description,
-audio_url, image_url, video_url, duration_ms
-```
-
----
-
-## 📊 비용 (1분 영상 기준)
-
-| 항목 | 비용 |
-|------|------|
-| 스크립트 | ~$0.001 |
-| 이미지 (10장) | ~$0.10 |
-| TTS | ~$0.07 |
-| 비디오 (10개) | ~$1.90 |
-| **합계** | **~$2.07** |

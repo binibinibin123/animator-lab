@@ -1,8 +1,8 @@
 // Image Provider interface for abstraction
-// Supports both Gemini (cloud) and ComfyUI (local)
+// Supports cloud image generation providers
 
 export interface ImageProvider {
-    readonly name: 'gemini' | 'comfyui';
+    readonly name: 'gemini';
     generateImage(request: ImageGenerationRequest): Promise<ImageResult>;
 }
 

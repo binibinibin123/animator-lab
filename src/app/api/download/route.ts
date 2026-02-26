@@ -17,10 +17,13 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid filename' }, { status: 400 });
     }
 
-    const tmpDir = os.tmpdir();
-    const filePath = path.join(tmpDir, filename);
+    const candidatePaths = [
+        path.join(process.cwd(), 'public', 'temp_renders', filename),
+        path.join(os.tmpdir(), filename),
+    ];
+    const filePath = candidatePaths.find((p) => fs.existsSync(p));
 
-    if (!fs.existsSync(filePath)) {
+    if (!filePath) {
         return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 

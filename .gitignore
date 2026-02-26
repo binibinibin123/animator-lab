@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local temp files and large dirs (causes opencode worker crash)
+/tmp
+/media-flow
+/bullmq-video-transcoder
+/nextjs-worker-queue-starter
+/.sisyphus

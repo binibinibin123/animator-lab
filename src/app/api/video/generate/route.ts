@@ -1,6 +1,6 @@
 // @ts-nocheck
 // Video Generation API with Provider Abstraction
-// Supports fal.ai and local ComfyUI providers
+// Supports fal.ai provider
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
@@ -22,9 +22,7 @@ export async function POST(request: NextRequest) {
             segmentId,
             scriptText,
             visualDescription,
-            style,
-            provider: requestedProvider,
-            workflowId
+            style
         } = body;
 
         if (!imageUrl) {
@@ -36,33 +34,7 @@ export async function POST(request: NextRequest) {
 
         const supabase = createServerClient();
 
-        // Determine which provider to use
         let providerType: VideoProviderType = 'fal';
-
-        if (requestedProvider) {
-            providerType = requestedProvider as VideoProviderType;
-        } else if (segmentId) {
-            // Check segment override first, then project default
-            const { data: segment } = await supabase
-                .from('segments')
-                .select('video_provider_override, project_id')
-                .eq('id', segmentId)
-                .single();
-
-            if (segment?.video_provider_override) {
-                providerType = segment.video_provider_override as VideoProviderType;
-            } else if (segment?.project_id) {
-                const { data: project } = await supabase
-                    .from('projects')
-                    .select('video_provider')
-                    .eq('id', segment.project_id)
-                    .single();
-
-                if (project?.video_provider) {
-                    providerType = project.video_provider as VideoProviderType;
-                }
-            }
-        }
 
         console.log(`[VideoAPI] Using provider: ${providerType}`);
 
@@ -126,7 +98,6 @@ export async function POST(request: NextRequest) {
             duration: duration || 6,
             segmentId: segmentId || '',
             style,
-            workflowId: providerType === 'comfyui' ? workflowId : undefined // Only pass workflowId for comfyui
         });
 
         // Update job record with external ID
@@ -159,14 +130,13 @@ export async function POST(request: NextRequest) {
     }
 }
 
-// GET /api/video/generate?jobId=xxx OR ?segmentId=xxx OR ?requestId=xxx&provider=xxx - Check video status
+// GET /api/video/generate?jobId=xxx OR ?segmentId=xxx OR ?requestId=xxx - Check video status
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const jobId = searchParams.get('jobId');
         const segmentId = searchParams.get('segmentId');
-        const requestId = searchParams.get('requestId'); // External job ID (ComfyUI prompt_id or fal request_id)
-        const providerParam = searchParams.get('provider') || 'comfyui'; // Default to comfyui for legacy
+        const requestId = searchParams.get('requestId');
 
         const supabase = createServerClient();
         let job: any = null;
@@ -280,7 +250,7 @@ export async function GET(request: NextRequest) {
         // Fallback: Direct provider check without video_jobs table
         if (requestId) {
             console.log(`[VideoAPI] Direct provider check for requestId: ${requestId}`);
-            const provider = getVideoProvider(providerParam as VideoProviderType);
+            const provider = getVideoProvider('fal');
             const statusResult = await provider.checkStatus(requestId);
 
             console.log(`[VideoAPI] Direct provider status:`, statusResult);
@@ -296,7 +266,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({
                 success: true,
                 externalJobId: requestId,
-                provider: providerParam,
+                provider: 'fal',
                 status: statusResult.status,
                 progress: statusResult.progress,
                 videoUrl: statusResult.videoUrl,

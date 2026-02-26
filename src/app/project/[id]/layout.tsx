@@ -49,7 +49,7 @@ function ProjectStepper({ projectId, currentPath }: { projectId: string; current
                                 `}
                             >
                                 {isCompleted ? (
-                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                    <svg aria-hidden="true" className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                     </svg>
                                 ) : (
@@ -132,22 +132,28 @@ export default function ProjectLayout({
 
     return (
         <VideoPollingProvider>
-            <div className="min-h-screen bg-gray-50">
+            <div className="min-h-screen bg-[#f7f8fb]">
                 {/* Header */}
-                <header className="bg-white border-b">
-                    <div className="max-w-7xl mx-auto px-4 py-4">
+                <header className="bg-white border-b border-gray-200">
+                    <div className="max-w-7xl mx-auto px-4 py-5">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <Link href="/" className="text-xl font-bold text-violet-600">AutoVideo</Link>
+                                <Link href="/projects" className="text-xl font-bold tracking-wide text-violet-600">AutoVideo</Link>
                                 {project && (
-                                    <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                                    <span className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">
                                         {project.title || '제목 없음'}
                                     </span>
                                 )}
                             </div>
-                            <Link href="/" className="text-sm text-gray-500 hover:text-violet-600">
-                                ← 대시보드
-                            </Link>
+                            <div className="flex items-center gap-4">
+                                <div className="hidden md:block text-right text-xs">
+                                    <p className="text-gray-400">현재 단계 예상 소모</p>
+                                    <p className="font-semibold text-violet-700">단계별 크레딧 기준 적용</p>
+                                </div>
+                                <Link href="/projects" className="text-sm text-gray-500 hover:text-violet-600">
+                                    ← 프로젝트
+                                </Link>
+                            </div>
                         </div>
                     </div>
                 </header>
@@ -155,11 +161,25 @@ export default function ProjectLayout({
                 {/* Stepper */}
                 <div className="max-w-5xl mx-auto px-4">
                     <ProjectStepper projectId={projectId} currentPath={typeof window !== 'undefined' ? window.location.pathname : ''} />
+                    <div className="-mt-2 mb-4 grid md:grid-cols-3 gap-3 text-xs">
+                        <div className="rounded-xl bg-white border border-gray-200 px-3 py-2">
+                            <p className="text-gray-400">남은 작업</p>
+                            <p className="font-semibold text-gray-900">단계 이동 시 예상 소모 확인</p>
+                        </div>
+                        <div className="rounded-xl bg-white border border-gray-200 px-3 py-2">
+                            <p className="text-gray-400">품질 가이드</p>
+                            <p className="font-semibold text-gray-900">스크립트/이미지 수정 후 생성</p>
+                        </div>
+                        <div className="rounded-xl bg-violet-600 text-white px-3 py-2">
+                            <p className="text-violet-100">크레딧 인사이트</p>
+                            <p className="font-semibold">30초 730 / 60초 1,325 기준</p>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Content */}
                 <main className="max-w-4xl mx-auto px-4 pb-8">
-                    <div className="bg-white rounded-xl shadow-sm border p-8">
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
                         {children}
                     </div>
                 </main>

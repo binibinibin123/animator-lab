@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
             // 2. Call provider's cancel if available
             if (job.external_job_id) {
                 try {
-                    const provider = getVideoProvider(job.provider);
+                    const provider = getVideoProvider('fal');
                     if (provider.cancelJob) {
                         await provider.cancelJob(job.external_job_id);
                     }

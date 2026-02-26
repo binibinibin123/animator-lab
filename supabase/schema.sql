@@ -50,9 +50,7 @@ CREATE TABLE IF NOT EXISTS segments (
   visual_description TEXT,
   duration_ms INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  upscaled_video_url TEXT, -- Added from codebase analysis
-  video_prompt TEXT,       -- Added from codebase analysis
-  video_provider_override TEXT -- Added from codebase analysis
+  video_prompt TEXT
 );
 
 -- Index for faster segment queries

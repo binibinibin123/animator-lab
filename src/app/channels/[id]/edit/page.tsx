@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import ChannelForm, { ChannelFormData } from '@/components/channel/ChannelForm';
+import type { Channel } from '@/types/database';
 
 export default function EditChannelPage() {
     const params = useParams();
@@ -28,14 +29,15 @@ export default function EditChannelPage() {
             }
 
             if (data) {
+                const channel = data as Channel;
                 setInitialData({
-                    name: data.name,
-                    description: data.description || '',
-                    style_preset: data.style_preset || 'economy-1',
-                    voice_id: data.voice_id || '',
-                    topic_source: data.topic_source || 'manual',
-                    rss_url: data.rss_url || '',
-                    visual_persona_url: data.visual_persona_url || '',
+                    name: channel.name,
+                    description: channel.description || '',
+                    style_preset: channel.style_preset || 'economy-1',
+                    voice_id: channel.voice_id || '',
+                    topic_source: channel.topic_source || 'manual',
+                    rss_url: channel.rss_url || '',
+                    visual_persona_url: channel.visual_persona_url || '',
                 });
             }
             setLoading(false);

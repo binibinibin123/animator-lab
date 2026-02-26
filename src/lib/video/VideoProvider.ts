@@ -1,7 +1,7 @@
 // Video Provider Interface and Types
-// Abstraction layer for video generation providers (fal.ai, ComfyUI, etc.)
+// Abstraction layer for video generation providers
 
-export type VideoProviderType = 'fal' | 'comfyui';
+export type VideoProviderType = 'fal';
 
 export type VideoJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -11,7 +11,6 @@ export interface VideoGenerationRequest {
     duration?: number;
     segmentId: string;
     style?: string;
-    workflowId?: string;
 }
 
 export interface VideoGenerationResult {
@@ -53,13 +52,11 @@ export interface VideoProvider {
 // Factory function to get the appropriate provider
 export function getVideoProvider(type: VideoProviderType): VideoProvider {
     switch (type) {
-        case 'fal':
+        case 'fal': {
             // Lazy import to avoid circular dependencies
             const { FalVideoProvider } = require('./FalVideoProvider');
             return new FalVideoProvider();
-        case 'comfyui':
-            const { ComfyUIVideoProvider } = require('./ComfyUIVideoProvider');
-            return new ComfyUIVideoProvider();
+        }
         default:
             throw new Error(`Unknown video provider: ${type}`);
     }

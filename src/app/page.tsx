@@ -1,535 +1,212 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
-import type { Project } from '@/types/database';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { signIn, useSession } from 'next-auth/react';
+import { useSearchParams } from 'next/navigation';
 
-export default function Home() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name'>('newest');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'draft' | 'completed'>('all');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [isSelectMode, setIsSelectMode] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+const providers = [
+  { id: 'google', label: 'Google로 시작하기', color: 'bg-white text-gray-800 border border-gray-300 hover:bg-gray-50' },
+  { id: 'naver', label: 'Naver로 시작하기', color: 'bg-[#03C75A] text-white hover:bg-[#02b451]' },
+  { id: 'kakao', label: 'Kakao로 시작하기', color: 'bg-[#FEE500] text-gray-900 hover:bg-[#f4da00]' },
+];
 
-  const ITEMS_PER_PAGE = 6;
+function LandingPageContent() {
+  const { status } = useSession();
+  const searchParams = useSearchParams();
+  const [openLoginModal, setOpenLoginModal] = useState(false);
 
-  // 필터링 및 정렬된 프로젝트
-  const filteredProjects = projects
-    .filter(p => {
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        return p.title?.toLowerCase().includes(q) || p.topic?.toLowerCase().includes(q);
-      }
-      return true;
-    })
-    .filter(p => {
-      if (filterStatus === 'all') return true;
-      if (filterStatus === 'completed') return p.status === 'completed';
-      return p.status !== 'completed';
-    })
-    .sort((a, b) => {
-      if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      return (a.title || '').localeCompare(b.title || '');
-    });
-
-  // 페이지네이션
-  const totalPages = Math.ceil(filteredProjects.length / ITEMS_PER_PAGE);
-  const paginatedProjects = filteredProjects.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
-
-  // 필터 변경 시 페이지 리셋
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, filterStatus, sortBy]);
+  const callbackUrl = useMemo(() => {
+    const value = searchParams.get('callbackUrl');
+    if (!value) return '/projects';
+    return value.startsWith('/') ? value : '/projects';
+  }, [searchParams]);
 
   useEffect(() => {
-    fetchProjects();
-  }, []);
+    const shouldOpen =
+      searchParams.get('login') === '1' ||
+      !!searchParams.get('callbackUrl') ||
+      !!searchParams.get('error');
 
-  const fetchProjects = async () => {
-    setIsLoading(true);
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setProjects(data as Project[]);
+    if (shouldOpen) {
+      setOpenLoginModal(true);
     }
-    setIsLoading(false);
-  };
+  }, [searchParams]);
 
-  const handleDelete = async (e: React.MouseEvent, projectId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!confirm('이 프로젝트를 삭제하시겠습니까?\n관련된 모든 데이터가 삭제됩니다.')) return;
-
-    try {
-      const res = await fetch(`/api/project?id=${projectId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('삭제 실패');
-      setProjects(prev => prev.filter(p => p.id !== projectId));
-    } catch (error) {
-      alert('프로젝트 삭제에 실패했습니다.');
-    }
-  };
-
-  const handleDuplicate = async (e: React.MouseEvent, projectId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      const res = await fetch('/api/project', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'duplicate', id: projectId }),
-      });
-      if (!res.ok) throw new Error('복제 실패');
-      await fetchProjects();
-    } catch (error) {
-      alert('프로젝트 복제에 실패했습니다.');
-    }
-  };
-
-  const handleRename = async (projectId: string) => {
-    if (!editTitle.trim()) {
-      setEditingId(null);
-      return;
-    }
-    try {
-      const res = await fetch('/api/project', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: projectId, title: editTitle }),
-      });
-      if (!res.ok) throw new Error('이름 변경 실패');
-      setProjects(prev => prev.map(p => p.id === projectId ? { ...p, title: editTitle } : p));
-    } catch (error) {
-      alert('이름 변경에 실패했습니다.');
-    }
-    setEditingId(null);
-  };
-
-  const startEditing = (e: React.MouseEvent, project: Project) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setEditingId(project.id);
-    setEditTitle(project.title || '');
-  };
-
-  const toggleSelect = (e: React.MouseEvent, projectId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(projectId)) next.delete(projectId);
-      else next.add(projectId);
-      return next;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === filteredProjects.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredProjects.map(p => p.id)));
-    }
-  };
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
-    if (!confirm(`선택한 ${selectedIds.size}개 프로젝트를 삭제하시겠습니까?`)) return;
-
-    try {
-      for (const id of selectedIds) {
-        await fetch(`/api/project?id=${id}`, { method: 'DELETE' });
-      }
-      setProjects(prev => prev.filter(p => !selectedIds.has(p.id)));
-      setSelectedIds(new Set());
-      setIsSelectMode(false);
-    } catch (error) {
-      alert('삭제 중 오류가 발생했습니다.');
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'bg-green-100 text-green-600';
-      case 'draft': return 'bg-gray-100 text-gray-600';
-      case 'script': return 'bg-blue-100 text-blue-600';
-      case 'voice': return 'bg-purple-100 text-purple-600';
-      case 'image': return 'bg-orange-100 text-orange-600';
-      case 'video': return 'bg-pink-100 text-pink-600';
-      default: return 'bg-violet-100 text-violet-600';
-    }
-  };
-
-  const handleSyncThumbnails = async () => {
-    try {
-      const res = await fetch('/api/project/sync-thumbnails', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        alert(`썸네일 동기화 완료! ${data.updated}개 업데이트`);
-        fetchProjects(); // Refresh to see thumbnails
-      } else {
-        alert('동기화 실패: ' + data.error);
-      }
-    } catch (error) {
-      alert('동기화 중 오류 발생');
-    }
-  };
+  const isAuthenticated = status === 'authenticated';
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-violet-600">AutoVideo</h1>
-            <div className="flex items-center gap-6">
+    <div className="min-h-screen bg-gradient-to-b from-violet-50 via-white to-white text-gray-900 overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(139,92,246,0.18),transparent_42%),radial-gradient(circle_at_82%_8%,rgba(79,70,229,0.14),transparent_36%),radial-gradient(circle_at_58%_75%,rgba(168,85,247,0.08),transparent_45%)]" />
+
+      <header className="relative z-10 border-b border-violet-100/80 bg-white/70 backdrop-blur">
+        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xl font-bold tracking-wide text-violet-600">AutoVideo</span>
+            <span className="text-[10px] px-2 py-1 rounded-full bg-violet-100 border border-violet-200 text-violet-700">Studio</span>
+          </div>
+          <div className="flex items-center gap-4 text-sm">
+            <Link href="/projects" className="text-gray-600 hover:text-violet-700">프로젝트</Link>
+            <Link href="/create/autopilot" className="text-gray-600 hover:text-violet-700">오토파일럿</Link>
+            {isAuthenticated ? (
+              <Link href="/projects" className="px-3 py-1.5 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50">대시보드</Link>
+            ) : (
               <button
-                onClick={handleSyncThumbnails}
-                className="text-gray-400 hover:text-violet-600 transition-colors text-sm"
-                title="썸네일 동기화"
+                type="button"
+                onClick={() => setOpenLoginModal(true)}
+                className="px-3 py-1.5 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50"
               >
-                🖼️
+                로그인
               </button>
-              <Link href="/settings" className="text-gray-500 hover:text-violet-600 transition-colors flex items-center gap-1">
-                <span className="text-lg">⚙️</span>
-                <span className="text-sm font-medium">설정</span>
-              </Link>
-              <Link href="/channels" className="text-gray-500 hover:text-violet-600 transition-colors flex items-center gap-1">
-                <span className="text-lg">📺</span>
-                <span className="text-sm font-medium">채널</span>
-              </Link>
-              <Link href="/create/autopilot" className="group flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-full text-xs font-bold hover:shadow-lg transition-all">
-                <span>✨</span>
-                <span>오토파일럿</span>
-              </Link>
-            </div>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-12">
-        <div className="text-center mb-12">
-          <h2 className="text-4xl font-bold text-gray-900 mb-4">
-            주제 하나로 완성하는
-            <span className="text-violet-600"> AI 영상</span>
-          </h2>
-          <p className="text-lg text-gray-600">
-            대본 → 음성 → 이미지 → 영상까지 완전 자동화
-          </p>
-        </div>
+      <main className="relative z-10 max-w-7xl mx-auto px-6 pt-20 pb-24">
+        <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-12 items-start">
+          <section>
+            <p className="text-xs tracking-[0.2em] uppercase text-violet-500 mb-4">AI Short-form Studio</p>
+            <h1 className="text-5xl md:text-7xl leading-[0.95] font-black">
+              숏폼 제작을
+              <br />
+              <span className="text-violet-600">수익화 가능한</span>
+              <br />
+              생산라인으로
+            </h1>
+            <p className="mt-8 text-lg text-gray-600 max-w-2xl leading-relaxed">
+              AutoVideo는 스크립트부터 렌더까지 한 흐름으로 처리합니다.
+              30초 기준 크레딧 정책을 중심으로 팀이 예산과 생산량을 동시에 관리할 수 있습니다.
+            </p>
 
-        {/* Create New Project Card */}
-        <div className="max-w-md mx-auto mb-16">
-          <Link
-            href="/create/new"
-            className="block p-8 bg-white rounded-2xl shadow-lg border-2 border-transparent hover:border-violet-600 transition-all group"
-          >
-            <div className="text-center">
-              <div className="w-16 h-16 bg-violet-100 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-violet-200 transition-colors">
-                <span className="text-3xl">🎬</span>
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">새 프로젝트 만들기</h3>
-              <p className="text-gray-500">주제를 입력하고 AI가 영상을 만들어드립니다</p>
-            </div>
-          </Link>
-        </div>
-
-        {/* Recent Projects */}
-        <div>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-              <span>프로젝트</span>
-              <span className="bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full text-xs">{filteredProjects.length}</span>
-            </h3>
-
-            {/* Search & Filter Toolbar */}
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Search */}
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="검색..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 text-sm border rounded-lg bg-white focus:ring-2 focus:ring-violet-300 focus:border-violet-400 outline-none w-40"
-                />
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
-              </div>
-
-              {/* Sort */}
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as 'newest' | 'oldest' | 'name')}
-                className="px-3 py-1.5 text-sm border rounded-lg bg-white focus:ring-2 focus:ring-violet-300 outline-none"
-              >
-                <option value="newest">최신순</option>
-                <option value="oldest">오래된순</option>
-                <option value="name">이름순</option>
-              </select>
-
-              {/* Filter tabs */}
-              <div className="flex bg-gray-100 rounded-lg p-0.5">
-                {(['all', 'draft', 'completed'] as const).map(status => (
+            <div className="mt-10 flex flex-wrap items-center gap-3">
+              {isAuthenticated ? (
+                <Link href="/projects" className="px-6 py-3 rounded-xl bg-violet-600 text-white font-bold hover:bg-violet-700 transition-colors">
+                  대시보드로 이동
+                </Link>
+              ) : (
+                <>
                   <button
-                    key={status}
-                    onClick={() => setFilterStatus(status)}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${filterStatus === status
-                      ? 'bg-white text-violet-600 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700'
-                      }`}
+                    type="button"
+                    onClick={() => setOpenLoginModal(true)}
+                    className="px-6 py-3 rounded-xl bg-violet-600 text-white font-bold hover:bg-violet-700 transition-colors"
                   >
-                    {status === 'all' ? '전체' : status === 'draft' ? '작업중' : '완료'}
+                    소셜 로그인으로 시작
                   </button>
-                ))}
-              </div>
-
-              {/* Select Mode Toggle */}
-              <button
-                onClick={() => { setIsSelectMode(!isSelectMode); setSelectedIds(new Set()); }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${isSelectMode ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-              >
-                ☑️ 선택
-              </button>
-
-              {/* View Mode Toggle */}
-              <div className="flex bg-gray-100 rounded-lg p-0.5">
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`px-2 py-1 text-sm rounded-md transition-colors ${viewMode === 'grid' ? 'bg-white shadow-sm' : ''}`}
-                  title="그리드 뷰"
-                >
-                  ▦
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`px-2 py-1 text-sm rounded-md transition-colors ${viewMode === 'list' ? 'bg-white shadow-sm' : ''}`}
-                  title="리스트 뷰"
-                >
-                  ☰
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Bulk Actions Bar */}
-          {isSelectMode && (
-            <div className="flex items-center gap-4 mb-4 p-3 bg-violet-50 rounded-lg border border-violet-200">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.size === filteredProjects.length && filteredProjects.length > 0}
-                  onChange={toggleSelectAll}
-                  className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
-                />
-                <span>전체 선택 ({selectedIds.size}/{filteredProjects.length})</span>
-              </label>
-              {selectedIds.size > 0 && (
-                <button
-                  onClick={handleBulkDelete}
-                  className="px-3 py-1 text-sm bg-red-500 text-white rounded-md hover:bg-red-600"
-                >
-                  🗑️ {selectedIds.size}개 삭제
-                </button>
+                  <Link
+                    href="/projects-test"
+                    className="px-6 py-3 rounded-xl border border-amber-300 text-amber-700 hover:bg-amber-50 transition-colors font-semibold"
+                  >
+                    테스트용 대시보드 이동
+                  </Link>
+                </>
               )}
+              <Link
+                href="/projects"
+                className="px-6 py-3 rounded-xl border border-violet-200 text-violet-700 hover:bg-violet-50 transition-colors"
+              >
+                프로젝트 보기
+              </Link>
             </div>
-          )}
 
-          {isLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="h-48 bg-gray-100 rounded-2xl animate-pulse"></div>
+            <div className="mt-12 grid md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-xl border border-violet-100 bg-white/80 shadow-sm">
+                <p className="text-xs text-gray-500 mb-2">30초 기준</p>
+                <p className="text-2xl font-bold">730 크레딧</p>
+                <p className="text-xs text-gray-500 mt-1">영상 1편 평균 소모</p>
+              </div>
+              <div className="p-4 rounded-xl border border-violet-100 bg-white/80 shadow-sm">
+                <p className="text-xs text-gray-500 mb-2">60초 기준</p>
+                <p className="text-2xl font-bold">1,325 크레딧</p>
+                <p className="text-xs text-gray-500 mt-1">컷 수 기반 자동 산정</p>
+              </div>
+              <div className="p-4 rounded-xl border border-violet-100 bg-white/80 shadow-sm">
+                <p className="text-xs text-gray-500 mb-2">핵심 흐름</p>
+                <p className="text-sm font-semibold">Script → TTS → Image → Video → Render</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-violet-100 bg-white p-6 shadow-xl shadow-violet-100/60">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold">제작 단계별 크레딧 가이드</h2>
+              <span className="text-xs text-violet-600">Credit Guide</span>
+            </div>
+            <div className="mt-5 space-y-3 text-sm">
+              {[
+                ['Script', '50 / 회'],
+                ['TTS', '15 / 세그먼트'],
+                ['Image', '25 / 세그먼트'],
+                ['Video', '45 / 세그먼트'],
+              ].map(([name, value]) => (
+                <div key={name} className="flex items-center justify-between rounded-lg border border-violet-100 px-3 py-2 bg-violet-50/40">
+                  <span className="text-gray-700">{name}</span>
+                  <span className="font-bold text-violet-700">{value}</span>
+                </div>
               ))}
             </div>
-          ) : paginatedProjects.length === 0 ? (
-            <div className="p-12 bg-white rounded-2xl border border-dashed text-center text-gray-400">
-              <p className="text-lg mb-2 text-gray-300">🎬</p>
-              <p>{searchQuery || filterStatus !== 'all' ? '검색 결과가 없습니다.' : '아직 프로젝트가 없습니다. 첫 영상을 만들어보세요!'}</p>
+
+            <div className="mt-6 p-4 rounded-xl bg-violet-50 border border-violet-100">
+              <p className="text-xs text-violet-600">추천 온보딩</p>
+              <ol className="mt-2 text-sm space-y-1 text-gray-700 list-decimal pl-5">
+                <li>소셜 로그인</li>
+                <li>샘플 프로젝트 생성</li>
+                <li>30초 영상 1편 완주</li>
+              </ol>
             </div>
-          ) : (
-            <>
-              {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {paginatedProjects.map((project) => (
-                    <div key={project.id} className="group relative">
-                      <Link
-                        href={`/project/${project.id}/script`}
-                        className="block bg-white p-5 rounded-2xl border hover:border-violet-300 hover:shadow-md transition-all"
-                      >
-                        <div className="aspect-video bg-gray-100 rounded-xl mb-4 overflow-hidden relative">
-                          {project.thumbnail_url ? (
-                            <img src={project.thumbnail_url} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-gray-300">
-                              <span className="text-3xl">🎞️</span>
-                            </div>
-                          )}
-                          <div className="absolute top-2 right-2">
-                            <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(project.status)}`}>
-                              {project.status}
-                            </span>
-                          </div>
-                          {/* Checkbox for select mode */}
-                          {isSelectMode && (
-                            <div
-                              onClick={(e) => toggleSelect(e, project.id)}
-                              className="absolute top-2 left-2 cursor-pointer"
-                            >
-                              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${selectedIds.has(project.id)
-                                ? 'bg-violet-600 border-violet-600 text-white'
-                                : 'bg-white/90 border-gray-300'
-                                }`}>
-                                {selectedIds.has(project.id) && <span className="text-xs">✓</span>}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        {editingId === project.id ? (
-                          <input
-                            type="text"
-                            value={editTitle}
-                            onChange={(e) => setEditTitle(e.target.value)}
-                            onBlur={() => handleRename(project.id)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleRename(project.id)}
-                            onClick={(e) => e.preventDefault()}
-                            autoFocus
-                            className="w-full font-bold text-gray-900 border-b-2 border-violet-600 outline-none bg-transparent"
-                          />
-                        ) : (
-                          <h4 className="font-bold text-gray-900 group-hover:text-violet-600 truncate mb-1">
-                            {project.title || '제목 없음'}
-                          </h4>
-                        )}
-                        <p className="text-xs text-gray-500 line-clamp-1">
-                          {project.topic || '주제 정보 없음'}
-                        </p>
-                        <div className="mt-4 pt-4 border-t flex justify-between text-[10px] text-gray-400">
-                          <span>{new Date(project.created_at).toLocaleDateString()}</span>
-                          <span className="font-bold">{project.aspect_ratio}</span>
-                        </div>
-                      </Link>
-
-                      {/* Action Buttons */}
-                      <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                        <button
-                          onClick={(e) => startEditing(e, project)}
-                          className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-violet-100 text-gray-600 hover:text-violet-600"
-                          title="이름 변경"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={(e) => handleDuplicate(e, project.id)}
-                          className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-violet-100 text-gray-600 hover:text-violet-600"
-                          title="복제"
-                        >
-                          📋
-                        </button>
-                        <button
-                          onClick={(e) => handleDelete(e, project.id)}
-                          className="p-1.5 bg-white/90 backdrop-blur rounded-md hover:bg-red-100 text-gray-600 hover:text-red-600"
-                          title="삭제"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                /* List View */
-                <div className="space-y-3">
-                  {paginatedProjects.map((project) => (
-                    <div key={project.id} className="group relative">
-                      <Link
-                        href={`/project/${project.id}/script`}
-                        className="flex items-center gap-4 bg-white p-4 rounded-xl border hover:border-violet-300 hover:shadow-md transition-all"
-                      >
-                        {isSelectMode && (
-                          <div onClick={(e) => toggleSelect(e, project.id)} className="cursor-pointer">
-                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${selectedIds.has(project.id) ? 'bg-violet-600 border-violet-600 text-white' : 'border-gray-300'
-                              }`}>
-                              {selectedIds.has(project.id) && <span className="text-xs">✓</span>}
-                            </div>
-                          </div>
-                        )}
-                        <div className="w-24 h-14 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                          {project.thumbnail_url ? (
-                            <img src={project.thumbnail_url} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-gray-300 text-xl">🎞️</div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          {editingId === project.id ? (
-                            <input
-                              type="text"
-                              value={editTitle}
-                              onChange={(e) => setEditTitle(e.target.value)}
-                              onBlur={() => handleRename(project.id)}
-                              onKeyDown={(e) => e.key === 'Enter' && handleRename(project.id)}
-                              onClick={(e) => e.preventDefault()}
-                              autoFocus
-                              className="w-full font-bold text-gray-900 border-b-2 border-violet-600 outline-none bg-transparent"
-                            />
-                          ) : (
-                            <h4 className="font-bold text-gray-900 group-hover:text-violet-600 truncate">{project.title || '제목 없음'}</h4>
-                          )}
-                          <p className="text-xs text-gray-500 truncate">{project.topic || '주제 정보 없음'}</p>
-                        </div>
-                        <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${getStatusColor(project.status)}`}>{project.status}</span>
-                        <span className="text-xs text-gray-400">{new Date(project.created_at).toLocaleDateString()}</span>
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={(e) => startEditing(e, project)} className="p-1.5 rounded hover:bg-violet-100" title="이름 변경">✏️</button>
-                          <button onClick={(e) => handleDuplicate(e, project.id)} className="p-1.5 rounded hover:bg-violet-100" title="복제">📋</button>
-                          <button onClick={(e) => handleDelete(e, project.id)} className="p-1.5 rounded hover:bg-red-100" title="삭제">🗑️</button>
-                        </div>
-                      </Link>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-4 mt-8">
-                  <button
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="px-4 py-2 text-sm font-medium rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    ← 이전
-                  </button>
-                  <span className="text-sm text-gray-600">
-                    <span className="font-bold text-violet-600">{currentPage}</span> / {totalPages}
-                  </span>
-                  <button
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-4 py-2 text-sm font-medium rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    다음 →
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+          </section>
         </div>
       </main>
+
+      {openLoginModal && !isAuthenticated && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/35 backdrop-blur-[1px]"
+            aria-label="로그인 모달 닫기"
+            onClick={() => setOpenLoginModal(false)}
+          />
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-violet-100 p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold text-violet-700">로그인</h3>
+                <p className="text-sm text-gray-500 mt-1">Google, Naver, Kakao 중 원하는 계정으로 시작하세요.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpenLoginModal(false)}
+                className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                aria-label="닫기"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {providers.map((provider) => (
+                <button
+                  key={provider.id}
+                  type="button"
+                  onClick={() => signIn(provider.id, { callbackUrl })}
+                  className={`w-full py-3 px-4 rounded-xl font-semibold transition-colors ${provider.color}`}
+                >
+                  {provider.label}
+                </button>
+              ))}
+            </div>
+
+            <p className="mt-4 text-xs text-gray-400">로그인 후 바로 프로젝트 생성과 자동 제작 플로우를 시작할 수 있습니다.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+export default function LandingPage() {
+  return (
+    <Suspense fallback={null}>
+      <LandingPageContent />
+    </Suspense>
+  );
+}

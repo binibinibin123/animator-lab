@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
 
         const { error } = await supabase
             .from('segments')
-            .update(updateData)
+            .update(updateData as never)
             .eq('project_id', projectId);
 
         if (error) {

@@ -4,7 +4,6 @@ import { bundle } from '@remotion/bundler';
 import { getCompositions, renderMedia } from '@remotion/renderer';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 
 
 // 렌더링 타임아웃 제한 없음 (로컬 환경)
@@ -76,7 +75,11 @@ export async function POST(req: NextRequest) {
                 sendLog(`⏱️ 총 프레임 수: ${totalDurationInFrames} frames (${fps}fps, padding: ${padding}s, transition: ${transitionType})`);
 
                 // 3. Render
-                const tempOutput = path.join(os.tmpdir(), `autovideo-${Date.now()}.mp4`);
+                const outputDir = path.join(process.cwd(), 'public', 'temp_renders');
+                if (!fs.existsSync(outputDir)) {
+                    fs.mkdirSync(outputDir, { recursive: true });
+                }
+                const tempOutput = path.join(outputDir, `autovideo-${Date.now()}.mp4`);
                 sendLog(`🎬 렌더링을 시작합니다... (Output: ${path.basename(tempOutput)})`);
 
                 await renderMedia({

@@ -21,21 +21,11 @@ export default function ImagePage() {
     const [customPrompt, setCustomPrompt] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [projectStyle, setProjectStyle] = useState<string>('anime');
-    const [imageProvider, setImageProvider] = useState<'gemini' | 'comfyui'>('comfyui');
-
-    // Persistence logic
-    useEffect(() => {
-        const savedProvider = localStorage.getItem('autovideo_image_provider');
-        if (savedProvider && (savedProvider === 'gemini' || savedProvider === 'comfyui')) {
-            setImageProvider(savedProvider as 'gemini' | 'comfyui');
-        }
-    }, []);
-
-    useEffect(() => {
-        if (imageProvider) {
-            localStorage.setItem('autovideo_image_provider', imageProvider);
-        }
-    }, [imageProvider]);
+    const [projectStyleText, setProjectStyleText] = useState<string>('');
+    const [projectVisualMode, setProjectVisualMode] = useState<'legacy' | 'character_fixed' | 'style_fixed'>('legacy');
+    const [hasCharacterReference, setHasCharacterReference] = useState(false);
+    const [hasStyleReference, setHasStyleReference] = useState(false);
+    const imageProvider = 'gemini';
 
     // Logs for real-time feedback
     const [logs, setLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
@@ -68,13 +58,26 @@ export default function ImagePage() {
             // Fetch project style first
             const { data: projectData } = await supabase
                 .from('projects')
-                .select('style')
+                .select('style, style_text, visual_mode, character_reference_url, style_reference_url')
                 .eq('id', projectId)
                 .single();
 
-            const project = projectData as { style?: string } | null;
-            if (project?.style) {
-                setProjectStyle(project.style);
+            const project = projectData as {
+                style?: string;
+                style_text?: string | null;
+                visual_mode?: 'legacy' | 'character_fixed' | 'style_fixed';
+                character_reference_url?: string | null;
+                style_reference_url?: string | null;
+            } | null;
+
+            if (project) {
+                if (project.style) {
+                    setProjectStyle(project.style);
+                }
+                setProjectStyleText(project.style_text || '');
+                setProjectVisualMode(project.visual_mode || 'legacy');
+                setHasCharacterReference(!!project.character_reference_url);
+                setHasStyleReference(!!project.style_reference_url);
             }
 
             const { data, error: fetchError } = await supabase
@@ -140,15 +143,17 @@ export default function ImagePage() {
             const response = await fetch('/api/image/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt: customPrompt || undefined,
-                    scriptText: segment.script_text,
-                    segmentId: segment.id,
-                    resolution,
-                    style: projectStyle,
-                    provider: imageProvider,
-                }),
-            });
+                        body: JSON.stringify({
+                            prompt: customPrompt || undefined,
+                            scriptText: segment.script_text,
+                            segmentId: segment.id,
+                            projectId,
+                            resolution,
+                            style: projectStyle,
+                            styleText: projectStyleText,
+                            provider: imageProvider,
+                        }),
+                    });
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
@@ -188,8 +193,10 @@ export default function ImagePage() {
                             prompt: segment.visual_description || undefined,
                             scriptText: segment.script_text,
                             segmentId: segment.id,
+                            projectId,
                             resolution,
                             style: projectStyle,
+                            styleText: projectStyleText,
                             provider: imageProvider,
                         }),
                     });
@@ -269,6 +276,21 @@ export default function ImagePage() {
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900">이미지 생성</h2>
                     <p className="text-gray-500 mt-1">각 컷에 어울리는 고품질 이미지를 생성합니다.</p>
+                    <div className="mt-2 flex items-center gap-2 text-xs">
+                        <span className="px-2 py-1 rounded-full bg-violet-100 text-violet-700 font-semibold">
+                            모드: {projectVisualMode === 'character_fixed' ? '캐릭터 고정' : projectVisualMode === 'style_fixed' ? '스타일 고정' : '레거시'}
+                        </span>
+                        {projectVisualMode === 'character_fixed' && !hasCharacterReference && (
+                            <span className="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-full">
+                                참조 이미지 없음 - 일관성 best-effort
+                            </span>
+                        )}
+                        {projectVisualMode === 'style_fixed' && !hasStyleReference && (
+                            <span className="text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded-full">
+                                스타일 참조 없음 - 프리셋/가이드 기반
+                            </span>
+                        )}
+                    </div>
                 </div>
                 <button
                     onClick={handleGenerateAll}
@@ -290,14 +312,7 @@ export default function ImagePage() {
             <div className="flex items-center gap-6 p-4 bg-gray-50 rounded-xl border">
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">생성기:</span>
-                    <select
-                        value={imageProvider}
-                        onChange={(e) => setImageProvider(e.target.value as 'gemini' | 'comfyui')}
-                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
-                    >
-                        <option value="gemini">☁️ Gemini (클라우드)</option>
-                        <option value="comfyui">💻 ComfyUI (로컬)</option>
-                    </select>
+                    <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">☁️ Gemini (클라우드)</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">해상도:</span>
