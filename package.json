@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "bot": "npx tsx src/scripts/bot.ts"
+    "bot": "npx tsx src/scripts/bot.ts",
+    "test:e2e": "playwright test --project=mocked-e2e",
+    "test:e2e:smoke": "playwright test --project=smoke-real"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.31.0",
@@ -30,6 +32,7 @@
     "zod": "3.22.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/node-telegram-bot-api": "^0.64.13",
