@@ -26,13 +26,13 @@ test.describe('Model selection flows @mock', () => {
         await page.goto('/create/new');
 
         await page.getByRole('button', { name: 'Nano Banana Pro' }).click();
-        await page.getByRole('button', { name: 'Wan 2.5' }).click();
+        await page.getByRole('button', { name: 'Standard Balanced (Hailuo 02 Standard)' }).click();
         await page.getByRole('button', { name: '다음 단계 →' }).click();
 
         await expect.poll(() => requestBody).not.toBeNull();
         const body = requestBody as { imageModelId?: string; videoModelId?: string } | null;
         expect(body?.imageModelId).toBe('nano-banana-pro');
-        expect(body?.videoModelId).toBe('wan-2.5');
+        expect(body?.videoModelId).toBe('hailuo-02-standard');
     });
 
     test('create/autopilot sends model ids in payload @mock', async ({ page }) => {
@@ -59,13 +59,13 @@ test.describe('Model selection flows @mock', () => {
 
         await page.goto('/create/autopilot');
         await page.getByRole('button', { name: 'Nano Banana Pro' }).click();
-        await page.getByRole('button', { name: 'Veo 3 Fast' }).click();
+        await page.getByRole('button', { name: 'Standard Plus (LTX Pro)' }).click();
         await page.getByLabel('영상 주제').fill('E2E 테스트 주제');
         await page.getByRole('button', { name: '✨ 오토파일럿 시작하기' }).click();
 
         await expect.poll(() => requestBody).not.toBeNull();
         const body = requestBody as { imageModelId?: string; videoModelId?: string } | null;
         expect(body?.imageModelId).toBe('nano-banana-pro');
-        expect(body?.videoModelId).toBe('veo-3-fast');
+        expect(body?.videoModelId).toBe('ltx-2.0-pro');
     });
 });

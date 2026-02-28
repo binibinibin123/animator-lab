@@ -35,11 +35,9 @@ const IMAGE_MODELS = [
 ];
 
 const VIDEO_MODELS = [
-    { id: 'hailuo-02-pro', label: 'Hailuo 02 Pro', creditsPerSec: 8 },
-    { id: 'kling-2.6-pro', label: 'Kling 2.6 Pro', creditsPerSec: 7 },
-    { id: 'wan-2.5', label: 'Wan 2.5', creditsPerSec: 5 },
-    { id: 'ltx-2.0-pro', label: 'LTX 2.0 Pro', creditsPerSec: 6 },
-    { id: 'veo-3-fast', label: 'Veo 3 Fast', creditsPerSec: 10 },
+    { id: 'ltx-2-fast', label: 'Standard Eco (LTX Fast)', creditsPerCut: 36, creditsPerShort: 180 },
+    { id: 'hailuo-02-standard', label: 'Standard Balanced (Hailuo 02 Standard)', creditsPerCut: 40, creditsPerShort: 200 },
+    { id: 'ltx-2.0-pro', label: 'Standard Plus (LTX Pro)', creditsPerCut: 48, creditsPerShort: 240 },
 ];
 
 export default function AutopilotPage() {
@@ -49,7 +47,7 @@ export default function AutopilotPage() {
     const [style, setStyle] = useState('anime');
     const [styleText, setStyleText] = useState('');
     const [imageModelId, setImageModelId] = useState('nano-banana-2');
-    const [videoModelId, setVideoModelId] = useState('hailuo-02-pro');
+    const [videoModelId, setVideoModelId] = useState('ltx-2-fast');
     const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
     const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
     const [referenceError, setReferenceError] = useState<string | null>(null);
@@ -401,7 +399,7 @@ export default function AutopilotPage() {
                                         }`}
                                     >
                                         <div className="font-medium">{item.label}</div>
-                                        <div className="text-xs text-gray-500">예상 {item.creditsPerSec} credits / sec</div>
+                                        <div className="text-xs text-gray-500">예상 {item.creditsPerCut} credits / 6초 컷 ({item.creditsPerShort} credits / 30초)</div>
                                     </button>
                                 ))}
                             </div>

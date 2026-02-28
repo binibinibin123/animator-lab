@@ -9,11 +9,9 @@ import type { Segment } from '@/types/database';
 import { useVideoPolling } from '@/context/VideoPollingContext';
 
 const VIDEO_MODELS = [
-    { id: 'hailuo-02-pro', label: 'Hailuo 02 Pro', creditsPerSec: 8 },
-    { id: 'kling-2.6-pro', label: 'Kling 2.6 Pro', creditsPerSec: 7 },
-    { id: 'wan-2.5', label: 'Wan 2.5', creditsPerSec: 5 },
-    { id: 'ltx-2.0-pro', label: 'LTX 2.0 Pro', creditsPerSec: 6 },
-    { id: 'veo-3-fast', label: 'Veo 3 Fast', creditsPerSec: 10 },
+    { id: 'ltx-2-fast', label: 'Standard Eco (LTX Fast)', creditsPerCut: 36, creditsPerShort: 180 },
+    { id: 'hailuo-02-standard', label: 'Standard Balanced (Hailuo 02 Standard)', creditsPerCut: 40, creditsPerShort: 200 },
+    { id: 'ltx-2.0-pro', label: 'Standard Plus (LTX Pro)', creditsPerCut: 48, creditsPerShort: 240 },
 ] as const;
 
 export default function VideoPage() {
@@ -25,7 +23,7 @@ export default function VideoPage() {
     const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const { generatingIds, logs, startPolling, addLog, resumePendingJobs, addGeneratingId, removeGeneratingId, lastCompletedJob } = useVideoPolling();
-    const [selectedModel, setSelectedModel] = useState<string>('hailuo-02-pro');
+    const [selectedModel, setSelectedModel] = useState<string>('ltx-2-fast');
     const selectedProvider = 'fal';
     const [videoPrompt, setVideoPrompt] = useState('');
 
@@ -144,7 +142,8 @@ export default function VideoPage() {
 
             const project = projectData as { video_model?: string | null } | null;
             if (project?.video_model) {
-                setSelectedModel(project.video_model);
+                const isSupportedModel = VIDEO_MODELS.some((model) => model.id === project.video_model);
+                setSelectedModel(isSupportedModel ? project.video_model : 'ltx-2-fast');
             }
 
             // 1. Fetch only lightweight metadata first (No image_url, video_url)
@@ -586,7 +585,7 @@ export default function VideoPage() {
                         ))}
                     </select>
                     <span className="text-xs text-gray-500">
-                        예상 {(VIDEO_MODELS.find((m) => m.id === selectedModel)?.creditsPerSec || 8) * 6} credits / 6초 컷
+                        예상 {VIDEO_MODELS.find((m) => m.id === selectedModel)?.creditsPerCut || 36} credits / 6초 컷 ({VIDEO_MODELS.find((m) => m.id === selectedModel)?.creditsPerShort || 180} credits / 30초)
                     </span>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-gray-500 bg-white px-4 py-1.5 border rounded-lg">
