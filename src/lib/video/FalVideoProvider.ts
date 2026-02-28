@@ -6,6 +6,7 @@ import type { VideoProvider, VideoJobStatus } from './VideoProvider';
 import {
     getDefaultVideoModelId,
     isVideoModelId,
+    resolveVideoDuration,
     VIDEO_MODEL_REGISTRY,
     type VideoModelId,
 } from '@/lib/models/registry';
@@ -22,7 +23,7 @@ export class FalVideoProvider implements VideoProvider {
         const { imageUrl, motionPrompt, duration = 6, modelId } = request;
         const resolvedModelId: VideoModelId = isVideoModelId(modelId) ? modelId : getDefaultVideoModelId();
         const modelConfig = VIDEO_MODEL_REGISTRY[resolvedModelId];
-        const validDuration = duration === 10 ? '10' : '6';
+        const validDuration = String(resolveVideoDuration(resolvedModelId, duration));
 
         console.log(`[FalVideoProvider] Submitting job with model ${resolvedModelId} prompt: ${motionPrompt}`);
 

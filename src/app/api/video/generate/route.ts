@@ -12,6 +12,7 @@ import {
     getDefaultVideoModelId,
     isVideoModelId,
     quoteVideoCredits,
+    resolveVideoDuration,
     VIDEO_MODEL_REGISTRY,
 } from '@/lib/models/registry';
 import {
@@ -107,6 +108,7 @@ export async function POST(request: NextRequest) {
             resolution: resolution || '1080p',
             audioEnabled: !!audioEnabled,
         });
+        const effectiveDuration = resolveVideoDuration(resolvedModelId, Number(duration || 6));
         const operationId = request.headers.get('x-idempotency-key') || randomUUID();
 
         let reserveResult: {
@@ -123,7 +125,7 @@ export async function POST(request: NextRequest) {
                 modelId: resolvedModelId,
                 pricingVersion: ACTIVE_PRICING_VERSION,
                 details: {
-                    duration: Number(duration || 6),
+                    duration: effectiveDuration,
                     resolution: resolution || '1080p',
                     audioEnabled: !!audioEnabled,
                 },
@@ -194,7 +196,7 @@ export async function POST(request: NextRequest) {
             const submitResult = await provider.submitJob({
                 imageUrl,
                 motionPrompt: videoPrompt,
-                duration: duration || 6,
+                duration: effectiveDuration,
                 segmentId: segmentId || '',
                 style,
                 modelId: resolvedModelId,
@@ -238,6 +240,7 @@ export async function POST(request: NextRequest) {
             quoteCredits: quotedCredits,
             pricingVersion: ACTIVE_PRICING_VERSION,
             remainingCredits: reserveResult?.remainingCredits,
+            duration: effectiveDuration,
         });
     } catch (error) {
         console.error('Video generation error:', error);
