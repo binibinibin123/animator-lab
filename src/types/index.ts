@@ -1,6 +1,7 @@
 // Project and Segment types for the video automation agent
 
 export type AspectRatio = '16:9' | '1:1' | '3:4' | '9:16';
+export type RenderStrategy = 'native' | 'reframe_portrait';
 
 export type ProjectStatus = 
   | 'settings'    // Step 1

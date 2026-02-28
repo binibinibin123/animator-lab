@@ -19,8 +19,8 @@ fal.config({
 export class FalVideoProvider implements VideoProvider {
     readonly name = 'fal' as const;
 
-    async submitJob(request: { imageUrl: string; motionPrompt: string; duration?: number; modelId?: string }): Promise<{ externalJobId: string }> {
-        const { imageUrl, motionPrompt, duration = 6, modelId } = request;
+    async submitJob(request: { imageUrl: string; motionPrompt: string; duration?: number; modelId?: string; resolution?: string }): Promise<{ externalJobId: string }> {
+        const { imageUrl, motionPrompt, duration = 6, modelId, resolution } = request;
         const resolvedModelId: VideoModelId = isVideoModelId(modelId) ? modelId : getDefaultVideoModelId();
         const modelConfig = VIDEO_MODEL_REGISTRY[resolvedModelId];
         const validDuration = String(resolveVideoDuration(resolvedModelId, duration));
@@ -31,6 +31,10 @@ export class FalVideoProvider implements VideoProvider {
             prompt: motionPrompt,
             duration: validDuration,
         };
+
+        if (resolution) {
+            input.resolution = resolution;
+        }
 
         if (modelConfig.acceptsImageInput) {
             input.image_url = imageUrl;

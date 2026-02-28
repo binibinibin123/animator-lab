@@ -9,9 +9,64 @@ import type { Segment } from '@/types/database';
 import { useVideoPolling } from '@/context/VideoPollingContext';
 
 const VIDEO_MODELS = [
-    { id: 'ltx-2-fast', label: 'Standard Eco (LTX Fast)', creditsPerCut: 36, creditsPerShort: 180 },
-    { id: 'hailuo-02-standard', label: 'Standard Balanced (Hailuo 02 Standard)', creditsPerCut: 40, creditsPerShort: 200 },
-    { id: 'ltx-2.0-pro', label: 'Standard Plus (LTX Pro)', creditsPerCut: 48, creditsPerShort: 240 },
+    {
+        id: 'ltx-2-fast',
+        label: 'Standard Eco (LTX Fast)',
+        resolutions: [
+            { id: '1080p', creditsPerCut: 36 },
+            { id: '1440p', creditsPerCut: 72 },
+            { id: '2160p', creditsPerCut: 144 },
+        ],
+    },
+    {
+        id: 'hailuo-02-standard',
+        label: 'Standard Balanced (Hailuo 02 Standard)',
+        resolutions: [
+            { id: '720p', creditsPerCut: 40 },
+            { id: '1080p', creditsPerCut: 40 },
+        ],
+    },
+    {
+        id: 'ltx-2.0-pro',
+        label: 'Standard Plus (LTX Pro)',
+        resolutions: [
+            { id: '1080p', creditsPerCut: 48 },
+            { id: '1440p', creditsPerCut: 96 },
+            { id: '2160p', creditsPerCut: 192 },
+        ],
+    },
+    {
+        id: 'hailuo-02-pro',
+        label: 'Hailuo 02 Pro (Legacy)',
+        resolutions: [
+            { id: '1080p', creditsPerCut: 48 },
+        ],
+    },
+    {
+        id: 'kling-2.6-pro',
+        label: 'Kling 2.6 Pro (Legacy)',
+        resolutions: [
+            { id: '1080p', creditsPerCut: 42 },
+        ],
+    },
+    {
+        id: 'wan-2.5',
+        label: 'Wan 2.5 (Legacy)',
+        resolutions: [
+            { id: '480p', creditsPerCut: 30 },
+            { id: '720p', creditsPerCut: 60 },
+            { id: '1080p', creditsPerCut: 90 },
+        ],
+    },
+    {
+        id: 'veo-3-fast',
+        label: 'Veo 3 Fast (Legacy)',
+        resolutions: [
+            { id: '720p', creditsPerCut: 60 },
+            { id: '1080p', creditsPerCut: 60 },
+            { id: '2160p', creditsPerCut: 180 },
+        ],
+    },
 ] as const;
 
 export default function VideoPage() {
@@ -24,8 +79,13 @@ export default function VideoPage() {
     const [isLoading, setIsLoading] = useState(true);
     const { generatingIds, logs, startPolling, addLog, resumePendingJobs, addGeneratingId, removeGeneratingId, lastCompletedJob } = useVideoPolling();
     const [selectedModel, setSelectedModel] = useState<string>('ltx-2-fast');
+    const [selectedResolution, setSelectedResolution] = useState<string>('1080p');
     const selectedProvider = 'fal';
     const [videoPrompt, setVideoPrompt] = useState('');
+
+    const selectedVideoModel = VIDEO_MODELS.find((model) => model.id === selectedModel) || VIDEO_MODELS[0];
+    const selectedResolutionOption = selectedVideoModel.resolutions.find((resolution) => resolution.id === selectedResolution)
+        || selectedVideoModel.resolutions[0];
 
     // Pagination State
     const [currentPage, setCurrentPage] = useState(0);
@@ -143,7 +203,10 @@ export default function VideoPage() {
             const project = projectData as { video_model?: string | null } | null;
             if (project?.video_model) {
                 const isSupportedModel = VIDEO_MODELS.some((model) => model.id === project.video_model);
-                setSelectedModel(isSupportedModel ? project.video_model : 'ltx-2-fast');
+                const resolvedModelId = isSupportedModel ? project.video_model : 'ltx-2-fast';
+                setSelectedModel(resolvedModelId);
+                const resolvedModel = VIDEO_MODELS.find((model) => model.id === resolvedModelId) || VIDEO_MODELS[0];
+                setSelectedResolution(resolvedModel.resolutions[0].id);
             }
 
             // 1. Fetch only lightweight metadata first (No image_url, video_url)
@@ -241,6 +304,7 @@ export default function VideoPage() {
                 body: JSON.stringify({
                     imageUrl: segment.image_url,
                     modelId: selectedModel,
+                    resolution: selectedResolution,
                     scriptText: segment.script_text,
                     visualDescription: segment.visual_description,
                     provider: selectedProvider,
@@ -576,7 +640,12 @@ export default function VideoPage() {
                     <span className="text-sm font-medium text-gray-700">모델:</span>
                     <select
                         value={selectedModel}
-                        onChange={(e) => setSelectedModel(e.target.value)}
+                        onChange={(e) => {
+                            const nextModelId = e.target.value;
+                            const nextModel = VIDEO_MODELS.find((model) => model.id === nextModelId) || VIDEO_MODELS[0];
+                            setSelectedModel(nextModelId);
+                            setSelectedResolution(nextModel.resolutions[0].id);
+                        }}
                         className="px-3 py-1.5 border rounded-lg text-sm bg-white"
                         disabled={isGlobalGenerating || generatingIds.size > 0}
                     >
@@ -585,8 +654,21 @@ export default function VideoPage() {
                         ))}
                     </select>
                     <span className="text-xs text-gray-500">
-                        예상 {VIDEO_MODELS.find((m) => m.id === selectedModel)?.creditsPerCut || 36} credits / 6초 컷 ({VIDEO_MODELS.find((m) => m.id === selectedModel)?.creditsPerShort || 180} credits / 30초)
+                        예상 {selectedResolutionOption.creditsPerCut} credits / 6초 컷 ({selectedResolutionOption.creditsPerCut * 5} credits / 30초)
                     </span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700">화질:</span>
+                    <select
+                        value={selectedResolution}
+                        onChange={(e) => setSelectedResolution(e.target.value)}
+                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+                        disabled={isGlobalGenerating || generatingIds.size > 0}
+                    >
+                        {selectedVideoModel.resolutions.map((resolution) => (
+                            <option key={resolution.id} value={resolution.id}>{resolution.id}</option>
+                        ))}
+                    </select>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-gray-500 bg-white px-4 py-1.5 border rounded-lg">
                     <span>형식: <span className="text-gray-900 font-medium">MP4</span></span>

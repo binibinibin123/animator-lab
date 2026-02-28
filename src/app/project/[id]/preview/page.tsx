@@ -87,6 +87,11 @@ export default function PreviewPage() {
                 addDataLog('error', `프로젝트 로드 실패: ${projError.message}`);
             } else if (proj) {
                 setProject(proj as Project);
+                if (proj.aspect_ratio === '9:16' && proj.render_strategy === 'reframe_portrait') {
+                    setViewMode('shorts');
+                } else {
+                    setViewMode('original');
+                }
                 addDataLog('success', `✅ 프로젝트 로드 완료: ${proj.title}`);
             }
 
@@ -210,8 +215,14 @@ export default function PreviewPage() {
     // If original project is already 9:16, 'original' mode is also 9:16.
     // If 'shorts' mode is active, FORCE 9:16.
     const projectIsVertical = project?.aspect_ratio === '9:16';
-    const effectiveWidth = (isShorts || projectIsVertical) ? 1080 : 1920;
-    const effectiveHeight = (isShorts || projectIsVertical) ? 1920 : 1080;
+    const projectRenderStrategy = project?.render_strategy === 'reframe_portrait' ? 'reframe_portrait' : 'native';
+    const isPortraitOutput = isShorts || projectIsVertical;
+    const effectiveRenderStrategy =
+        isPortraitOutput && (isShorts || projectRenderStrategy === 'reframe_portrait')
+            ? 'reframe_portrait'
+            : 'native';
+    const effectiveWidth = isPortraitOutput ? 1080 : 1920;
+    const effectiveHeight = isPortraitOutput ? 1920 : 1080;
 
     const handleDownload = useCallback(async (type: 'mp4' | 'srt' | 'thumbnail') => {
         if (type === 'mp4') {
@@ -232,7 +243,8 @@ export default function PreviewPage() {
                             padding,
                             transitionType
                         },
-                        isShortsMode: isShorts, // Pass shorts mode flag
+                        isShortsMode: isPortraitOutput,
+                        renderStrategy: effectiveRenderStrategy,
                         title: isShorts ? shortsTitle : undefined
                     })
                 });
@@ -297,7 +309,7 @@ export default function PreviewPage() {
         } else {
             setNotice({ type: 'info', message: `${type.toUpperCase()} 다운로드 기능은 준비 중입니다.` });
         }
-    }, [isShorts, padding, remotionSegments, segments, shortsTitle, subtitleStyle, transitionType]);
+    }, [effectiveRenderStrategy, isPortraitOutput, isShorts, padding, remotionSegments, segments, shortsTitle, subtitleStyle, transitionType]);
 
     // Autopilot Trigger
     useEffect(() => {
@@ -388,18 +400,24 @@ export default function PreviewPage() {
                 </div>
             </div>
 
-            <div className={`grid grid-cols-1 ${isShorts ? 'lg:grid-cols-2' : 'lg:grid-cols-3'} gap-8`}>
+            {projectIsVertical && (
+                <p className="text-center text-xs text-gray-500 -mt-2">
+                    프로젝트 세로 렌더 기본값: {projectRenderStrategy === 'reframe_portrait' ? '가로→세로 보정' : '네이티브 세로'}
+                </p>
+            )}
+
+            <div className={`grid grid-cols-1 ${isPortraitOutput ? 'lg:grid-cols-2' : 'lg:grid-cols-3'} gap-8`}>
                 {/* Left: Video Player */}
-                <div className={`${isShorts ? 'lg:col-span-1 flex justify-center' : 'lg:col-span-2'} space-y-6`}>
+                <div className={`${isPortraitOutput ? 'lg:col-span-1 flex justify-center' : 'lg:col-span-2'} space-y-6`}>
                     <div
                         className={`bg-gray-900 rounded-2xl overflow-hidden border-4 border-gray-100 flex items-center justify-center relative shadow-2xl min-h-[500px]`}
                         style={{
-                            aspectRatio: isShorts ? '9/16' : '16/9',
-                            maxWidth: isShorts ? '400px' : '100%',
+                            aspectRatio: isPortraitOutput ? '9/16' : '16/9',
+                            maxWidth: isPortraitOutput ? '400px' : '100%',
                             margin: '0 auto'
                         }}
                     >
-                        {remotionSegments.length === 0 && isShorts ? (
+                        {remotionSegments.length === 0 && isPortraitOutput ? (
                             <div className="text-center text-red-400 p-6">
                                 <div className="text-3xl mb-2">⚠️</div>
                                 <p className="font-bold">선택된 세그먼트가 없습니다.</p>
@@ -416,7 +434,8 @@ export default function PreviewPage() {
                                         padding,
                                         transitionType
                                     },
-                                    isShortsMode: isShorts, // Pass shorts mode flag
+                                    isShortsMode: isPortraitOutput,
+                                    renderStrategy: effectiveRenderStrategy,
                                     title: isShorts ? shortsTitle : undefined // Pass title only in shorts mode
                                 }}
                                 durationInFrames={totalDurationInFrames || 30 * 5}

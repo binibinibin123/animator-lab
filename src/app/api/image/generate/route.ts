@@ -8,8 +8,11 @@ import { ResolverError, resolveReferenceContext } from '@/lib/image/referenceRes
 import {
     ACTIVE_PRICING_VERSION,
     getDefaultImageModelId,
+    getSupportedImageQualities,
+    isSupportedImageQuality,
     isImageModelId,
     quoteImageCredits,
+    resolveImageQuality,
 } from '@/lib/models/registry';
 import { finalizeCredits, releaseReservedCredits, reserveCredits } from '@/lib/credits/ledger';
 
@@ -50,6 +53,17 @@ export async function POST(request: NextRequest) {
         } = body;
 
         const resolvedModelId = isImageModelId(modelId) ? modelId : getDefaultImageModelId();
+        const requestedQuality = resolution;
+
+        if (!isSupportedImageQuality(resolvedModelId, requestedQuality)) {
+            return errorResponse(400, 'INVALID_INPUT', 'Unsupported image quality', {
+                modelId: resolvedModelId,
+                requestedQuality,
+                supportedQualities: getSupportedImageQualities(resolvedModelId),
+            });
+        }
+
+        const resolvedQuality = resolveImageQuality(resolvedModelId, requestedQuality);
 
         if (!segmentId && !projectId) {
             return errorResponse(400, 'INVALID_INPUT', 'segmentId or projectId is required');
@@ -73,7 +87,7 @@ export async function POST(request: NextRequest) {
             console.warn(warning);
         });
 
-        const quotedCredits = quoteImageCredits(resolvedModelId);
+        const quotedCredits = quoteImageCredits(resolvedModelId, resolvedQuality);
         const operationId = request.headers.get('x-idempotency-key') || randomUUID();
 
         const reserveResult = await reserveCredits({
@@ -85,7 +99,7 @@ export async function POST(request: NextRequest) {
             pricingVersion: ACTIVE_PRICING_VERSION,
             details: {
                 segmentId: segmentId || null,
-                resolution: resolution || '2K',
+                quality: resolvedQuality,
                 aspectRatio: aspectRatio || '16:9',
             },
         });
@@ -104,7 +118,7 @@ export async function POST(request: NextRequest) {
                 style: resolved.effectiveStylePreset || 'anime',
                 styleText: resolved.effectiveStyleText,
                 aspectRatio: aspectRatio || '16:9',
-                resolution: resolution || '2K',
+                resolution: resolvedQuality,
                 referenceImage: resolved.referenceImage || undefined,
                 referenceMimeType: resolved.referenceMimeType || 'image/png',
                 referenceIntent: resolved.referenceIntent,
@@ -213,6 +227,7 @@ export async function POST(request: NextRequest) {
             height: result.height,
             warnings: resolved.warnings,
             modelId: resolvedModelId,
+            quality: resolvedQuality,
             quoteCredits: quotedCredits,
             pricingVersion: ACTIVE_PRICING_VERSION,
             remainingCredits: reserveResult.remainingCredits,

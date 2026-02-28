@@ -10,13 +10,24 @@ import {
     ACTIVE_PRICING_VERSION,
     getDefaultImageModelId,
     getDefaultVideoModelId,
+    getSupportedImageQualities,
+    isSupportedImageQuality,
     isImageModelId,
+    resolveRenderStrategy,
     isVideoModelId,
     quoteImageCredits,
+    resolveImageQuality,
 } from '@/lib/models/registry';
 import { finalizeCredits, releaseReservedCredits, reserveCredits } from '@/lib/credits/ledger';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const ASPECT_RATIOS = ['16:9', '1:1', '3:4', '9:16'] as const;
+
+function parseAspectRatio(value: unknown, fallback: (typeof ASPECT_RATIOS)[number] = '9:16') {
+    return typeof value === 'string' && (ASPECT_RATIOS as readonly string[]).includes(value)
+        ? value
+        : fallback;
+}
 
 function errorResponse(status: number, code: string, message: string, details?: unknown) {
     return NextResponse.json(
@@ -44,6 +55,17 @@ export async function POST(request: NextRequest) {
     const rawStyleText = body.styleText;
     const imageModelId = isImageModelId(body.imageModelId) ? body.imageModelId : getDefaultImageModelId();
     const videoModelId = isVideoModelId(body.videoModelId) ? body.videoModelId : getDefaultVideoModelId();
+    const imageQualityInput = body.imageQuality || body.imageResolution;
+    const aspectRatio = parseAspectRatio(body.aspectRatio, '9:16');
+    const renderStrategy = resolveRenderStrategy(body.renderStrategy, aspectRatio);
+    if (!isSupportedImageQuality(imageModelId, imageQualityInput)) {
+        return errorResponse(400, 'INVALID_INPUT', 'Unsupported image quality', {
+            modelId: imageModelId,
+            requestedQuality: imageQualityInput,
+            supportedQualities: getSupportedImageQualities(imageModelId),
+        });
+    }
+    const imageQuality = resolveImageQuality(imageModelId, imageQualityInput);
 
     if (!topic) {
         return errorResponse(400, 'INVALID_INPUT', 'topic is required');
@@ -84,6 +106,8 @@ export async function POST(request: NextRequest) {
                         style_text: normalizedStyle.styleText,
                         image_model: imageModelId,
                         video_model: videoModelId,
+                        aspect_ratio: aspectRatio,
+                        render_strategy: renderStrategy,
                         visual_mode: visualMode,
                         character_reference_url: body.characterReferenceUrl || null,
                         style_reference_url: body.styleReferenceUrl || null,
@@ -175,7 +199,7 @@ export async function POST(request: NextRequest) {
                 for (const segment of segments) {
                     sendLog(`🖼️ Generating image ${segment.order_index + 1}/${segments.length}`);
                     const operationId = `autopilot:image:${project.id}:${segment.id}`;
-                    const quotedCredits = quoteImageCredits(imageModelId);
+                    const quotedCredits = quoteImageCredits(imageModelId, imageQuality);
 
                     try {
                         const reserveResult = await reserveCredits({
@@ -201,7 +225,8 @@ export async function POST(request: NextRequest) {
                             prompt: segment.visual_description || segment.script_text,
                             style: resolved.effectiveStylePreset || 'anime',
                             styleText: resolved.effectiveStyleText,
-                            aspectRatio: '16:9',
+                            aspectRatio,
+                            resolution: imageQuality,
                             referenceImage: resolved.referenceImage || undefined,
                             referenceMimeType: resolved.referenceMimeType || 'image/png',
                             referenceIntent: resolved.referenceIntent,

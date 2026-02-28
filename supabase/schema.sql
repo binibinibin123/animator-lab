@@ -132,6 +132,7 @@ CREATE INDEX IF NOT EXISTS idx_video_jobs_created_at ON video_jobs(created_at DE
 ALTER TABLE projects
   ADD COLUMN IF NOT EXISTS image_model TEXT NOT NULL DEFAULT 'nano-banana-2',
   ADD COLUMN IF NOT EXISTS video_model TEXT NOT NULL DEFAULT 'ltx-2-fast',
+  ADD COLUMN IF NOT EXISTS render_strategy TEXT NOT NULL DEFAULT 'native',
   ADD COLUMN IF NOT EXISTS pricing_version TEXT NOT NULL DEFAULT 'v1';
 
 ALTER TABLE segments

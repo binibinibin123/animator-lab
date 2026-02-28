@@ -12,6 +12,7 @@ export interface VideoGenerationRequest {
     segmentId: string;
     style?: string;
     modelId?: string;
+    resolution?: string;
 }
 
 export interface VideoGenerationResult {

@@ -5,10 +5,24 @@ import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { Segment } from '@/types/database';
+import type { AspectRatio } from '@/types';
 
 const IMAGE_MODELS = [
-    { id: 'nano-banana-2', label: 'Nano Banana 2', credits: 25 },
-    { id: 'nano-banana-pro', label: 'Nano Banana Pro', credits: 40 },
+    {
+        id: 'nano-banana-2',
+        label: 'Nano Banana 2',
+        qualities: [
+            { id: '2K', credits: 25 },
+        ],
+    },
+    {
+        id: 'nano-banana-pro',
+        label: 'Nano Banana Pro',
+        qualities: [
+            { id: '2K', credits: 40 },
+            { id: '4K', credits: 72 },
+        ],
+    },
 ] as const;
 
 export default function ImagePage() {
@@ -27,6 +41,7 @@ export default function ImagePage() {
     const [error, setError] = useState<string | null>(null);
     const [projectStyle, setProjectStyle] = useState<string>('anime');
     const [projectStyleText, setProjectStyleText] = useState<string>('');
+    const [projectAspectRatio, setProjectAspectRatio] = useState<AspectRatio>('16:9');
     const [imageModelId, setImageModelId] = useState<string>('nano-banana-2');
     const [projectVisualMode, setProjectVisualMode] = useState<'legacy' | 'character_fixed' | 'style_fixed'>('legacy');
     const [hasCharacterReference, setHasCharacterReference] = useState(false);
@@ -64,7 +79,7 @@ export default function ImagePage() {
             // Fetch project style first
             const { data: projectData } = await supabase
                 .from('projects')
-                .select('style, style_text, visual_mode, character_reference_url, style_reference_url, image_model')
+                .select('style, style_text, visual_mode, character_reference_url, style_reference_url, image_model, aspect_ratio')
                 .eq('id', projectId)
                 .single();
 
@@ -75,6 +90,7 @@ export default function ImagePage() {
                 character_reference_url?: string | null;
                 style_reference_url?: string | null;
                 image_model?: string | null;
+                aspect_ratio?: AspectRatio;
             } | null;
 
             if (project) {
@@ -87,6 +103,9 @@ export default function ImagePage() {
                 setHasStyleReference(!!project.style_reference_url);
                 if (project.image_model) {
                     setImageModelId(project.image_model);
+                }
+                if (project.aspect_ratio) {
+                    setProjectAspectRatio(project.aspect_ratio);
                 }
             }
 
@@ -142,6 +161,9 @@ export default function ImagePage() {
     }, [isLoading, segments, isGenerating]);
 
     const selectedSegment = segments.find(s => s.id === selectedSegmentId);
+    const selectedImageModel = IMAGE_MODELS.find((model) => model.id === imageModelId) || IMAGE_MODELS[0];
+    const supportedImageQualities = selectedImageModel.qualities;
+    const selectedImageQuality = supportedImageQualities.find((quality) => quality.id === resolution) || supportedImageQualities[0];
 
     const handleGenerateImage = async (segment: Segment) => {
         setCurrentGeneratingId(segment.id);
@@ -158,11 +180,12 @@ export default function ImagePage() {
                             scriptText: segment.script_text,
                             segmentId: segment.id,
                             projectId,
-                            resolution,
+                            resolution: selectedImageQuality.id,
                             style: projectStyle,
                             styleText: projectStyleText,
                             provider: imageProvider,
                             modelId: imageModelId,
+                            aspectRatio: projectAspectRatio,
                         }),
                     });
 
@@ -205,11 +228,12 @@ export default function ImagePage() {
                             scriptText: segment.script_text,
                             segmentId: segment.id,
                             projectId,
-                            resolution,
+                            resolution: selectedImageQuality.id,
                             style: projectStyle,
                             styleText: projectStyleText,
                             provider: imageProvider,
                             modelId: imageModelId,
+                            aspectRatio: projectAspectRatio,
                         }),
                     });
 
@@ -330,7 +354,14 @@ export default function ImagePage() {
                     <span className="text-sm font-medium text-gray-700">모델:</span>
                     <select
                         value={imageModelId}
-                        onChange={(e) => setImageModelId(e.target.value)}
+                        onChange={(e) => {
+                            const nextModelId = e.target.value;
+                            const nextModel = IMAGE_MODELS.find((model) => model.id === nextModelId);
+                            setImageModelId(nextModelId);
+                            if (nextModel) {
+                                setResolution(nextModel.qualities[0].id);
+                            }
+                        }}
                         className="px-3 py-1.5 border rounded-lg text-sm bg-white"
                         disabled={isGenerating}
                     >
@@ -339,24 +370,22 @@ export default function ImagePage() {
                         ))}
                     </select>
                     <span className="text-xs text-gray-500">
-                        예상 {IMAGE_MODELS.find((m) => m.id === imageModelId)?.credits ?? 25} credits / image
+                        예상 {selectedImageQuality.credits} credits / image
                     </span>
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">해상도:</span>
                     <div className="flex bg-white border rounded-lg p-1">
-                        <button
-                            onClick={() => setResolution('2K')}
-                            className={`px-3 py-1 text-xs rounded-md transition-all ${resolution === '2K' ? 'bg-violet-600 text-white' : 'hover:bg-gray-50'}`}
-                        >
-                            2K
-                        </button>
-                        <button
-                            onClick={() => setResolution('4K')}
-                            className={`px-3 py-1 text-xs rounded-md transition-all ${resolution === '4K' ? 'bg-violet-600 text-white' : 'hover:bg-gray-50'}`}
-                        >
-                            4K
-                        </button>
+                        {supportedImageQualities.map((quality) => (
+                            <button
+                                key={quality.id}
+                                type="button"
+                                onClick={() => setResolution(quality.id)}
+                                className={`px-3 py-1 text-xs rounded-md transition-all ${selectedImageQuality.id === quality.id ? 'bg-violet-600 text-white' : 'hover:bg-gray-50'}`}
+                            >
+                                {quality.id}
+                            </button>
+                        ))}
                     </div>
                 </div>
             </div>

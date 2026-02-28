@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createUploadSessionId, uploadProjectReference } from '@/lib/api/referenceUploadClient';
+import type { AspectRatio, RenderStrategy } from '@/types';
 
 interface LogMessage {
     message: string;
@@ -30,14 +31,87 @@ const STYLE_OPTIONS = [
 ];
 
 const IMAGE_MODELS = [
-    { id: 'nano-banana-2', label: 'Nano Banana 2', credits: 25 },
-    { id: 'nano-banana-pro', label: 'Nano Banana Pro', credits: 40 },
+    {
+        id: 'nano-banana-2',
+        label: 'Nano Banana 2',
+        qualities: [
+            { id: '2K', credits: 25 },
+        ],
+    },
+    {
+        id: 'nano-banana-pro',
+        label: 'Nano Banana Pro',
+        qualities: [
+            { id: '2K', credits: 40 },
+            { id: '4K', credits: 72 },
+        ],
+    },
 ];
 
 const VIDEO_MODELS = [
-    { id: 'ltx-2-fast', label: 'Standard Eco (LTX Fast)', creditsPerCut: 36, creditsPerShort: 180 },
-    { id: 'hailuo-02-standard', label: 'Standard Balanced (Hailuo 02 Standard)', creditsPerCut: 40, creditsPerShort: 200 },
-    { id: 'ltx-2.0-pro', label: 'Standard Plus (LTX Pro)', creditsPerCut: 48, creditsPerShort: 240 },
+    {
+        id: 'ltx-2-fast',
+        label: 'Standard Eco (LTX Fast)',
+        resolutions: [
+            { id: '1080p', creditsPerCut: 36 },
+            { id: '1440p', creditsPerCut: 72 },
+            { id: '2160p', creditsPerCut: 144 },
+        ],
+    },
+    {
+        id: 'hailuo-02-standard',
+        label: 'Standard Balanced (Hailuo 02 Standard)',
+        resolutions: [
+            { id: '720p', creditsPerCut: 40 },
+            { id: '1080p', creditsPerCut: 40 },
+        ],
+    },
+    {
+        id: 'ltx-2.0-pro',
+        label: 'Standard Plus (LTX Pro)',
+        resolutions: [
+            { id: '1080p', creditsPerCut: 48 },
+            { id: '1440p', creditsPerCut: 96 },
+            { id: '2160p', creditsPerCut: 192 },
+        ],
+    },
+    {
+        id: 'hailuo-02-pro',
+        label: 'Hailuo 02 Pro (Legacy)',
+        resolutions: [
+            { id: '1080p', creditsPerCut: 48 },
+        ],
+    },
+    {
+        id: 'kling-2.6-pro',
+        label: 'Kling 2.6 Pro (Legacy)',
+        resolutions: [
+            { id: '1080p', creditsPerCut: 42 },
+        ],
+    },
+    {
+        id: 'wan-2.5',
+        label: 'Wan 2.5 (Legacy)',
+        resolutions: [
+            { id: '480p', creditsPerCut: 30 },
+            { id: '720p', creditsPerCut: 60 },
+            { id: '1080p', creditsPerCut: 90 },
+        ],
+    },
+    {
+        id: 'veo-3-fast',
+        label: 'Veo 3 Fast (Legacy)',
+        resolutions: [
+            { id: '720p', creditsPerCut: 60 },
+            { id: '1080p', creditsPerCut: 60 },
+            { id: '2160p', creditsPerCut: 180 },
+        ],
+    },
+];
+
+const ORIENTATION_OPTIONS: { value: AspectRatio; label: string; desc: string }[] = [
+    { value: '16:9', label: '가로 (16:9)', desc: '유튜브 기본 가로형' },
+    { value: '9:16', label: '세로 (9:16)', desc: '쇼츠/릴스 기본형' },
 ];
 
 export default function AutopilotPage() {
@@ -46,8 +120,13 @@ export default function AutopilotPage() {
     const [visualMode, setVisualMode] = useState<VisualMode>('style_fixed');
     const [style, setStyle] = useState('anime');
     const [styleText, setStyleText] = useState('');
+    const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
+    const [renderStrategy, setRenderStrategy] = useState<RenderStrategy>('native');
     const [imageModelId, setImageModelId] = useState('nano-banana-2');
     const [videoModelId, setVideoModelId] = useState('ltx-2-fast');
+    const [imageQuality, setImageQuality] = useState('2K');
+    const [videoResolution, setVideoResolution] = useState('1080p');
+    const [showAdvancedModels, setShowAdvancedModels] = useState(false);
     const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
     const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
     const [referenceError, setReferenceError] = useState<string | null>(null);
@@ -62,6 +141,11 @@ export default function AutopilotPage() {
     const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'warn' | 'error'; message: string } | null>(null);
     const logsEndRef = useRef<HTMLDivElement>(null);
     const streamAbortRef = useRef<AbortController | null>(null);
+
+    const selectedImageModel = IMAGE_MODELS.find((model) => model.id === imageModelId) || IMAGE_MODELS[0];
+    const selectedImageQuality = selectedImageModel.qualities.find((quality) => quality.id === imageQuality) || selectedImageModel.qualities[0];
+    const selectedVideoModel = VIDEO_MODELS.find((model) => model.id === videoModelId) || VIDEO_MODELS[0];
+    const selectedVideoResolution = selectedVideoModel.resolutions.find((resolution) => resolution.id === videoResolution) || selectedVideoModel.resolutions[0];
 
     const handleVisualModeChange = (nextMode: VisualMode) => {
         if (nextMode === visualMode) {
@@ -138,10 +222,14 @@ export default function AutopilotPage() {
                 body: JSON.stringify({
                     topic,
                     duration: 30,
+                    aspectRatio,
+                    renderStrategy: aspectRatio === '9:16' ? renderStrategy : 'native',
                     style,
                     styleText: styleText.trim() || undefined,
                     imageModelId,
                     videoModelId,
+                    imageQuality: selectedImageQuality.id,
+                    videoResolution: selectedVideoResolution.id,
                     visualMode,
                     characterReferenceUrl: visualMode === 'character_fixed' ? referencePreviewUrl || undefined : undefined,
                     styleReferenceUrl: visualMode === 'style_fixed' ? referencePreviewUrl || undefined : undefined,
@@ -278,6 +366,63 @@ export default function AutopilotPage() {
                         </div>
                     </div>
 
+                    <div className="space-y-3">
+                        <p className="text-sm font-medium text-gray-700">출력 비율</p>
+                        <div className="grid grid-cols-2 gap-3">
+                            {ORIENTATION_OPTIONS.map((option) => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => {
+                                        setAspectRatio(option.value);
+                                        if (option.value !== '9:16') {
+                                            setRenderStrategy('native');
+                                        }
+                                    }}
+                                    className={`px-4 py-3 rounded-xl border-2 text-left ${aspectRatio === option.value
+                                        ? 'border-violet-600 bg-violet-50'
+                                        : 'border-gray-200 hover:border-gray-300'
+                                        }`}
+                                >
+                                    <p className="font-semibold text-gray-900">{option.label}</p>
+                                    <p className="text-xs text-gray-500 mt-1">{option.desc}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {aspectRatio === '9:16' && (
+                        <div className="space-y-2 border rounded-xl bg-gray-50 p-4">
+                            <p className="text-sm font-medium text-gray-700">세로 렌더 방식</p>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setRenderStrategy('native')}
+                                    className={`p-3 rounded-lg border text-left text-sm ${
+                                        renderStrategy === 'native'
+                                            ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                            : 'border-gray-200 bg-white text-gray-700'
+                                    }`}
+                                >
+                                    <p className="font-medium">네이티브 세로</p>
+                                    <p className="text-xs mt-1 text-gray-500">세로 프레임 중심으로 구성</p>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setRenderStrategy('reframe_portrait')}
+                                    className={`p-3 rounded-lg border text-left text-sm ${
+                                        renderStrategy === 'reframe_portrait'
+                                            ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                            : 'border-gray-200 bg-white text-gray-700'
+                                    }`}
+                                >
+                                    <p className="font-medium">가로→세로 보정</p>
+                                    <p className="text-xs mt-1 text-gray-500">가로 구도를 세로 쇼츠로 재프레이밍</p>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="space-y-2">
                         <label htmlFor="autopilot-reference-image" className="text-sm font-medium text-gray-700">
                             {visualMode === 'character_fixed' ? '캐릭터 참조 이미지 (선택)' : '스타일 참조 이미지 (선택)'}
@@ -362,48 +507,96 @@ export default function AutopilotPage() {
                         />
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="space-y-2 p-3 border rounded-xl bg-gray-50">
-                            <p className="text-sm font-medium text-gray-700">이미지 모델</p>
-                            <div className="space-y-2">
-                                {IMAGE_MODELS.map((item) => (
-                                    <button
-                                        key={item.id}
-                                        type="button"
-                                        onClick={() => setImageModelId(item.id)}
-                                        className={`w-full px-3 py-2 rounded-lg border text-left text-sm ${
-                                            imageModelId === item.id
-                                                ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                                : 'border-gray-200 bg-white text-gray-700'
-                                        }`}
-                                    >
-                                        <div className="font-medium">{item.label}</div>
-                                        <div className="text-xs text-gray-500">예상 {item.credits} credits / image</div>
-                                    </button>
-                                ))}
+                    <div className="space-y-2 border rounded-xl bg-gray-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-sm font-medium text-gray-800">고급 설정 (오토파일럿 전용)</p>
+                                <p className="text-xs text-gray-500">일반 생성에서는 이미지 단계/영상 단계에서 각각 모델을 선택합니다.</p>
                             </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowAdvancedModels((prev) => !prev)}
+                                className="px-3 py-1.5 text-xs font-medium border rounded-lg bg-white hover:bg-gray-100"
+                            >
+                                {showAdvancedModels ? '고급 설정 닫기' : '고급 설정 열기'}
+                            </button>
                         </div>
 
-                        <div className="space-y-2 p-3 border rounded-xl bg-gray-50">
-                            <p className="text-sm font-medium text-gray-700">비디오 모델</p>
-                            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                                {VIDEO_MODELS.map((item) => (
-                                    <button
-                                        key={item.id}
-                                        type="button"
-                                        onClick={() => setVideoModelId(item.id)}
-                                        className={`w-full px-3 py-2 rounded-lg border text-left text-sm ${
-                                            videoModelId === item.id
-                                                ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                                : 'border-gray-200 bg-white text-gray-700'
-                                        }`}
-                                    >
-                                        <div className="font-medium">{item.label}</div>
-                                        <div className="text-xs text-gray-500">예상 {item.creditsPerCut} credits / 6초 컷 ({item.creditsPerShort} credits / 30초)</div>
-                                    </button>
-                                ))}
+                        {showAdvancedModels && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                                <div className="space-y-2 p-3 border rounded-xl bg-white">
+                                    <p className="text-sm font-medium text-gray-700">이미지 모델</p>
+                                    <div className="space-y-2">
+                                        {IMAGE_MODELS.map((item) => (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    setImageModelId(item.id);
+                                                    setImageQuality(item.qualities[0].id);
+                                                }}
+                                                className={`w-full px-3 py-2 rounded-lg border text-left text-sm ${
+                                                    imageModelId === item.id
+                                                        ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                                        : 'border-gray-200 bg-white text-gray-700'
+                                                }`}
+                                            >
+                                                <div className="font-medium">{item.label}</div>
+                                                <div className="text-xs text-gray-500">예상 {item.qualities[0].credits}~{item.qualities[item.qualities.length - 1].credits} credits / image</div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="flex gap-2 pt-1">
+                                        {selectedImageModel.qualities.map((quality) => (
+                                            <button
+                                                key={quality.id}
+                                                type="button"
+                                                onClick={() => setImageQuality(quality.id)}
+                                                className={`px-3 py-1 text-xs rounded-md border ${selectedImageQuality.id === quality.id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-700 border-gray-200'}`}
+                                            >
+                                                {quality.id} ({quality.credits})
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2 p-3 border rounded-xl bg-white">
+                                    <p className="text-sm font-medium text-gray-700">비디오 모델</p>
+                                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                        {VIDEO_MODELS.map((item) => (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    setVideoModelId(item.id);
+                                                    setVideoResolution(item.resolutions[0].id);
+                                                }}
+                                                className={`w-full px-3 py-2 rounded-lg border text-left text-sm ${
+                                                    videoModelId === item.id
+                                                        ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                                        : 'border-gray-200 bg-white text-gray-700'
+                                                }`}
+                                            >
+                                                <div className="font-medium">{item.label}</div>
+                                                <div className="text-xs text-gray-500">예상 {item.resolutions[0].creditsPerCut}~{item.resolutions[item.resolutions.length - 1].creditsPerCut} credits / 6초 컷</div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 pt-1">
+                                        {selectedVideoModel.resolutions.map((resolution) => (
+                                            <button
+                                                key={resolution.id}
+                                                type="button"
+                                                onClick={() => setVideoResolution(resolution.id)}
+                                                className={`px-3 py-1 text-xs rounded-md border ${selectedVideoResolution.id === resolution.id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-700 border-gray-200'}`}
+                                            >
+                                                {resolution.id} ({resolution.creditsPerCut})
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
 
                     <div className="space-y-2">

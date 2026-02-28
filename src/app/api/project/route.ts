@@ -14,8 +14,17 @@ import {
     getDefaultImageModelId,
     getDefaultVideoModelId,
     isImageModelId,
+    resolveRenderStrategy,
     isVideoModelId,
 } from '@/lib/models/registry';
+
+const ASPECT_RATIOS = ['16:9', '1:1', '3:4', '9:16'] as const;
+
+function parseAspectRatio(value: unknown, fallback: (typeof ASPECT_RATIOS)[number] = '16:9') {
+    return typeof value === 'string' && (ASPECT_RATIOS as readonly string[]).includes(value)
+        ? value
+        : fallback;
+}
 
 function errorResponse(status: number, code: string, message: string, details?: unknown) {
     return NextResponse.json(
@@ -80,6 +89,11 @@ export async function POST(request: NextRequest) {
             : isVideoModelId(body.videoModel)
                 ? body.videoModel
                 : getDefaultVideoModelId();
+        const inputAspectRatio = parseAspectRatio(
+            body.aspectRatio,
+            body.channel_id || body.isTestRun ? '9:16' : '16:9'
+        );
+        const inputRenderStrategy = resolveRenderStrategy(body.renderStrategy, inputAspectRatio);
 
         // ---------------------------------------------------------
         // 1. Channel Automation / Test Run Logic
@@ -167,7 +181,8 @@ export async function POST(request: NextRequest) {
                 pricing_version: ACTIVE_PRICING_VERSION,
                 character_reference_url: body.characterReferenceUrl || null,
                 style_reference_url: body.styleReferenceUrl || null,
-                aspect_ratio: '9:16', // Shorts default
+                aspect_ratio: inputAspectRatio,
+                render_strategy: inputRenderStrategy,
                 duration: scriptResult.totalDurationMs / 1000,
                 status: 'script', // Ready for TTS/Image
                 video_provider: 'fal',
@@ -229,6 +244,7 @@ export async function POST(request: NextRequest) {
                     image_model: original.image_model || getDefaultImageModelId(),
                     video_model: original.video_model || getDefaultVideoModelId(),
                     pricing_version: original.pricing_version || ACTIVE_PRICING_VERSION,
+                    render_strategy: original.render_strategy || 'native',
                     character_reference_url: original.character_reference_url || null,
                     style_reference_url: original.style_reference_url || null,
                     status: 'draft',
@@ -269,13 +285,14 @@ export async function POST(request: NextRequest) {
         const projectData: ProjectInsert = {
             title: body.title || '새 프로젝트',
             topic: body.topic || '',
-            aspect_ratio: body.aspectRatio || '16:9',
+            aspect_ratio: inputAspectRatio,
             style: normalizedStyle.style,
             style_text: normalizedStyle.styleText,
             visual_mode: inputVisualMode,
             image_model: inputImageModel,
             video_model: inputVideoModel,
             pricing_version: ACTIVE_PRICING_VERSION,
+            render_strategy: inputRenderStrategy,
             character_reference_url: body.characterReferenceUrl || null,
             style_reference_url: body.styleReferenceUrl || null,
             duration: body.duration || 60,
@@ -337,6 +354,7 @@ export async function PATCH(request: NextRequest) {
         const { id, title, visualMode, characterReferenceUrl, styleReferenceUrl } = body;
         const hasStyleInput = body.style !== undefined || body.styleText !== undefined;
         const hasModelInput = body.imageModelId !== undefined || body.videoModelId !== undefined;
+        const hasRenderInput = body.aspectRatio !== undefined || body.renderStrategy !== undefined;
 
         if (!id) {
             return errorResponse(400, 'INVALID_INPUT', 'Project ID is required');
@@ -382,6 +400,27 @@ export async function PATCH(request: NextRequest) {
                     return errorResponse(400, 'INVALID_INPUT', 'Invalid video model id');
                 }
                 updates.video_model = body.videoModelId;
+            }
+        }
+
+        if (hasRenderInput) {
+            let aspectRatio = parseAspectRatio(body.aspectRatio, '16:9');
+
+            if (body.aspectRatio === undefined) {
+                const { data: currentProject } = await supabase
+                    .from('projects')
+                    .select('aspect_ratio')
+                    .eq('id', id)
+                    .single();
+                aspectRatio = parseAspectRatio(currentProject?.aspect_ratio, '16:9');
+            }
+
+            if (body.aspectRatio !== undefined) {
+                updates.aspect_ratio = aspectRatio;
+            }
+
+            if (body.renderStrategy !== undefined || body.aspectRatio !== undefined) {
+                updates.render_strategy = resolveRenderStrategy(body.renderStrategy, aspectRatio);
             }
         }
 

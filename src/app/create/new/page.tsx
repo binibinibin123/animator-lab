@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { AspectRatio } from '@/types';
+import type { AspectRatio, RenderStrategy } from '@/types';
 import { createUploadSessionId, uploadProjectReference } from '@/lib/api/referenceUploadClient';
 
 const ASPECT_RATIOS: { value: AspectRatio; label: string; icon: string; desc: string }[] = [
@@ -30,27 +30,15 @@ const STYLES = [
     { id: 'sketch', name: '스케치', thumbnail: '/styles/sketch.png' },
 ];
 
-const IMAGE_MODELS = [
-    { id: 'nano-banana-2', label: 'Nano Banana 2', credits: 25 },
-    { id: 'nano-banana-pro', label: 'Nano Banana Pro', credits: 40 },
-];
-
-const VIDEO_MODELS = [
-    { id: 'ltx-2-fast', label: 'Standard Eco (LTX Fast)', creditsPerCut: 36, creditsPerShort: 180 },
-    { id: 'hailuo-02-standard', label: 'Standard Balanced (Hailuo 02 Standard)', creditsPerCut: 40, creditsPerShort: 200 },
-    { id: 'ltx-2.0-pro', label: 'Standard Plus (LTX Pro)', creditsPerCut: 48, creditsPerShort: 240 },
-];
-
 type VisualMode = 'character_fixed' | 'style_fixed';
 
 export default function NewProjectPage() {
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
+    const [renderStrategy, setRenderStrategy] = useState<RenderStrategy>('native');
     const [visualMode, setVisualMode] = useState<VisualMode>('character_fixed');
     const [selectedStyle, setSelectedStyle] = useState<string>('anime');
     const [customStyle, setCustomStyle] = useState<string>('');
     const [styleGuide, setStyleGuide] = useState<string>('');
-    const [imageModelId, setImageModelId] = useState('nano-banana-2');
-    const [videoModelId, setVideoModelId] = useState('ltx-2-fast');
     const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
     const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
     const [referenceError, setReferenceError] = useState<string | null>(null);
@@ -120,11 +108,10 @@ export default function NewProjectPage() {
         const styleText = isCustomStyle ? customStyle.trim() : styleGuide.trim() || undefined;
         const payload: Record<string, unknown> = {
             aspectRatio,
+            renderStrategy: aspectRatio === '9:16' ? renderStrategy : 'native',
             style,
             styleText,
             visualMode,
-            imageModelId,
-            videoModelId,
             videoProvider: 'fal',
         };
 
@@ -278,7 +265,12 @@ export default function NewProjectPage() {
                         <button
                             key={ratio.value}
                             type="button"
-                            onClick={() => setAspectRatio(ratio.value)}
+                            onClick={() => {
+                                setAspectRatio(ratio.value);
+                                if (ratio.value !== '9:16') {
+                                    setRenderStrategy('native');
+                                }
+                            }}
                             className={`flex flex-col items-center p-4 rounded-xl border-2 transition-all ${
                                 aspectRatio === ratio.value
                                     ? 'border-violet-600 bg-violet-50'
@@ -295,49 +287,37 @@ export default function NewProjectPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-3 p-4 border rounded-xl bg-white">
-                    <h3 className="text-sm font-semibold text-gray-800">이미지 모델</h3>
-                    <div className="space-y-2">
-                        {IMAGE_MODELS.map((item) => (
-                            <button
-                                key={item.id}
-                                type="button"
-                                onClick={() => setImageModelId(item.id)}
-                                className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
-                                    imageModelId === item.id
-                                        ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                        : 'border-gray-200 hover:border-gray-300 text-gray-700'
-                                }`}
-                            >
-                                <div className="font-medium">{item.label}</div>
-                                <div className="text-xs text-gray-500">예상 {item.credits} credits / image</div>
-                            </button>
-                        ))}
+            {aspectRatio === '9:16' && (
+                <div className="space-y-3 p-4 border rounded-xl bg-gray-50">
+                    <h3 className="text-sm font-semibold text-gray-800">세로 렌더 방식</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setRenderStrategy('native')}
+                            className={`p-3 rounded-lg border text-left text-sm transition-colors ${
+                                renderStrategy === 'native'
+                                    ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                    : 'border-gray-200 bg-white text-gray-700'
+                            }`}
+                        >
+                            <p className="font-medium">네이티브 세로</p>
+                            <p className="text-xs mt-1 text-gray-500">처음부터 세로 화면 기준으로 렌더링</p>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setRenderStrategy('reframe_portrait')}
+                            className={`p-3 rounded-lg border text-left text-sm transition-colors ${
+                                renderStrategy === 'reframe_portrait'
+                                    ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                    : 'border-gray-200 bg-white text-gray-700'
+                            }`}
+                        >
+                            <p className="font-medium">가로→세로 보정</p>
+                            <p className="text-xs mt-1 text-gray-500">가로 구도를 세로 쇼츠 프레임으로 재구성</p>
+                        </button>
                     </div>
                 </div>
-
-                <div className="space-y-3 p-4 border rounded-xl bg-white">
-                    <h3 className="text-sm font-semibold text-gray-800">비디오 모델</h3>
-                    <div className="space-y-2">
-                        {VIDEO_MODELS.map((item) => (
-                            <button
-                                key={item.id}
-                                type="button"
-                                onClick={() => setVideoModelId(item.id)}
-                                className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
-                                    videoModelId === item.id
-                                        ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                        : 'border-gray-200 hover:border-gray-300 text-gray-700'
-                                }`}
-                            >
-                                <div className="font-medium">{item.label}</div>
-                                <div className="text-xs text-gray-500">예상 {item.creditsPerCut} credits / 6초 컷 ({item.creditsPerShort} credits / 30초)</div>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </div>
+            )}
 
             <div className="space-y-4">
                 <h3 className="text-lg font-semibold text-gray-800">스타일 선택</h3>

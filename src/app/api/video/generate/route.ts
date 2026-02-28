@@ -10,9 +10,12 @@ import { getVideoProvider, VideoProviderType } from '@/lib/video';
 import {
     ACTIVE_PRICING_VERSION,
     getDefaultVideoModelId,
+    getSupportedVideoResolutions,
+    isSupportedVideoResolution,
     isVideoModelId,
     quoteVideoCredits,
     resolveVideoDuration,
+    resolveVideoResolution,
     VIDEO_MODEL_REGISTRY,
 } from '@/lib/models/registry';
 import {
@@ -62,6 +65,17 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        if (!isSupportedVideoResolution(resolvedModelId, resolution)) {
+            return NextResponse.json(
+                {
+                    error: `Unsupported video resolution for model ${resolvedModelId}`,
+                    requestedResolution: resolution,
+                    supportedResolutions: getSupportedVideoResolutions(resolvedModelId),
+                },
+                { status: 400 }
+            );
+        }
+
         let providerType: VideoProviderType = 'fal';
 
         console.log(`[VideoAPI] Using provider: ${providerType}`);
@@ -103,9 +117,11 @@ export async function POST(request: NextRequest) {
             resolvedProjectId = (segmentRow as { project_id?: string } | null)?.project_id || null;
         }
 
+        const resolvedResolution = resolveVideoResolution(resolvedModelId, resolution);
+
         const quotedCredits = quoteVideoCredits(resolvedModelId, {
             durationSeconds: Number(duration || 6),
-            resolution: resolution || '1080p',
+            resolution: resolvedResolution,
             audioEnabled: !!audioEnabled,
         });
         const effectiveDuration = resolveVideoDuration(resolvedModelId, Number(duration || 6));
@@ -126,7 +142,7 @@ export async function POST(request: NextRequest) {
                 pricingVersion: ACTIVE_PRICING_VERSION,
                 details: {
                     duration: effectiveDuration,
-                    resolution: resolution || '1080p',
+                    resolution: resolvedResolution,
                     audioEnabled: !!audioEnabled,
                 },
             });
@@ -200,6 +216,7 @@ export async function POST(request: NextRequest) {
                 segmentId: segmentId || '',
                 style,
                 modelId: resolvedModelId,
+                resolution: resolvedResolution,
             });
             externalJobId = submitResult.externalJobId;
         } catch (submitError) {
@@ -241,6 +258,7 @@ export async function POST(request: NextRequest) {
             pricingVersion: ACTIVE_PRICING_VERSION,
             remainingCredits: reserveResult?.remainingCredits,
             duration: effectiveDuration,
+            resolution: resolvedResolution,
         });
     } catch (error) {
         console.error('Video generation error:', error);

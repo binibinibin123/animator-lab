@@ -58,6 +58,7 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
         style = 'anime',
         styleText,
         aspectRatio = '16:9',
+        resolution = '2K',
         referenceImage,
         referenceMimeType = 'image/png',
         referenceIntent,
@@ -87,6 +88,8 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
     if (styleModifier) {
         fullPrompt += `\n\nStyle: ${styleModifier}`;
     }
+
+    fullPrompt += `\n\nComposition ratio: ${aspectRatio}. Output quality target: ${resolution}.`;
 
     // fullPrompt += "\n\nNO text, NO watermarks."; // Removed to allow text if requested
     fullPrompt += "\n\nHigh quality, no watermarks.";

@@ -69,6 +69,7 @@ export type Database = {
                     image_model: string;
                     video_model: string;
                     pricing_version: string;
+                    render_strategy: 'native' | 'reframe_portrait';
                     status: string;
                     duration: number;
                     video_provider: string;
@@ -95,6 +96,7 @@ export type Database = {
                     image_model?: string;
                     video_model?: string;
                     pricing_version?: string;
+                    render_strategy?: 'native' | 'reframe_portrait';
                     status?: string;
                     duration?: number;
                     video_provider?: string;
@@ -121,6 +123,7 @@ export type Database = {
                     image_model?: string;
                     video_model?: string;
                     pricing_version?: string;
+                    render_strategy?: 'native' | 'reframe_portrait';
                     status?: string;
                     duration?: number;
                     video_provider?: string;

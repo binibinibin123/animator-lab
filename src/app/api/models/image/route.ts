@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listEnabledImageModels } from '@/lib/models/registry';
+import { listEnabledImageModels, quoteImageCredits } from '@/lib/models/registry';
 
 export async function GET() {
     return NextResponse.json({
@@ -8,6 +8,11 @@ export async function GET() {
             id: model.id,
             label: model.label,
             baseCreditsPerImage: model.baseCreditsPerImage,
+            supportedQualities: model.supportedQualities,
+            creditsByQuality: model.supportedQualities.reduce((acc, quality) => {
+                acc[quality] = quoteImageCredits(model.id, quality);
+                return acc;
+            }, {} as Record<string, number>),
         })),
     });
 }

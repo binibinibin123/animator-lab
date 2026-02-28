@@ -26,7 +26,17 @@ export async function POST(req: NextRequest) {
 
             try {
                 const body = await req.json();
-                const { segments, compositionId = 'MainVideo', subtitleStyle, settings, fps = 30, skipSubtitles = false, isShortsMode = false, title } = body;
+                const {
+                    segments,
+                    compositionId = 'MainVideo',
+                    subtitleStyle,
+                    settings,
+                    fps = 30,
+                    skipSubtitles = false,
+                    isShortsMode = false,
+                    renderStrategy = 'native',
+                    title,
+                } = body;
 
                 sendLog('🚀 렌더링 프로세스를 시작합니다...');
                 sendLog(`⚙️ FPS: ${fps}, 자막: ${skipSubtitles ? '없음' : '있음'}, 모드: ${isShortsMode ? '숏폼(9:16)' : '기본'}`);
@@ -54,7 +64,16 @@ export async function POST(req: NextRequest) {
                 // 2. Compositions
                 sendLog('🔍 컴포지션 정보를 분석 중입니다...');
                 const compositions = await getCompositions(bundleLocation, {
-                    inputProps: { segments: localSegments, subtitleStyle, settings, fps, skipSubtitles, isShortsMode, title },
+                    inputProps: {
+                        segments: localSegments,
+                        subtitleStyle,
+                        settings,
+                        fps,
+                        skipSubtitles,
+                        isShortsMode,
+                        renderStrategy,
+                        title,
+                    },
                 });
 
                 const composition = compositions.find((c) => c.id === compositionId);
@@ -87,7 +106,16 @@ export async function POST(req: NextRequest) {
                     serveUrl: bundleLocation,
                     codec: 'h264',
                     outputLocation: tempOutput,
-                    inputProps: { segments: localSegments, subtitleStyle, settings, fps, skipSubtitles, isShortsMode, title },
+                    inputProps: {
+                        segments: localSegments,
+                        subtitleStyle,
+                        settings,
+                        fps,
+                        skipSubtitles,
+                        isShortsMode,
+                        renderStrategy,
+                        title,
+                    },
                     // fps: 30, // composition 설정 따름
                     onProgress: (p) => {
                         const progress = Math.round(p.progress * 100);

@@ -25,6 +25,7 @@ export const myCompSchema = z.object({
     fps: z.number().optional(),
     skipSubtitles: z.boolean().optional(),
     isShortsMode: z.boolean().optional(),
+    renderStrategy: z.enum(['native', 'reframe_portrait']).optional(),
     title: z.string().optional(),
 });
 
@@ -72,7 +73,8 @@ export const RemotionRoot: React.FC = () => {
                 defaultProps={{
                     segments: [],
                     settings: { padding: 0.5, transitionType: 'slide' },
-                    fps: 30
+                    fps: 30,
+                    renderStrategy: 'native',
                 }}
             />
         </>

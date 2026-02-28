@@ -24,6 +24,7 @@ interface MainVideoProps {
     settings?: VideoSettings;
     skipSubtitles?: boolean;
     isShortsMode?: boolean;
+    renderStrategy?: 'native' | 'reframe_portrait';
     title?: string;
 }
 
@@ -57,6 +58,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({
     settings = { padding: 0.5, transitionType: 'slide' },
     skipSubtitles = false,
     isShortsMode = false,
+    renderStrategy = 'native',
     title
 }) => {
     const { fps } = useVideoConfig();
@@ -74,11 +76,13 @@ export const MainVideo: React.FC<MainVideoProps> = ({
 
     if (!segments || segments.length === 0) return <AbsoluteFill style={{ backgroundColor: 'transparent' }} />;
 
+    const usePortraitReframe = isShortsMode && renderStrategy === 'reframe_portrait';
+
     return (
         // Changed to transparent to prevent black background from bleeding through gaps during transitions
         <AbsoluteFill style={{ backgroundColor: 'transparent' }}>
             {/* 1. LAYER: Background Blurred videos (Only for Shorts) */}
-            {isShortsMode && segmentTimings.map((timing, index) => (
+            {usePortraitReframe && segmentTimings.map((timing, index) => (
                 <Sequence
                     key={`bg-${timing.id}-${index}`}
                     from={timing.from}
@@ -97,7 +101,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({
             ))}
 
             {/* 2. LAYER: Global Dimmer (Only for Shorts) */}
-            {isShortsMode && (
+            {usePortraitReframe && (
                 <AbsoluteFill
                     style={{
                         zIndex: 500,
@@ -121,7 +125,8 @@ export const MainVideo: React.FC<MainVideoProps> = ({
                         transitionDuration={timing.currentTransitionType === 'none' ? 0 : transitionFramesCount}
                         transitionType={timing.currentTransitionType}
                         isShortsMode={isShortsMode}
-                        layer={isShortsMode ? "foreground" : "both"}
+                        renderStrategy={renderStrategy}
+                        layer={usePortraitReframe ? "foreground" : "both"}
                     />
                 </Sequence>
             ))}
@@ -180,8 +185,9 @@ const SegmentContainer: React.FC<{
     transitionDuration: number;
     transitionType: string;
     isShortsMode?: boolean;
+    renderStrategy?: 'native' | 'reframe_portrait';
     layer?: 'background' | 'foreground' | 'both';
-}> = ({ segment, isFirst, transitionDuration, transitionType, isShortsMode, layer = 'both' }) => {
+}> = ({ segment, isFirst, transitionDuration, transitionType, isShortsMode, renderStrategy = 'native', layer = 'both' }) => {
     const frame = useCurrentFrame();
     const { width } = useVideoConfig();
 
@@ -224,7 +230,7 @@ const SegmentContainer: React.FC<{
         return null;
     };
 
-    if (isShortsMode) {
+    if (isShortsMode && renderStrategy === 'reframe_portrait') {
         return (
             <AbsoluteFill style={containerStyle}>
                 {(layer === 'background' || layer === 'both') && (
@@ -250,6 +256,17 @@ const SegmentContainer: React.FC<{
                     </div>
                 )}
                 {(layer === 'foreground' || layer === 'both') && segment.audio_url && <Audio src={segment.audio_url} />}
+            </AbsoluteFill>
+        );
+    }
+
+    if (isShortsMode) {
+        return (
+            <AbsoluteFill style={containerStyle}>
+                <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+                    {renderMedia('cover')}
+                </div>
+                {segment.audio_url && <Audio src={segment.audio_url} />}
             </AbsoluteFill>
         );
     }

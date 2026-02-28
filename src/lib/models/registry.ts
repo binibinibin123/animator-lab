@@ -1,4 +1,6 @@
 export type PricingVersion = 'v1';
+export type RenderStrategy = 'native' | 'reframe_portrait';
+export type ImageQuality = '2K' | '4K';
 
 export type ImageModelId = 'nano-banana-2' | 'nano-banana-pro';
 export type VideoModelId =
@@ -20,6 +22,20 @@ export interface QuoteInput {
     audioEnabled?: boolean;
 }
 
+const RENDER_STRATEGIES: RenderStrategy[] = ['native', 'reframe_portrait'];
+
+export function isRenderStrategy(value: unknown): value is RenderStrategy {
+    return typeof value === 'string' && (RENDER_STRATEGIES as string[]).includes(value);
+}
+
+export function resolveRenderStrategy(value: unknown, aspectRatio: string): RenderStrategy {
+    if (aspectRatio !== '9:16') {
+        return 'native';
+    }
+
+    return isRenderStrategy(value) ? value : 'native';
+}
+
 export interface ImageModelConfig {
     id: ImageModelId;
     label: string;
@@ -27,6 +43,8 @@ export interface ImageModelConfig {
     provider: 'gemini';
     providerModel: string;
     baseCreditsPerImage: number;
+    supportedQualities: ImageQuality[];
+    qualityMultiplier: Partial<Record<ImageQuality, number>>;
 }
 
 export interface VideoModelConfig {
@@ -36,6 +54,7 @@ export interface VideoModelConfig {
     provider: 'fal';
     endpoint: string;
     acceptsImageInput: boolean;
+    supportedResolutions: VideoResolution[];
     baseCreditsPerSecond: number;
     audioMultiplier: number;
     resolutionMultiplier: Partial<Record<VideoResolution, number>>;
@@ -52,6 +71,10 @@ export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
         provider: 'gemini',
         providerModel: process.env.NANOBANANA_2_MODEL_NAME || 'gemini-2.5-flash-image',
         baseCreditsPerImage: 25,
+        supportedQualities: ['2K'],
+        qualityMultiplier: {
+            '2K': 1,
+        },
     },
     'nano-banana-pro': {
         id: 'nano-banana-pro',
@@ -60,6 +83,11 @@ export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
         provider: 'gemini',
         providerModel: process.env.NANOBANANA_PRO_MODEL_NAME || 'gemini-2.5-flash-image',
         baseCreditsPerImage: 40,
+        supportedQualities: ['2K', '4K'],
+        qualityMultiplier: {
+            '2K': 1,
+            '4K': 1.8,
+        },
     },
 };
 
@@ -71,6 +99,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         provider: 'fal',
         endpoint: 'fal-ai/ltx-2/image-to-video/fast',
         acceptsImageInput: true,
+        supportedResolutions: ['1080p', '1440p', '2160p'],
         baseCreditsPerSecond: 6,
         audioMultiplier: 1,
         resolutionMultiplier: {
@@ -87,6 +116,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         provider: 'fal',
         endpoint: 'fal-ai/minimax/hailuo-02/standard/image-to-video',
         acceptsImageInput: true,
+        supportedResolutions: ['720p', '1080p'],
         baseCreditsPerSecond: 6.666,
         audioMultiplier: 1,
         resolutionMultiplier: {
@@ -102,6 +132,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         provider: 'fal',
         endpoint: 'fal-ai/minimax/hailuo-02/pro/image-to-video',
         acceptsImageInput: true,
+        supportedResolutions: ['1080p'],
         baseCreditsPerSecond: 8,
         audioMultiplier: 1,
         resolutionMultiplier: { '1080p': 1 },
@@ -113,6 +144,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         provider: 'fal',
         endpoint: 'fal-ai/kling-video/v2.6/pro/image-to-video',
         acceptsImageInput: true,
+        supportedResolutions: ['1080p'],
         baseCreditsPerSecond: 7,
         audioMultiplier: 2,
         resolutionMultiplier: { '1080p': 1 },
@@ -124,6 +156,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         provider: 'fal',
         endpoint: 'fal-ai/wan-25-preview/image-to-video',
         acceptsImageInput: true,
+        supportedResolutions: ['480p', '720p', '1080p'],
         baseCreditsPerSecond: 5,
         audioMultiplier: 1,
         resolutionMultiplier: {
@@ -139,6 +172,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         provider: 'fal',
         endpoint: 'fal-ai/ltx-2/image-to-video',
         acceptsImageInput: true,
+        supportedResolutions: ['1080p', '1440p', '2160p'],
         baseCreditsPerSecond: 8,
         audioMultiplier: 1,
         resolutionMultiplier: {
@@ -155,6 +189,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         provider: 'fal',
         endpoint: 'fal-ai/veo3/fast',
         acceptsImageInput: false,
+        supportedResolutions: ['720p', '1080p', '2160p'],
         baseCreditsPerSecond: 10,
         audioMultiplier: 1.5,
         resolutionMultiplier: {
@@ -181,6 +216,26 @@ export function getDefaultVideoModelId(): VideoModelId {
     return 'ltx-2-fast';
 }
 
+export function resolveImageQuality(modelId: ImageModelId, requestedQuality?: string): ImageQuality {
+    const model = IMAGE_MODEL_REGISTRY[modelId];
+    if (!requestedQuality) {
+        return model.supportedQualities[0];
+    }
+
+    return model.supportedQualities.includes(requestedQuality as ImageQuality)
+        ? (requestedQuality as ImageQuality)
+        : model.supportedQualities[0];
+}
+
+export function getSupportedImageQualities(modelId: ImageModelId): ImageQuality[] {
+    return IMAGE_MODEL_REGISTRY[modelId].supportedQualities;
+}
+
+export function isSupportedImageQuality(modelId: ImageModelId, quality?: string): boolean {
+    if (!quality) return true;
+    return IMAGE_MODEL_REGISTRY[modelId].supportedQualities.includes(quality as ImageQuality);
+}
+
 export function resolveVideoDuration(modelId: VideoModelId, requestedDuration?: number): number {
     const model = VIDEO_MODEL_REGISTRY[modelId];
     const normalized = Math.max(1, Math.round(requestedDuration || 6));
@@ -198,14 +253,37 @@ export function resolveVideoDuration(modelId: VideoModelId, requestedDuration?: 
     }, model.allowedDurations[0]);
 }
 
-export function quoteImageCredits(modelId: ImageModelId): number {
-    return Math.ceil(IMAGE_MODEL_REGISTRY[modelId].baseCreditsPerImage);
+export function resolveVideoResolution(modelId: VideoModelId, requestedResolution?: string): VideoResolution {
+    const model = VIDEO_MODEL_REGISTRY[modelId];
+    if (!requestedResolution) {
+        return model.supportedResolutions[0];
+    }
+
+    return model.supportedResolutions.includes(requestedResolution as VideoResolution)
+        ? (requestedResolution as VideoResolution)
+        : model.supportedResolutions[0];
+}
+
+export function getSupportedVideoResolutions(modelId: VideoModelId): VideoResolution[] {
+    return VIDEO_MODEL_REGISTRY[modelId].supportedResolutions;
+}
+
+export function isSupportedVideoResolution(modelId: VideoModelId, resolution?: string): boolean {
+    if (!resolution) return true;
+    return VIDEO_MODEL_REGISTRY[modelId].supportedResolutions.includes(resolution as VideoResolution);
+}
+
+export function quoteImageCredits(modelId: ImageModelId, requestedQuality?: string): number {
+    const quality = resolveImageQuality(modelId, requestedQuality);
+    const model = IMAGE_MODEL_REGISTRY[modelId];
+    const multiplier = model.qualityMultiplier[quality] ?? 1;
+    return Math.ceil(model.baseCreditsPerImage * multiplier);
 }
 
 export function quoteVideoCredits(modelId: VideoModelId, input: QuoteInput): number {
     const config = VIDEO_MODEL_REGISTRY[modelId];
     const durationSeconds = resolveVideoDuration(modelId, input.durationSeconds);
-    const resolution = input.resolution || '1080p';
+    const resolution = resolveVideoResolution(modelId, input.resolution);
     const resolutionMultiplier = config.resolutionMultiplier[resolution] ?? 1;
     const audioMultiplier = input.audioEnabled ? config.audioMultiplier : 1;
     const raw = config.baseCreditsPerSecond * durationSeconds * resolutionMultiplier * audioMultiplier;

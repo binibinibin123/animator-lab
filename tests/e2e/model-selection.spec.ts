@@ -9,7 +9,7 @@ test.describe('Model selection flows @mock', () => {
         });
     });
 
-    test('create/new sends selected image/video model ids @mock', async ({ page }) => {
+    test('create/new defers model choice to step pages @mock', async ({ page }) => {
         let requestBody: Record<string, unknown> | null = null;
 
         await page.route('**/api/project', async (route) => {
@@ -25,17 +25,25 @@ test.describe('Model selection flows @mock', () => {
 
         await page.goto('/create/new');
 
-        await page.getByRole('button', { name: 'Nano Banana Pro' }).click();
-        await page.getByRole('button', { name: 'Standard Balanced (Hailuo 02 Standard)' }).click();
+        await page.getByRole('button', { name: /9:16/ }).click();
+        await page.getByRole('button', { name: '가로→세로 보정' }).click();
+
         await page.getByRole('button', { name: '다음 단계 →' }).click();
 
         await expect.poll(() => requestBody).not.toBeNull();
-        const body = requestBody as { imageModelId?: string; videoModelId?: string } | null;
-        expect(body?.imageModelId).toBe('nano-banana-pro');
-        expect(body?.videoModelId).toBe('hailuo-02-standard');
+        const body = requestBody as {
+            imageModelId?: string;
+            videoModelId?: string;
+            aspectRatio?: string;
+            renderStrategy?: string;
+        } | null;
+        expect(body?.imageModelId).toBeUndefined();
+        expect(body?.videoModelId).toBeUndefined();
+        expect(body?.aspectRatio).toBe('9:16');
+        expect(body?.renderStrategy).toBe('reframe_portrait');
     });
 
-    test('create/autopilot sends model ids in payload @mock', async ({ page }) => {
+    test('create/autopilot can override model ids via advanced settings @mock', async ({ page }) => {
         let requestBody: Record<string, unknown> | null = null;
 
         await page.route('**/api/autopilot/create', async (route) => {
@@ -58,14 +66,24 @@ test.describe('Model selection flows @mock', () => {
         });
 
         await page.goto('/create/autopilot');
+        await page.getByRole('button', { name: '세로 (9:16)' }).click();
+        await page.getByRole('button', { name: '가로→세로 보정' }).click();
+        await page.getByRole('button', { name: '고급 설정 열기' }).click();
         await page.getByRole('button', { name: 'Nano Banana Pro' }).click();
         await page.getByRole('button', { name: 'Standard Plus (LTX Pro)' }).click();
         await page.getByLabel('영상 주제').fill('E2E 테스트 주제');
         await page.getByRole('button', { name: '✨ 오토파일럿 시작하기' }).click();
 
         await expect.poll(() => requestBody).not.toBeNull();
-        const body = requestBody as { imageModelId?: string; videoModelId?: string } | null;
+        const body = requestBody as {
+            imageModelId?: string;
+            videoModelId?: string;
+            aspectRatio?: string;
+            renderStrategy?: string;
+        } | null;
         expect(body?.imageModelId).toBe('nano-banana-pro');
         expect(body?.videoModelId).toBe('ltx-2.0-pro');
+        expect(body?.aspectRatio).toBe('9:16');
+        expect(body?.renderStrategy).toBe('reframe_portrait');
     });
 });
