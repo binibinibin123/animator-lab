@@ -8,6 +8,14 @@ import { supabase } from '@/lib/supabase';
 import type { Segment } from '@/types/database';
 import { useVideoPolling } from '@/context/VideoPollingContext';
 
+const VIDEO_MODELS = [
+    { id: 'hailuo-02-pro', label: 'Hailuo 02 Pro', creditsPerSec: 8 },
+    { id: 'kling-2.6-pro', label: 'Kling 2.6 Pro', creditsPerSec: 7 },
+    { id: 'wan-2.5', label: 'Wan 2.5', creditsPerSec: 5 },
+    { id: 'ltx-2.0-pro', label: 'LTX 2.0 Pro', creditsPerSec: 6 },
+    { id: 'veo-3-fast', label: 'Veo 3 Fast', creditsPerSec: 10 },
+] as const;
+
 export default function VideoPage() {
     const router = useRouter();
     const params = useParams();
@@ -17,7 +25,7 @@ export default function VideoPage() {
     const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const { generatingIds, logs, startPolling, addLog, resumePendingJobs, addGeneratingId, removeGeneratingId, lastCompletedJob } = useVideoPolling();
-    const [selectedModel, setSelectedModel] = useState<'hailuo' | 'kling'>('hailuo');
+    const [selectedModel, setSelectedModel] = useState<string>('hailuo-02-pro');
     const selectedProvider = 'fal';
     const [videoPrompt, setVideoPrompt] = useState('');
 
@@ -128,6 +136,17 @@ export default function VideoPage() {
         try {
             console.log('[VideoPage] Fetching segment metadata for project:', projectId);
 
+            const { data: projectData } = await supabase
+                .from('projects')
+                .select('video_model')
+                .eq('id', projectId)
+                .single();
+
+            const project = projectData as { video_model?: string | null } | null;
+            if (project?.video_model) {
+                setSelectedModel(project.video_model);
+            }
+
             // 1. Fetch only lightweight metadata first (No image_url, video_url)
             const { data, error, status, statusText } = await supabase
                 .from('segments')
@@ -202,7 +221,8 @@ export default function VideoPage() {
             return false;
         }
 
-        const logLabel = selectedModel;
+        const selectedModelMeta = VIDEO_MODELS.find((m) => m.id === selectedModel);
+        const logLabel = selectedModelMeta?.label || selectedModel;
         const promptToUse = manualPrompt !== undefined ? manualPrompt : (segment.video_prompt || 'auto');
 
         // Optimistically show spinner via Context
@@ -221,7 +241,7 @@ export default function VideoPage() {
                 signal: controller.signal,
                 body: JSON.stringify({
                     imageUrl: segment.image_url,
-                    model: selectedModel,
+                    modelId: selectedModel,
                     scriptText: segment.script_text,
                     visualDescription: segment.visual_description,
                     provider: selectedProvider,
@@ -552,6 +572,22 @@ export default function VideoPage() {
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">생성기:</span>
                     <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">☁️ fal.ai (클라우드)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700">모델:</span>
+                    <select
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+                        disabled={isGlobalGenerating || generatingIds.size > 0}
+                    >
+                        {VIDEO_MODELS.map((model) => (
+                            <option key={model.id} value={model.id}>{model.label}</option>
+                        ))}
+                    </select>
+                    <span className="text-xs text-gray-500">
+                        예상 {(VIDEO_MODELS.find((m) => m.id === selectedModel)?.creditsPerSec || 8) * 6} credits / 6초 컷
+                    </span>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-gray-500 bg-white px-4 py-1.5 border rounded-lg">
                     <span>형식: <span className="text-gray-900 font-medium">MP4</span></span>

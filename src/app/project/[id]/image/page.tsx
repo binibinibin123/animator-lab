@@ -6,6 +6,11 @@ import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { Segment } from '@/types/database';
 
+const IMAGE_MODELS = [
+    { id: 'nano-banana-2', label: 'Nano Banana 2', credits: 25 },
+    { id: 'nano-banana-pro', label: 'Nano Banana Pro', credits: 40 },
+] as const;
+
 export default function ImagePage() {
     const router = useRouter();
     const params = useParams();
@@ -22,6 +27,7 @@ export default function ImagePage() {
     const [error, setError] = useState<string | null>(null);
     const [projectStyle, setProjectStyle] = useState<string>('anime');
     const [projectStyleText, setProjectStyleText] = useState<string>('');
+    const [imageModelId, setImageModelId] = useState<string>('nano-banana-2');
     const [projectVisualMode, setProjectVisualMode] = useState<'legacy' | 'character_fixed' | 'style_fixed'>('legacy');
     const [hasCharacterReference, setHasCharacterReference] = useState(false);
     const [hasStyleReference, setHasStyleReference] = useState(false);
@@ -58,7 +64,7 @@ export default function ImagePage() {
             // Fetch project style first
             const { data: projectData } = await supabase
                 .from('projects')
-                .select('style, style_text, visual_mode, character_reference_url, style_reference_url')
+                .select('style, style_text, visual_mode, character_reference_url, style_reference_url, image_model')
                 .eq('id', projectId)
                 .single();
 
@@ -68,6 +74,7 @@ export default function ImagePage() {
                 visual_mode?: 'legacy' | 'character_fixed' | 'style_fixed';
                 character_reference_url?: string | null;
                 style_reference_url?: string | null;
+                image_model?: string | null;
             } | null;
 
             if (project) {
@@ -78,6 +85,9 @@ export default function ImagePage() {
                 setProjectVisualMode(project.visual_mode || 'legacy');
                 setHasCharacterReference(!!project.character_reference_url);
                 setHasStyleReference(!!project.style_reference_url);
+                if (project.image_model) {
+                    setImageModelId(project.image_model);
+                }
             }
 
             const { data, error: fetchError } = await supabase
@@ -136,7 +146,7 @@ export default function ImagePage() {
     const handleGenerateImage = async (segment: Segment) => {
         setCurrentGeneratingId(segment.id);
         setIsGenerating(true);
-        addLog('info', `🎨 이미지 생성 시작 (CUT #${segments.findIndex(s => s.id === segment.id) + 1}) - ${imageProvider.toUpperCase()}`);
+        addLog('info', `🎨 이미지 생성 시작 (CUT #${segments.findIndex(s => s.id === segment.id) + 1}) - ${imageModelId}`);
 
         try {
             addLog('info', `📤 API 요청 중...`);
@@ -152,6 +162,7 @@ export default function ImagePage() {
                             style: projectStyle,
                             styleText: projectStyleText,
                             provider: imageProvider,
+                            modelId: imageModelId,
                         }),
                     });
 
@@ -183,7 +194,7 @@ export default function ImagePage() {
             if (!segment.image_url) {
                 const cutIndex = segments.findIndex(s => s.id === segment.id) + 1;
                 setCurrentGeneratingId(segment.id);
-                addLog('info', `🎨 CUT #${cutIndex} 생성 중... (${imageProvider.toUpperCase()})`);
+                addLog('info', `🎨 CUT #${cutIndex} 생성 중... (${imageModelId})`);
 
                 try {
                     const response = await fetch('/api/image/generate', {
@@ -198,6 +209,7 @@ export default function ImagePage() {
                             style: projectStyle,
                             styleText: projectStyleText,
                             provider: imageProvider,
+                            modelId: imageModelId,
                         }),
                     });
 
@@ -313,6 +325,22 @@ export default function ImagePage() {
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">생성기:</span>
                     <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">☁️ Gemini (클라우드)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700">모델:</span>
+                    <select
+                        value={imageModelId}
+                        onChange={(e) => setImageModelId(e.target.value)}
+                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+                        disabled={isGenerating}
+                    >
+                        {IMAGE_MODELS.map((model) => (
+                            <option key={model.id} value={model.id}>{model.label}</option>
+                        ))}
+                    </select>
+                    <span className="text-xs text-gray-500">
+                        예상 {IMAGE_MODELS.find((m) => m.id === imageModelId)?.credits ?? 25} credits / image
+                    </span>
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">해상도:</span>

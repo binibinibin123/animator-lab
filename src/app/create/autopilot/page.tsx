@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { createUploadSessionId, uploadProjectReference } from '@/lib/api/referenceUploadClient';
 
 interface LogMessage {
     message: string;
@@ -12,11 +13,33 @@ interface LogMessage {
 type VisualMode = 'character_fixed' | 'style_fixed';
 
 const STYLE_OPTIONS = [
-    { id: 'anime', name: '애니메이션' },
-    { id: 'economy-1', name: '경제유튜브 1' },
-    { id: 'senior-1', name: '시니어 유튜브 1' },
-    { id: 'illustration', name: '일러스트' },
-    { id: 'realistic', name: '실사' },
+    { id: 'economy-1', name: '경제유튜브 1', thumbnail: '/styles/economy-1.png' },
+    { id: 'senior-1', name: '시니어 유튜브 1', thumbnail: '/styles/senior-1.png' },
+    { id: 'anime', name: '애니메이션', thumbnail: '/styles/anime.png' },
+    { id: 'realistic', name: '실사', thumbnail: '/styles/realistic.png' },
+    { id: 'digital-art', name: '디지털아트', thumbnail: '/styles/digital-art.png' },
+    { id: 'illustration', name: '일러스트', thumbnail: '/styles/illustration.png' },
+    { id: 'cinematic', name: '시네마틱', thumbnail: '/styles/cinematic.png' },
+    { id: 'cartoon', name: '카툰', thumbnail: '/styles/cartoon.png' },
+    { id: 'watercolor', name: '수채화', thumbnail: '/styles/watercolor.png' },
+    { id: 'minimalist', name: '미니멀', thumbnail: '/styles/minimalist.png' },
+    { id: '3d-render', name: '3D 렌더', thumbnail: '/styles/3d-render.png' },
+    { id: 'vintage', name: '빈티지', thumbnail: '/styles/vintage.png' },
+    { id: 'neon', name: '네온', thumbnail: '/styles/neon.png' },
+    { id: 'sketch', name: '스케치', thumbnail: '/styles/sketch.png' },
+];
+
+const IMAGE_MODELS = [
+    { id: 'nano-banana-2', label: 'Nano Banana 2', credits: 25 },
+    { id: 'nano-banana-pro', label: 'Nano Banana Pro', credits: 40 },
+];
+
+const VIDEO_MODELS = [
+    { id: 'hailuo-02-pro', label: 'Hailuo 02 Pro', creditsPerSec: 8 },
+    { id: 'kling-2.6-pro', label: 'Kling 2.6 Pro', creditsPerSec: 7 },
+    { id: 'wan-2.5', label: 'Wan 2.5', creditsPerSec: 5 },
+    { id: 'ltx-2.0-pro', label: 'LTX 2.0 Pro', creditsPerSec: 6 },
+    { id: 'veo-3-fast', label: 'Veo 3 Fast', creditsPerSec: 10 },
 ];
 
 export default function AutopilotPage() {
@@ -25,6 +48,13 @@ export default function AutopilotPage() {
     const [visualMode, setVisualMode] = useState<VisualMode>('style_fixed');
     const [style, setStyle] = useState('anime');
     const [styleText, setStyleText] = useState('');
+    const [imageModelId, setImageModelId] = useState('nano-banana-2');
+    const [videoModelId, setVideoModelId] = useState('hailuo-02-pro');
+    const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
+    const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
+    const [referenceError, setReferenceError] = useState<string | null>(null);
+    const [isUploadingReference, setIsUploadingReference] = useState(false);
+    const [uploadSessionId] = useState(() => createUploadSessionId());
 
     const [isRunning, setIsRunning] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -34,9 +64,56 @@ export default function AutopilotPage() {
     const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'warn' | 'error'; message: string } | null>(null);
     const logsEndRef = useRef<HTMLDivElement>(null);
     const streamAbortRef = useRef<AbortController | null>(null);
+
+    const handleVisualModeChange = (nextMode: VisualMode) => {
+        if (nextMode === visualMode) {
+            return;
+        }
+
+        setVisualMode(nextMode);
+        setReferencePreviewUrl(null);
+        setReferenceFileName(null);
+        setReferenceError(null);
+    };
+
+    const handleReferenceFileChange = async (file: File | null) => {
+        if (!file) {
+            setReferencePreviewUrl(null);
+            setReferenceFileName(null);
+            setReferenceError(null);
+            return;
+        }
+
+        setIsUploadingReference(true);
+        setReferenceError(null);
+
+        try {
+            const uploaded = await uploadProjectReference({
+                file,
+                referenceType: visualMode === 'character_fixed' ? 'character' : 'style',
+                uploadSessionId,
+            });
+
+            setReferencePreviewUrl(uploaded.url);
+            setReferenceFileName(file.name);
+        } catch (error: any) {
+            console.error('Reference upload error:', error);
+            setReferencePreviewUrl(null);
+            setReferenceFileName(null);
+            setReferenceError(error?.message || '참조 이미지 업로드에 실패했습니다.');
+        } finally {
+            setIsUploadingReference(false);
+        }
+    };
+
     const startAutopilot = async () => {
         if (!topic.trim()) {
             setNotice({ type: 'warn', message: '주제를 먼저 입력해 주세요.' });
+            return;
+        }
+
+        if (isUploadingReference) {
+            setNotice({ type: 'warn', message: '참조 이미지 업로드가 완료된 뒤 다시 시도해 주세요.' });
             return;
         }
 
@@ -44,8 +121,8 @@ export default function AutopilotPage() {
             type: 'info',
             message:
                 visualMode === 'character_fixed'
-                    ? '현재 오토파일럿은 참조 이미지 업로드를 생성 중간에 받지 않습니다. 참조가 없으면 캐릭터 일관성은 best-effort로 처리됩니다.'
-                    : '스타일 고정 모드로 오토파일럿을 시작합니다.',
+                    ? '캐릭터 고정 모드로 오토파일럿을 시작합니다. 참조를 업로드하지 않으면 일관성은 best-effort로 처리됩니다.'
+                    : '스타일 고정 모드로 오토파일럿을 시작합니다. 참조 이미지는 선택사항입니다.',
         });
 
         setIsRunning(true);
@@ -65,7 +142,11 @@ export default function AutopilotPage() {
                     duration: 30,
                     style,
                     styleText: styleText.trim() || undefined,
+                    imageModelId,
+                    videoModelId,
                     visualMode,
+                    characterReferenceUrl: visualMode === 'character_fixed' ? referencePreviewUrl || undefined : undefined,
+                    styleReferenceUrl: visualMode === 'style_fixed' ? referencePreviewUrl || undefined : undefined,
                 }),
                 signal: controller.signal,
             });
@@ -176,7 +257,7 @@ export default function AutopilotPage() {
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 type="button"
-                                onClick={() => setVisualMode('character_fixed')}
+                                onClick={() => handleVisualModeChange('character_fixed')}
                                 className={`px-4 py-3 rounded-xl border-2 text-left ${visualMode === 'character_fixed'
                                     ? 'border-violet-600 bg-violet-50'
                                     : 'border-gray-200 hover:border-gray-300'
@@ -187,7 +268,7 @@ export default function AutopilotPage() {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setVisualMode('style_fixed')}
+                                onClick={() => handleVisualModeChange('style_fixed')}
                                 className={`px-4 py-3 rounded-xl border-2 text-left ${visualMode === 'style_fixed'
                                     ? 'border-violet-600 bg-violet-50'
                                     : 'border-gray-200 hover:border-gray-300'
@@ -199,29 +280,131 @@ export default function AutopilotPage() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label htmlFor="autopilot-style" className="text-sm font-medium text-gray-700">스타일 프리셋</label>
-                            <select
-                                id="autopilot-style"
-                                value={style}
-                                onChange={(e) => setStyle(e.target.value)}
-                                className="w-full px-3 py-2 border rounded-xl"
-                            >
-                                {STYLE_OPTIONS.map((item) => (
-                                    <option key={item.id} value={item.id}>{item.name}</option>
-                                ))}
-                            </select>
+                    <div className="space-y-2">
+                        <label htmlFor="autopilot-reference-image" className="text-sm font-medium text-gray-700">
+                            {visualMode === 'character_fixed' ? '캐릭터 참조 이미지 (선택)' : '스타일 참조 이미지 (선택)'}
+                        </label>
+                        <input
+                            id="autopilot-reference-image"
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            onChange={(e) => {
+                                void handleReferenceFileChange(e.target.files?.[0] || null);
+                            }}
+                            className="block w-full text-sm text-gray-600"
+                            disabled={isUploadingReference || isRunning}
+                        />
+                        {isUploadingReference && (
+                            <p className="text-xs text-violet-600">참조 이미지를 업로드하고 있습니다...</p>
+                        )}
+                        {referenceError && (
+                            <p className="text-xs text-red-600">{referenceError}</p>
+                        )}
+                        {referencePreviewUrl && (
+                            <div className="rounded-lg border bg-white p-3 space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="text-xs text-gray-600 truncate">
+                                        업로드됨: {referenceFileName || referencePreviewUrl}
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setReferencePreviewUrl(null);
+                                            setReferenceFileName(null);
+                                            setReferenceError(null);
+                                        }}
+                                        className="text-xs text-gray-500 hover:text-gray-700"
+                                    >
+                                        제거
+                                    </button>
+                                </div>
+                                <img src={referencePreviewUrl} alt="참조 이미지 미리보기" className="w-full max-h-56 object-contain rounded-md bg-gray-50" />
+                            </div>
+                        )}
+                        <p className="text-xs text-gray-500">
+                            업로드하지 않아도 오토파일럿 시작은 가능합니다. 다만 고정 모드 일관성은 참조 이미지가 있을 때 더 좋아집니다.
+                        </p>
+                    </div>
+
+                    <div className="space-y-3">
+                        <p className="text-sm font-medium text-gray-700">그림체 선택</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {STYLE_OPTIONS.map((item) => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => setStyle(item.id)}
+                                    className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all group ${
+                                        style === item.id
+                                            ? 'border-violet-600 ring-2 ring-violet-200'
+                                            : 'border-transparent hover:border-gray-300'
+                                    }`}
+                                >
+                                    <img
+                                        src={item.thumbnail}
+                                        alt={item.name}
+                                        className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-105"
+                                    />
+                                    <div className={`absolute inset-0 bg-black/45 flex items-center justify-center text-center p-2 transition-colors ${style === item.id ? 'bg-black/25' : ''}`}>
+                                        <span className="text-white font-medium text-xs drop-shadow-md">{item.name}</span>
+                                    </div>
+                                </button>
+                            ))}
                         </div>
-                        <div className="space-y-2">
-                            <label htmlFor="autopilot-style-text" className="text-sm font-medium text-gray-700">스타일 가이드 (선택)</label>
-                            <input
-                                id="autopilot-style-text"
-                                value={styleText}
-                                onChange={(e) => setStyleText(e.target.value)}
-                                placeholder="예: 따뜻한 톤, 부드러운 라인"
-                                className="w-full px-3 py-2 border rounded-xl"
-                            />
+                    </div>
+
+                    <div className="space-y-2">
+                        <label htmlFor="autopilot-style-text" className="text-sm font-medium text-gray-700">스타일 가이드 (선택)</label>
+                        <input
+                            id="autopilot-style-text"
+                            value={styleText}
+                            onChange={(e) => setStyleText(e.target.value)}
+                            placeholder="예: 따뜻한 톤, 부드러운 라인"
+                            className="w-full px-3 py-2 border rounded-xl"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-2 p-3 border rounded-xl bg-gray-50">
+                            <p className="text-sm font-medium text-gray-700">이미지 모델</p>
+                            <div className="space-y-2">
+                                {IMAGE_MODELS.map((item) => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => setImageModelId(item.id)}
+                                        className={`w-full px-3 py-2 rounded-lg border text-left text-sm ${
+                                            imageModelId === item.id
+                                                ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                                : 'border-gray-200 bg-white text-gray-700'
+                                        }`}
+                                    >
+                                        <div className="font-medium">{item.label}</div>
+                                        <div className="text-xs text-gray-500">예상 {item.credits} credits / image</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2 p-3 border rounded-xl bg-gray-50">
+                            <p className="text-sm font-medium text-gray-700">비디오 모델</p>
+                            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                {VIDEO_MODELS.map((item) => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => setVideoModelId(item.id)}
+                                        className={`w-full px-3 py-2 rounded-lg border text-left text-sm ${
+                                            videoModelId === item.id
+                                                ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                                : 'border-gray-200 bg-white text-gray-700'
+                                        }`}
+                                    >
+                                        <div className="font-medium">{item.label}</div>
+                                        <div className="text-xs text-gray-500">예상 {item.creditsPerSec} credits / sec</div>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
 
@@ -236,10 +419,6 @@ export default function AutopilotPage() {
                             className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
                         />
                     </div>
-
-                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        Phase 1 제한: 오토파일럿 실행 중에는 참조 이미지 업로드를 받지 않습니다. 필요하면 먼저 일반 생성에서 프로젝트를 만들고 참조를 저장하세요.
-                    </p>
 
                     <button
                         type="button"

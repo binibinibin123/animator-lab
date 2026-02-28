@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { AspectRatio } from '@/types';
+import { createUploadSessionId, uploadProjectReference } from '@/lib/api/referenceUploadClient';
 
 const ASPECT_RATIOS: { value: AspectRatio; label: string; icon: string; desc: string }[] = [
     { value: '16:9', label: '16:9', icon: '🖥️', desc: '유튜브 표준' },
@@ -29,6 +30,19 @@ const STYLES = [
     { id: 'sketch', name: '스케치', thumbnail: '/styles/sketch.png' },
 ];
 
+const IMAGE_MODELS = [
+    { id: 'nano-banana-2', label: 'Nano Banana 2', credits: 25 },
+    { id: 'nano-banana-pro', label: 'Nano Banana Pro', credits: 40 },
+];
+
+const VIDEO_MODELS = [
+    { id: 'hailuo-02-pro', label: 'Hailuo 02 Pro', creditsPerSec: 8 },
+    { id: 'kling-2.6-pro', label: 'Kling 2.6 Pro', creditsPerSec: 7 },
+    { id: 'wan-2.5', label: 'Wan 2.5', creditsPerSec: 5 },
+    { id: 'ltx-2.0-pro', label: 'LTX 2.0 Pro', creditsPerSec: 6 },
+    { id: 'veo-3-fast', label: 'Veo 3 Fast', creditsPerSec: 10 },
+];
+
 type VisualMode = 'character_fixed' | 'style_fixed';
 
 export default function NewProjectPage() {
@@ -37,12 +51,64 @@ export default function NewProjectPage() {
     const [selectedStyle, setSelectedStyle] = useState<string>('anime');
     const [customStyle, setCustomStyle] = useState<string>('');
     const [styleGuide, setStyleGuide] = useState<string>('');
-    const [referenceFile, setReferenceFile] = useState<File | null>(null);
+    const [imageModelId, setImageModelId] = useState('nano-banana-2');
+    const [videoModelId, setVideoModelId] = useState('hailuo-02-pro');
+    const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
+    const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
+    const [referenceError, setReferenceError] = useState<string | null>(null);
+    const [isUploadingReference, setIsUploadingReference] = useState(false);
+    const [uploadSessionId] = useState(() => createUploadSessionId());
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const router = useRouter();
 
+    const handleVisualModeChange = (nextMode: VisualMode) => {
+        if (nextMode === visualMode) {
+            return;
+        }
+
+        setVisualMode(nextMode);
+        setReferencePreviewUrl(null);
+        setReferenceFileName(null);
+        setReferenceError(null);
+    };
+
+    const handleReferenceFileChange = async (file: File | null) => {
+        if (!file) {
+            setReferencePreviewUrl(null);
+            setReferenceFileName(null);
+            setReferenceError(null);
+            return;
+        }
+
+        setIsUploadingReference(true);
+        setReferenceError(null);
+
+        try {
+            const uploaded = await uploadProjectReference({
+                file,
+                referenceType: visualMode === 'character_fixed' ? 'character' : 'style',
+                uploadSessionId,
+            });
+
+            setReferencePreviewUrl(uploaded.url);
+            setReferenceFileName(file.name);
+        } catch (error: any) {
+            console.error('Reference upload error:', error);
+            setReferencePreviewUrl(null);
+            setReferenceFileName(null);
+            setReferenceError(error?.message || '참조 이미지 업로드에 실패했습니다.');
+        } finally {
+            setIsUploadingReference(false);
+        }
+    };
+
     const handleNext = async () => {
+        if (isUploadingReference) {
+            alert('참조 이미지 업로드가 완료될 때까지 잠시만 기다려주세요.');
+            return;
+        }
+
         setIsSubmitting(true);
 
         const isCustomStyle = selectedStyle === 'custom';
@@ -54,18 +120,29 @@ export default function NewProjectPage() {
 
         const style = isCustomStyle ? 'custom' : selectedStyle;
         const styleText = isCustomStyle ? customStyle.trim() : styleGuide.trim() || undefined;
+        const payload: Record<string, unknown> = {
+            aspectRatio,
+            style,
+            styleText,
+            visualMode,
+            imageModelId,
+            videoModelId,
+            videoProvider: 'fal',
+        };
+
+        if (referencePreviewUrl) {
+            if (visualMode === 'character_fixed') {
+                payload.characterReferenceUrl = referencePreviewUrl;
+            } else {
+                payload.styleReferenceUrl = referencePreviewUrl;
+            }
+        }
 
         try {
             const response = await fetch('/api/project', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    aspectRatio,
-                    style,
-                    styleText,
-                    visualMode,
-                    videoProvider: 'fal',
-                }),
+                body: JSON.stringify(payload),
             });
 
             const createData = await response.json().catch(() => ({}));
@@ -76,41 +153,6 @@ export default function NewProjectPage() {
             const project = createData.project;
             if (!project?.id) {
                 throw new Error('Project ID is missing');
-            }
-
-            if (referenceFile) {
-                const formData = new FormData();
-                formData.append('projectId', project.id);
-                formData.append('referenceType', visualMode === 'character_fixed' ? 'character' : 'style');
-                formData.append('file', referenceFile);
-
-                const uploadRes = await fetch('/api/project/reference/upload', {
-                    method: 'POST',
-                    body: formData,
-                });
-
-                const uploadData = await uploadRes.json().catch(() => ({}));
-                if (!uploadRes.ok) {
-                    throw new Error(uploadData?.error?.message || 'Reference upload failed');
-                }
-
-                const patchPayload: Record<string, unknown> = { id: project.id };
-                if (visualMode === 'character_fixed') {
-                    patchPayload.characterReferenceUrl = uploadData.url;
-                } else {
-                    patchPayload.styleReferenceUrl = uploadData.url;
-                }
-
-                const patchRes = await fetch('/api/project', {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(patchPayload),
-                });
-
-                if (!patchRes.ok) {
-                    const patchData = await patchRes.json().catch(() => ({}));
-                    throw new Error(patchData?.error?.message || 'Failed to save reference image URL');
-                }
             }
 
             router.push(`/project/${project.id}/script`);
@@ -160,7 +202,7 @@ export default function NewProjectPage() {
                 <div className="grid grid-cols-2 gap-4">
                     <button
                         type="button"
-                        onClick={() => setVisualMode('character_fixed')}
+                        onClick={() => handleVisualModeChange('character_fixed')}
                         className={`p-4 rounded-xl border-2 text-left transition-all ${
                             visualMode === 'character_fixed'
                                 ? 'border-violet-600 bg-violet-50'
@@ -172,7 +214,7 @@ export default function NewProjectPage() {
                     </button>
                     <button
                         type="button"
-                        onClick={() => setVisualMode('style_fixed')}
+                        onClick={() => handleVisualModeChange('style_fixed')}
                         className={`p-4 rounded-xl border-2 text-left transition-all ${
                             visualMode === 'style_fixed'
                                 ? 'border-violet-600 bg-violet-50'
@@ -183,6 +225,52 @@ export default function NewProjectPage() {
                         <p className="text-sm text-gray-600 mt-1">여러 인물도 가능, 그림체를 유지합니다.</p>
                     </button>
                 </div>
+            </div>
+
+            <div className="space-y-2 p-4 bg-gray-50 border rounded-xl">
+                <label htmlFor="reference-image" className="text-sm font-medium text-gray-700">
+                    {visualMode === 'character_fixed' ? '캐릭터 참조 이미지 (선택)' : '스타일 참조 이미지 (선택)'}
+                </label>
+                <input
+                    id="reference-image"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(e) => {
+                        void handleReferenceFileChange(e.target.files?.[0] || null);
+                    }}
+                    className="block w-full text-sm text-gray-600"
+                    disabled={isUploadingReference || isSubmitting}
+                />
+                {isUploadingReference && (
+                    <p className="text-xs text-violet-600">참조 이미지를 업로드하고 있습니다...</p>
+                )}
+                {referenceError && (
+                    <p className="text-xs text-red-600">{referenceError}</p>
+                )}
+                {referencePreviewUrl && (
+                    <div className="mt-2 rounded-lg border bg-white p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs text-gray-600 truncate">
+                                업로드됨: {referenceFileName || referencePreviewUrl}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setReferencePreviewUrl(null);
+                                    setReferenceFileName(null);
+                                    setReferenceError(null);
+                                }}
+                                className="text-xs text-gray-500 hover:text-gray-700"
+                            >
+                                제거
+                            </button>
+                        </div>
+                        <img src={referencePreviewUrl} alt="참조 이미지 미리보기" className="w-full max-h-56 object-contain rounded-md bg-gray-50" />
+                    </div>
+                )}
+                <p className="text-xs text-gray-500">
+                    업로드하지 않아도 프로젝트 생성은 가능합니다. 다만 일관성 품질은 참조 이미지가 있을 때 더 좋아집니다.
+                </p>
             </div>
 
             <div className="space-y-4">
@@ -206,6 +294,50 @@ export default function NewProjectPage() {
                             <span className="text-xs text-gray-500 mt-1">{ratio.desc}</span>
                         </button>
                     ))}
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-3 p-4 border rounded-xl bg-white">
+                    <h3 className="text-sm font-semibold text-gray-800">이미지 모델</h3>
+                    <div className="space-y-2">
+                        {IMAGE_MODELS.map((item) => (
+                            <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => setImageModelId(item.id)}
+                                className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                                    imageModelId === item.id
+                                        ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                        : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                                }`}
+                            >
+                                <div className="font-medium">{item.label}</div>
+                                <div className="text-xs text-gray-500">예상 {item.credits} credits / image</div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="space-y-3 p-4 border rounded-xl bg-white">
+                    <h3 className="text-sm font-semibold text-gray-800">비디오 모델</h3>
+                    <div className="space-y-2">
+                        {VIDEO_MODELS.map((item) => (
+                            <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => setVideoModelId(item.id)}
+                                className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                                    videoModelId === item.id
+                                        ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                        : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                                }`}
+                            >
+                                <div className="font-medium">{item.label}</div>
+                                <div className="text-xs text-gray-500">예상 {item.creditsPerSec} credits / sec</div>
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </div>
 
@@ -276,22 +408,6 @@ export default function NewProjectPage() {
                         />
                     </div>
                 )}
-            </div>
-
-            <div className="space-y-2 p-4 bg-gray-50 border rounded-xl">
-                <label htmlFor="reference-image" className="text-sm font-medium text-gray-700">
-                    {visualMode === 'character_fixed' ? '캐릭터 참조 이미지 (선택)' : '스타일 참조 이미지 (선택)'}
-                </label>
-                <input
-                    id="reference-image"
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={(e) => setReferenceFile(e.target.files?.[0] || null)}
-                    className="block w-full text-sm text-gray-600"
-                />
-                <p className="text-xs text-gray-500">
-                    업로드하지 않아도 프로젝트 생성은 가능합니다. 다만 일관성 품질은 참조 이미지가 있을 때 더 좋아집니다.
-                </p>
             </div>
 
             <div className="flex justify-between pt-6 border-t">
