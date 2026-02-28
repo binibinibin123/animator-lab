@@ -66,6 +66,9 @@ export type Database = {
                     visual_mode: 'legacy' | 'character_fixed' | 'style_fixed';
                     character_reference_url: string | null;
                     style_reference_url: string | null;
+                    image_model: string;
+                    video_model: string;
+                    pricing_version: string;
                     status: string;
                     duration: number;
                     video_provider: string;
@@ -89,6 +92,9 @@ export type Database = {
                     visual_mode?: 'legacy' | 'character_fixed' | 'style_fixed';
                     character_reference_url?: string | null;
                     style_reference_url?: string | null;
+                    image_model?: string;
+                    video_model?: string;
+                    pricing_version?: string;
                     status?: string;
                     duration?: number;
                     video_provider?: string;
@@ -112,6 +118,9 @@ export type Database = {
                     visual_mode?: 'legacy' | 'character_fixed' | 'style_fixed';
                     character_reference_url?: string | null;
                     style_reference_url?: string | null;
+                    image_model?: string;
+                    video_model?: string;
+                    pricing_version?: string;
                     status?: string;
                     duration?: number;
                     video_provider?: string;
@@ -136,6 +145,9 @@ export type Database = {
                     visual_description: string | null;
                     duration_ms: number | null;
                     video_prompt: string | null;
+                    image_model: string | null;
+                    video_model: string | null;
+                    last_quote_credits: number | null;
                     created_at: string;
                 };
                 Insert: {
@@ -149,6 +161,9 @@ export type Database = {
                     visual_description?: string | null;
                     duration_ms?: number | null;
                     video_prompt?: string | null;
+                    image_model?: string | null;
+                    video_model?: string | null;
+                    last_quote_credits?: number | null;
                     created_at?: string;
                 };
                 Update: {
@@ -162,6 +177,9 @@ export type Database = {
                     visual_description?: string | null;
                     duration_ms?: number | null;
                     video_prompt?: string | null;
+                    image_model?: string | null;
+                    video_model?: string | null;
+                    last_quote_credits?: number | null;
                     created_at?: string;
                 };
             };
@@ -171,8 +189,12 @@ export type Database = {
                     segment_id: string;
                     external_job_id: string | null;
                     provider: string;
+                    model_id: string | null;
                     status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
                     progress: number;
+                    quote_credits: number | null;
+                    pricing_version: string | null;
+                    operation_id: string | null;
                     output_url: string | null;
                     error: string | null;
                     created_at: string;
@@ -184,8 +206,12 @@ export type Database = {
                     segment_id: string;
                     external_job_id?: string | null;
                     provider: string;
+                    model_id?: string | null;
                     status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
                     progress?: number;
+                    quote_credits?: number | null;
+                    pricing_version?: string | null;
+                    operation_id?: string | null;
                     output_url?: string | null;
                     error?: string | null;
                     created_at?: string;
@@ -197,13 +223,101 @@ export type Database = {
                     segment_id?: string;
                     external_job_id?: string | null;
                     provider?: string;
+                    model_id?: string | null;
                     status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
                     progress?: number;
+                    quote_credits?: number | null;
+                    pricing_version?: string | null;
+                    operation_id?: string | null;
                     output_url?: string | null;
                     error?: string | null;
                     created_at?: string;
                     started_at?: string | null;
                     finished_at?: string | null;
+                };
+            };
+            pricing_versions: {
+                Row: {
+                    id: string;
+                    is_active: boolean;
+                    config: Json;
+                    created_at: string;
+                };
+                Insert: {
+                    id: string;
+                    is_active?: boolean;
+                    config?: Json;
+                    created_at?: string;
+                };
+                Update: {
+                    id?: string;
+                    is_active?: boolean;
+                    config?: Json;
+                    created_at?: string;
+                };
+            };
+            credit_accounts: {
+                Row: {
+                    id: string;
+                    project_id: string;
+                    balance_credits: number;
+                    created_at: string;
+                    updated_at: string;
+                };
+                Insert: {
+                    id?: string;
+                    project_id: string;
+                    balance_credits?: number;
+                    created_at?: string;
+                    updated_at?: string;
+                };
+                Update: {
+                    id?: string;
+                    project_id?: string;
+                    balance_credits?: number;
+                    created_at?: string;
+                    updated_at?: string;
+                };
+            };
+            credit_ledger_entries: {
+                Row: {
+                    id: string;
+                    account_id: string;
+                    project_id: string;
+                    operation_id: string;
+                    idempotency_key: string;
+                    entry_type: 'reserve' | 'finalize' | 'release' | 'topup' | 'adjustment';
+                    amount_credits: number;
+                    model_id: string | null;
+                    pricing_version: string | null;
+                    details: Json;
+                    created_at: string;
+                };
+                Insert: {
+                    id?: string;
+                    account_id: string;
+                    project_id: string;
+                    operation_id: string;
+                    idempotency_key: string;
+                    entry_type: 'reserve' | 'finalize' | 'release' | 'topup' | 'adjustment';
+                    amount_credits: number;
+                    model_id?: string | null;
+                    pricing_version?: string | null;
+                    details?: Json;
+                    created_at?: string;
+                };
+                Update: {
+                    id?: string;
+                    account_id?: string;
+                    project_id?: string;
+                    operation_id?: string;
+                    idempotency_key?: string;
+                    entry_type?: 'reserve' | 'finalize' | 'release' | 'topup' | 'adjustment';
+                    amount_credits?: number;
+                    model_id?: string | null;
+                    pricing_version?: string | null;
+                    details?: Json;
+                    created_at?: string;
                 };
             };
         };
@@ -233,3 +347,5 @@ export type SegmentInsert = Database['public']['Tables']['segments']['Insert'];
 export type VideoJob = Database['public']['Tables']['video_jobs']['Row'];
 export type VideoJobInsert = Database['public']['Tables']['video_jobs']['Insert'];
 export type VideoJobStatus = VideoJob['status'];
+export type CreditAccount = Database['public']['Tables']['credit_accounts']['Row'];
+export type CreditLedgerEntry = Database['public']['Tables']['credit_ledger_entries']['Row'];

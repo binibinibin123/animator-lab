@@ -127,3 +127,66 @@ CREATE TABLE IF NOT EXISTS video_jobs (
 CREATE INDEX IF NOT EXISTS idx_video_jobs_segment_id ON video_jobs(segment_id);
 CREATE INDEX IF NOT EXISTS idx_video_jobs_status ON video_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_video_jobs_created_at ON video_jobs(created_at DESC);
+
+-- Model selection and pricing metadata
+ALTER TABLE projects
+  ADD COLUMN IF NOT EXISTS image_model TEXT NOT NULL DEFAULT 'nano-banana-2',
+  ADD COLUMN IF NOT EXISTS video_model TEXT NOT NULL DEFAULT 'hailuo-02-pro',
+  ADD COLUMN IF NOT EXISTS pricing_version TEXT NOT NULL DEFAULT 'v1';
+
+ALTER TABLE segments
+  ADD COLUMN IF NOT EXISTS image_model TEXT,
+  ADD COLUMN IF NOT EXISTS video_model TEXT,
+  ADD COLUMN IF NOT EXISTS last_quote_credits INTEGER;
+
+ALTER TABLE video_jobs
+  ADD COLUMN IF NOT EXISTS model_id TEXT,
+  ADD COLUMN IF NOT EXISTS quote_credits INTEGER,
+  ADD COLUMN IF NOT EXISTS pricing_version TEXT,
+  ADD COLUMN IF NOT EXISTS operation_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_video_jobs_model_id ON video_jobs(model_id);
+CREATE INDEX IF NOT EXISTS idx_video_jobs_operation_id ON video_jobs(operation_id);
+
+-- Pricing versions and credit ledger
+CREATE TABLE IF NOT EXISTS pricing_versions (
+  id TEXT PRIMARY KEY,
+  is_active BOOLEAN NOT NULL DEFAULT false,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS credit_accounts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  balance_credits INTEGER NOT NULL DEFAULT 3000,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT credit_accounts_project_unique UNIQUE (project_id),
+  CONSTRAINT credit_accounts_balance_nonnegative CHECK (balance_credits >= 0)
+);
+
+DROP TRIGGER IF EXISTS update_credit_accounts_updated_at ON credit_accounts;
+CREATE TRIGGER update_credit_accounts_updated_at
+  BEFORE UPDATE ON credit_accounts
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE IF NOT EXISTS credit_ledger_entries (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  account_id UUID NOT NULL REFERENCES credit_accounts(id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  operation_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('reserve', 'finalize', 'release', 'topup', 'adjustment')),
+  amount_credits INTEGER NOT NULL,
+  model_id TEXT,
+  pricing_version TEXT,
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT credit_ledger_entries_idempotency_key_unique UNIQUE (idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_credit_ledger_entries_account_id ON credit_ledger_entries(account_id);
+CREATE INDEX IF NOT EXISTS idx_credit_ledger_entries_operation_id ON credit_ledger_entries(operation_id);
+CREATE INDEX IF NOT EXISTS idx_credit_ledger_entries_created_at ON credit_ledger_entries(created_at DESC);

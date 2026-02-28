@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
 import { getVideoProvider } from '@/lib/video';
+import { releaseReservedCredits } from '@/lib/credits/ledger';
+import { ACTIVE_PRICING_VERSION, getDefaultVideoModelId } from '@/lib/models/registry';
 
 // POST /api/video/cancel - Cancel video generation jobs
 export async function POST(request: NextRequest) {
@@ -38,12 +40,31 @@ export async function POST(request: NextRequest) {
             // 1. Update DB status
             await supabase.from('video_jobs').update({ status: 'cancelled', finished_at: new Date().toISOString() }).eq('id', job.id);
 
+            if (job.operation_id && job.segment_id) {
+                const { data: segmentData } = await supabase
+                    .from('segments')
+                    .select('project_id')
+                    .eq('id', job.segment_id)
+                    .single();
+                const projectIdForBilling = (segmentData as { project_id?: string } | null)?.project_id;
+                if (projectIdForBilling) {
+                    await releaseReservedCredits({
+                        supabase,
+                        operationId: job.operation_id,
+                        projectId: projectIdForBilling,
+                        modelId: job.model_id || getDefaultVideoModelId(),
+                        pricingVersion: job.pricing_version || ACTIVE_PRICING_VERSION,
+                        details: { jobId: job.id, reason: 'cancelled' },
+                    });
+                }
+            }
+
             // 2. Call provider's cancel if available
             if (job.external_job_id) {
                 try {
                     const provider = getVideoProvider('fal');
                     if (provider.cancelJob) {
-                        await provider.cancelJob(job.external_job_id);
+                        await provider.cancelJob(job.external_job_id, job.model_id || getDefaultVideoModelId());
                     }
                 } catch (providerError) {
                     console.error(`[CancelAPI] Provider cancel failed for job ${job.id}:`, providerError);

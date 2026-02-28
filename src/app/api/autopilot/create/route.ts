@@ -1,11 +1,20 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
+import { hasApiAuthUser } from '@/lib/api/authGuard';
 import { createServerClient } from '@/lib/supabase';
 import { generateScript } from '@/lib/ai/gemini';
 import { generateImage } from '@/lib/ai/nanobanana';
 import { parseCreateVisualMode, normalizeStyleInput } from '@/lib/api/visualModeValidation';
 import { resolveReferenceContext } from '@/lib/image/referenceResolver';
+import {
+    ACTIVE_PRICING_VERSION,
+    getDefaultImageModelId,
+    getDefaultVideoModelId,
+    isImageModelId,
+    isVideoModelId,
+    quoteImageCredits,
+} from '@/lib/models/registry';
+import { finalizeCredits, releaseReservedCredits, reserveCredits } from '@/lib/credits/ledger';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -23,8 +32,8 @@ function errorResponse(status: number, code: string, message: string, details?: 
 }
 
 export async function POST(request: NextRequest) {
-    const session = await auth();
-    if (!session?.user) {
+    const authenticated = await hasApiAuthUser();
+    if (!authenticated) {
         return errorResponse(401, 'UNAUTHORIZED', 'Authentication required');
     }
 
@@ -33,6 +42,8 @@ export async function POST(request: NextRequest) {
     const duration = Number(body.duration || 60);
     const rawStyle = body.style ?? 'anime';
     const rawStyleText = body.styleText;
+    const imageModelId = isImageModelId(body.imageModelId) ? body.imageModelId : getDefaultImageModelId();
+    const videoModelId = isVideoModelId(body.videoModelId) ? body.videoModelId : getDefaultVideoModelId();
 
     if (!topic) {
         return errorResponse(400, 'INVALID_INPUT', 'topic is required');
@@ -71,6 +82,8 @@ export async function POST(request: NextRequest) {
                         topic,
                         style: normalizedStyle.style,
                         style_text: normalizedStyle.styleText,
+                        image_model: imageModelId,
+                        video_model: videoModelId,
                         visual_mode: visualMode,
                         character_reference_url: body.characterReferenceUrl || null,
                         style_reference_url: body.styleReferenceUrl || null,
@@ -161,8 +174,29 @@ export async function POST(request: NextRequest) {
                 let completedImageCount = 0;
                 for (const segment of segments) {
                     sendLog(`🖼️ Generating image ${segment.order_index + 1}/${segments.length}`);
+                    const operationId = `autopilot:image:${project.id}:${segment.id}`;
+                    const quotedCredits = quoteImageCredits(imageModelId);
 
                     try {
+                        const reserveResult = await reserveCredits({
+                            supabase,
+                            projectId: project.id,
+                            operationId,
+                            amount: quotedCredits,
+                            modelId: imageModelId,
+                            pricingVersion: ACTIVE_PRICING_VERSION,
+                            details: {
+                                segmentId: segment.id,
+                                source: 'autopilot',
+                            },
+                        });
+
+                        if (reserveResult.insufficient) {
+                            sendLog(`❌ Not enough credits for image ${segment.order_index + 1}. Required: ${quotedCredits}`);
+                            completedImageCount += 1;
+                            continue;
+                        }
+
                         const imageResult = await generateImage({
                             prompt: segment.visual_description || segment.script_text,
                             style: resolved.effectiveStylePreset || 'anime',
@@ -171,14 +205,42 @@ export async function POST(request: NextRequest) {
                             referenceImage: resolved.referenceImage || undefined,
                             referenceMimeType: resolved.referenceMimeType || 'image/png',
                             referenceIntent: resolved.referenceIntent,
+                            modelId: imageModelId,
                         });
 
                         await supabase
                             .from('segments')
-                            .update({ image_url: imageResult.imageUrl } as never)
+                            .update({
+                                image_url: imageResult.imageUrl,
+                                image_model: imageModelId,
+                                last_quote_credits: quotedCredits,
+                            } as never)
                             .eq('id', segment.id);
+
+                        await finalizeCredits({
+                            supabase,
+                            operationId,
+                            projectId: project.id,
+                            modelId: imageModelId,
+                            pricingVersion: ACTIVE_PRICING_VERSION,
+                            details: {
+                                segmentId: segment.id,
+                                source: 'autopilot',
+                            },
+                        });
                     } catch (imageError: any) {
                         sendLog(`❌ Image generation failed for segment ${segment.order_index + 1}: ${imageError.message}`);
+                        await releaseReservedCredits({
+                            supabase,
+                            operationId,
+                            projectId: project.id,
+                            modelId: imageModelId,
+                            pricingVersion: ACTIVE_PRICING_VERSION,
+                            details: {
+                                segmentId: segment.id,
+                                reason: 'autopilot_image_failed',
+                            },
+                        });
                     }
 
                     completedImageCount += 1;

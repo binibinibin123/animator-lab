@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
+import { randomUUID } from 'crypto';
+import { hasApiAuthUser } from '@/lib/api/authGuard';
 import { createServerClient } from '@/lib/supabase';
-import { generateImage, scriptToImagePrompt } from '@/lib/ai/nanobanana';
+import { generateImage, scriptToImagePrompt, type ImageResult } from '@/lib/ai/nanobanana';
 import { generateVideoPrompt } from '@/lib/ai/videoPrompt';
 import { ResolverError, resolveReferenceContext } from '@/lib/image/referenceResolver';
+import {
+    ACTIVE_PRICING_VERSION,
+    getDefaultImageModelId,
+    isImageModelId,
+    quoteImageCredits,
+} from '@/lib/models/registry';
+import { finalizeCredits, releaseReservedCredits, reserveCredits } from '@/lib/credits/ledger';
 
 function errorResponse(status: number, code: string, message: string, details?: unknown) {
     return NextResponse.json(
@@ -20,8 +28,8 @@ function errorResponse(status: number, code: string, message: string, details?: 
 
 // POST /api/image/generate - Generate image for a segment
 export async function POST(request: NextRequest) {
-    const session = await auth();
-    if (!session?.user) {
+    const authenticated = await hasApiAuthUser();
+    if (!authenticated) {
         return errorResponse(401, 'UNAUTHORIZED', 'Authentication required');
     }
 
@@ -38,7 +46,10 @@ export async function POST(request: NextRequest) {
             resolution,
             segmentId,
             projectId,
+            modelId,
         } = body;
+
+        const resolvedModelId = isImageModelId(modelId) ? modelId : getDefaultImageModelId();
 
         if (!segmentId && !projectId) {
             return errorResponse(400, 'INVALID_INPUT', 'segmentId or projectId is required');
@@ -62,71 +73,136 @@ export async function POST(request: NextRequest) {
             console.warn(warning);
         });
 
-        const result = await generateImage({
-            prompt: imagePrompt,
-            style: resolved.effectiveStylePreset || 'anime',
-            styleText: resolved.effectiveStyleText,
-            aspectRatio: aspectRatio || '16:9',
-            resolution: resolution || '2K',
-            referenceImage: resolved.referenceImage || undefined,
-            referenceMimeType: resolved.referenceMimeType || 'image/png',
-            referenceIntent: resolved.referenceIntent,
+        const quotedCredits = quoteImageCredits(resolvedModelId);
+        const operationId = request.headers.get('x-idempotency-key') || randomUUID();
+
+        const reserveResult = await reserveCredits({
+            supabase: createServerClient(),
+            projectId: resolved.projectId,
+            operationId,
+            amount: quotedCredits,
+            modelId: resolvedModelId,
+            pricingVersion: ACTIVE_PRICING_VERSION,
+            details: {
+                segmentId: segmentId || null,
+                resolution: resolution || '2K',
+                aspectRatio: aspectRatio || '16:9',
+            },
         });
+
+        if (reserveResult.insufficient) {
+            return errorResponse(402, 'INVALID_INPUT', 'Insufficient credits', {
+                requiredCredits: quotedCredits,
+                remainingCredits: reserveResult.remainingCredits,
+            });
+        }
+
+        let result: ImageResult;
+        try {
+            result = await generateImage({
+                prompt: imagePrompt,
+                style: resolved.effectiveStylePreset || 'anime',
+                styleText: resolved.effectiveStyleText,
+                aspectRatio: aspectRatio || '16:9',
+                resolution: resolution || '2K',
+                referenceImage: resolved.referenceImage || undefined,
+                referenceMimeType: resolved.referenceMimeType || 'image/png',
+                referenceIntent: resolved.referenceIntent,
+                modelId: resolvedModelId,
+            });
+        } catch (generationError) {
+            await releaseReservedCredits({
+                supabase: createServerClient(),
+                operationId,
+                projectId: resolved.projectId,
+                modelId: resolvedModelId,
+                pricingVersion: ACTIVE_PRICING_VERSION,
+                details: { reason: 'image_generation_failed' },
+            });
+            throw generationError;
+        }
 
         let generatedVideoPrompt = null;
         try {
-            const videoPromptResult = await generateVideoPrompt({
-                imageUrl: result.imageUrl,
-                scriptText: scriptText,
-                visualDescription: prompt,
-                style: resolved.effectiveStylePreset,
-            });
-            generatedVideoPrompt = videoPromptResult.prompt;
-        } catch (vpError) {
-            console.error('[Image API] Failed to generate video prompt:', vpError);
-            generatedVideoPrompt = 'Static scene. Fixed camera. Subtle ambient motion.';
-        }
-
-        if (segmentId) {
-            const supabase = createServerClient();
-
-            const { error: imageError } = await supabase
-                .from('segments')
-                .update({ image_url: result.imageUrl } as never)
-                .eq('id', segmentId);
-
-            if (imageError) {
-                throw new Error('Failed to save image URL to database');
+            try {
+                const videoPromptResult = await generateVideoPrompt({
+                    imageUrl: result.imageUrl,
+                    scriptText: scriptText,
+                    visualDescription: prompt,
+                    style: resolved.effectiveStylePreset,
+                });
+                generatedVideoPrompt = videoPromptResult.prompt;
+            } catch (vpError) {
+                console.error('[Image API] Failed to generate video prompt:', vpError);
+                generatedVideoPrompt = 'Static scene. Fixed camera. Subtle ambient motion.';
             }
 
-            if (generatedVideoPrompt) {
-                const { error: promptError } = await supabase
+            if (segmentId) {
+                const supabase = createServerClient();
+
+                const { error: imageError } = await supabase
                     .from('segments')
-                    .update({ video_prompt: generatedVideoPrompt } as never)
+                    .update({
+                        image_url: result.imageUrl,
+                        image_model: resolvedModelId,
+                        last_quote_credits: quotedCredits,
+                    } as never)
                     .eq('id', segmentId);
 
-                if (promptError) {
-                    console.warn('[Image API] Failed to update video_prompt:', promptError.message);
+                if (imageError) {
+                    throw new Error('Failed to save image URL to database');
+                }
+
+                if (generatedVideoPrompt) {
+                    const { error: promptError } = await supabase
+                        .from('segments')
+                        .update({ video_prompt: generatedVideoPrompt } as never)
+                        .eq('id', segmentId);
+
+                    if (promptError) {
+                        console.warn('[Image API] Failed to update video_prompt:', promptError.message);
+                    }
+                }
+
+                const { data: segmentData } = await supabase
+                    .from('segments')
+                    .select('order_index, project_id')
+                    .eq('id', segmentId)
+                    .single();
+
+                const segment = segmentData as { order_index: number; project_id: string } | null;
+                if (segment && segment.order_index === 0) {
+                    const { error: thumbnailError } = await supabase
+                        .from('projects')
+                        .update({ thumbnail_url: result.imageUrl } as never)
+                        .eq('id', segment.project_id);
+
+                    if (thumbnailError) {
+                        console.warn('[Image API] Failed to update project thumbnail:', thumbnailError.message);
+                    }
                 }
             }
 
-            const { data: segmentData } = await supabase
-                .from('segments')
-                .select('order_index, project_id')
-                .eq('id', segmentId)
-                .single();
-
-            const segment = segmentData as { order_index: number; project_id: string } | null;
-            if (segment && segment.order_index === 0) {
-                const { error: thumbnailError } = await supabase
-                    .from('projects')
-                    .update({ thumbnail_url: result.imageUrl } as never)
-                    .eq('id', segment.project_id);
-
-                if (thumbnailError) {
-                    console.warn('[Image API] Failed to update project thumbnail:', thumbnailError.message);
-                }
-            }
+            await finalizeCredits({
+                supabase: createServerClient(),
+                operationId,
+                projectId: resolved.projectId,
+                modelId: resolvedModelId,
+                pricingVersion: ACTIVE_PRICING_VERSION,
+                details: {
+                    segmentId: segmentId || null,
+                },
+            });
+        } catch (postProcessError) {
+            await releaseReservedCredits({
+                supabase: createServerClient(),
+                operationId,
+                projectId: resolved.projectId,
+                modelId: resolvedModelId,
+                pricingVersion: ACTIVE_PRICING_VERSION,
+                details: { reason: 'image_postprocess_failed' },
+            });
+            throw postProcessError;
         }
 
         return NextResponse.json({
@@ -136,6 +212,10 @@ export async function POST(request: NextRequest) {
             width: result.width,
             height: result.height,
             warnings: resolved.warnings,
+            modelId: resolvedModelId,
+            quoteCredits: quotedCredits,
+            pricingVersion: ACTIVE_PRICING_VERSION,
+            remainingCredits: reserveResult.remainingCredits,
         });
     } catch (error: any) {
         if (error instanceof ResolverError) {

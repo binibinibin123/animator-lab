@@ -3,12 +3,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
 import type { ProjectInsert } from '@/types/database';
 import { generateScript, generateTopic } from '@/lib/ai/gemini';
-import { auth } from '@/auth';
+import { hasApiAuthUser } from '@/lib/api/authGuard';
 import {
     normalizeStyleInput,
     parseCreateVisualMode,
     parseUpdateVisualMode,
 } from '@/lib/api/visualModeValidation';
+import {
+    ACTIVE_PRICING_VERSION,
+    getDefaultImageModelId,
+    getDefaultVideoModelId,
+    isImageModelId,
+    isVideoModelId,
+} from '@/lib/models/registry';
 
 function errorResponse(status: number, code: string, message: string, details?: unknown) {
     return NextResponse.json(
@@ -24,8 +31,8 @@ function errorResponse(status: number, code: string, message: string, details?: 
 }
 
 async function requireAuth() {
-    const session = await auth();
-    if (!session?.user) {
+    const authenticated = await hasApiAuthUser();
+    if (!authenticated) {
         return errorResponse(401, 'UNAUTHORIZED', 'Authentication required');
     }
     return null;
@@ -67,6 +74,12 @@ export async function POST(request: NextRequest) {
         if (inputVisualMode === null) {
             return errorResponse(400, 'INVALID_VISUAL_MODE', 'Invalid visual mode value');
         }
+        const inputImageModel = isImageModelId(body.imageModelId) ? body.imageModelId : getDefaultImageModelId();
+        const inputVideoModel = isVideoModelId(body.videoModelId)
+            ? body.videoModelId
+            : isVideoModelId(body.videoModel)
+                ? body.videoModel
+                : getDefaultVideoModelId();
 
         // ---------------------------------------------------------
         // 1. Channel Automation / Test Run Logic
@@ -149,6 +162,9 @@ export async function POST(request: NextRequest) {
                 style: style,
                 style_text: styleText,
                 visual_mode: visualMode,
+                image_model: inputImageModel,
+                video_model: inputVideoModel,
+                pricing_version: ACTIVE_PRICING_VERSION,
                 character_reference_url: body.characterReferenceUrl || null,
                 style_reference_url: body.styleReferenceUrl || null,
                 aspect_ratio: '9:16', // Shorts default
@@ -210,6 +226,9 @@ export async function POST(request: NextRequest) {
                     style: original.style,
                     style_text: original.style_text,
                     visual_mode: original.visual_mode || 'legacy',
+                    image_model: original.image_model || getDefaultImageModelId(),
+                    video_model: original.video_model || getDefaultVideoModelId(),
+                    pricing_version: original.pricing_version || ACTIVE_PRICING_VERSION,
                     character_reference_url: original.character_reference_url || null,
                     style_reference_url: original.style_reference_url || null,
                     status: 'draft',
@@ -254,6 +273,9 @@ export async function POST(request: NextRequest) {
             style: normalizedStyle.style,
             style_text: normalizedStyle.styleText,
             visual_mode: inputVisualMode,
+            image_model: inputImageModel,
+            video_model: inputVideoModel,
+            pricing_version: ACTIVE_PRICING_VERSION,
             character_reference_url: body.characterReferenceUrl || null,
             style_reference_url: body.styleReferenceUrl || null,
             duration: body.duration || 60,
@@ -314,6 +336,7 @@ export async function PATCH(request: NextRequest) {
         const body = await request.json();
         const { id, title, visualMode, characterReferenceUrl, styleReferenceUrl } = body;
         const hasStyleInput = body.style !== undefined || body.styleText !== undefined;
+        const hasModelInput = body.imageModelId !== undefined || body.videoModelId !== undefined;
 
         if (!id) {
             return errorResponse(400, 'INVALID_INPUT', 'Project ID is required');
@@ -344,6 +367,22 @@ export async function PATCH(request: NextRequest) {
 
         if (styleReferenceUrl !== undefined) {
             updates.style_reference_url = styleReferenceUrl || null;
+        }
+
+        if (hasModelInput) {
+            if (body.imageModelId !== undefined) {
+                if (!isImageModelId(body.imageModelId)) {
+                    return errorResponse(400, 'INVALID_INPUT', 'Invalid image model id');
+                }
+                updates.image_model = body.imageModelId;
+            }
+
+            if (body.videoModelId !== undefined) {
+                if (!isVideoModelId(body.videoModelId)) {
+                    return errorResponse(400, 'INVALID_INPUT', 'Invalid video model id');
+                }
+                updates.video_model = body.videoModelId;
+            }
         }
 
         if (hasStyleInput) {

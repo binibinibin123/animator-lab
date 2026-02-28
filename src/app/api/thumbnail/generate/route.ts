@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
+import { hasApiAuthUser } from '@/lib/api/authGuard';
 import { createServerClient } from '@/lib/supabase';
 import { generateImage } from '@/lib/ai/nanobanana';
 import { generateRawText } from '@/lib/ai/gemini';
 import { ResolverError, resolveReferenceContext } from '@/lib/image/referenceResolver';
+import { getDefaultImageModelId } from '@/lib/models/registry';
 
 function errorResponse(status: number, code: string, message: string, details?: unknown) {
     return NextResponse.json(
@@ -19,8 +20,8 @@ function errorResponse(status: number, code: string, message: string, details?: 
 }
 
 export async function POST(request: NextRequest) {
-    const session = await auth();
-    if (!session?.user) {
+    const authenticated = await hasApiAuthUser();
+    if (!authenticated) {
         return errorResponse(401, 'UNAUTHORIZED', 'Authentication required');
     }
 
@@ -125,6 +126,7 @@ export async function POST(request: NextRequest) {
             referenceImage: resolved.referenceImage || undefined,
             referenceMimeType: resolved.referenceMimeType || 'image/png',
             referenceIntent: resolved.referenceIntent,
+            modelId: getDefaultImageModelId(),
         });
 
         const supabase = createServerClient();

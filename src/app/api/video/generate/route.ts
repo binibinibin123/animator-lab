@@ -3,9 +3,22 @@
 // Supports fal.ai provider
 
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { createServerClient } from '@/lib/supabase';
 import { generateVideoPrompt } from '@/lib/ai/videoPrompt';
 import { getVideoProvider, VideoProviderType } from '@/lib/video';
+import {
+    ACTIVE_PRICING_VERSION,
+    getDefaultVideoModelId,
+    isVideoModelId,
+    quoteVideoCredits,
+    VIDEO_MODEL_REGISTRY,
+} from '@/lib/models/registry';
+import {
+    finalizeCredits,
+    releaseReservedCredits,
+    reserveCredits,
+} from '@/lib/credits/ledger';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -20,9 +33,14 @@ export async function POST(request: NextRequest) {
             motion,
             duration,
             segmentId,
+            projectId,
             scriptText,
             visualDescription,
-            style
+            style,
+            modelId,
+            model,
+            resolution,
+            audioEnabled,
         } = body;
 
         if (!imageUrl) {
@@ -33,6 +51,15 @@ export async function POST(request: NextRequest) {
         }
 
         const supabase = createServerClient();
+        const resolvedModelId = isVideoModelId(modelId) ? modelId : isVideoModelId(model) ? model : getDefaultVideoModelId();
+
+        const modelConfig = VIDEO_MODEL_REGISTRY[resolvedModelId];
+        if (!modelConfig?.enabled) {
+            return NextResponse.json(
+                { error: `Video model is disabled: ${resolvedModelId}` },
+                { status: 400 }
+            );
+        }
 
         let providerType: VideoProviderType = 'fal';
 
@@ -65,40 +92,127 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        let resolvedProjectId: string | null = projectId || null;
+        if (!resolvedProjectId && segmentId) {
+            const { data: segmentRow } = await supabase
+                .from('segments')
+                .select('project_id')
+                .eq('id', segmentId)
+                .single();
+            resolvedProjectId = (segmentRow as { project_id?: string } | null)?.project_id || null;
+        }
+
+        const quotedCredits = quoteVideoCredits(resolvedModelId, {
+            durationSeconds: Number(duration || 6),
+            resolution: resolution || '1080p',
+            audioEnabled: !!audioEnabled,
+        });
+        const operationId = request.headers.get('x-idempotency-key') || randomUUID();
+
+        let reserveResult: {
+            remainingCredits: number;
+            insufficient?: boolean;
+        } | null = null;
+
+        if (resolvedProjectId) {
+            reserveResult = await reserveCredits({
+                supabase,
+                projectId: resolvedProjectId,
+                operationId,
+                amount: quotedCredits,
+                modelId: resolvedModelId,
+                pricingVersion: ACTIVE_PRICING_VERSION,
+                details: {
+                    duration: Number(duration || 6),
+                    resolution: resolution || '1080p',
+                    audioEnabled: !!audioEnabled,
+                },
+            });
+
+            if (reserveResult.insufficient) {
+                return NextResponse.json(
+                    {
+                        error: 'Insufficient credits',
+                        requiredCredits: quotedCredits,
+                        remainingCredits: reserveResult.remainingCredits,
+                    },
+                    { status: 402 }
+                );
+            }
+        }
+
         // Create job record in video_jobs table
         const { data: jobRecord, error: jobError } = await supabase
             .from('video_jobs')
             .insert({
                 segment_id: segmentId || null,
                 provider: providerType,
+                model_id: resolvedModelId,
                 status: 'queued',
                 progress: 0,
+                quote_credits: quotedCredits,
+                pricing_version: ACTIVE_PRICING_VERSION,
+                operation_id: operationId,
             })
             .select()
             .single();
 
         if (jobError) {
             console.error('Failed to create job record:', jobError);
-            // Continue without job tracking for backward compatibility
+            if (resolvedProjectId) {
+                await releaseReservedCredits({
+                    supabase,
+                    operationId,
+                    projectId: resolvedProjectId,
+                    modelId: resolvedModelId,
+                    pricingVersion: ACTIVE_PRICING_VERSION,
+                    details: { reason: 'job_record_create_failed' },
+                });
+            }
+            return NextResponse.json(
+                { error: 'Failed to create job record' },
+                { status: 500 }
+            );
         }
 
         // Update segment with generated prompt if segmentId is present
         if (segmentId) {
             await supabase
                 .from('segments')
-                .update({ video_prompt: videoPrompt })
+                .update({
+                    video_prompt: videoPrompt,
+                    video_model: resolvedModelId,
+                    last_quote_credits: quotedCredits,
+                })
                 .eq('id', segmentId);
         }
 
         // Get provider and submit job
         const provider = getVideoProvider(providerType);
-        const { externalJobId } = await provider.submitJob({
-            imageUrl,
-            motionPrompt: videoPrompt,
-            duration: duration || 6,
-            segmentId: segmentId || '',
-            style,
-        });
+        let externalJobId = '';
+        try {
+            const submitResult = await provider.submitJob({
+                imageUrl,
+                motionPrompt: videoPrompt,
+                duration: duration || 6,
+                segmentId: segmentId || '',
+                style,
+                modelId: resolvedModelId,
+            });
+            externalJobId = submitResult.externalJobId;
+        } catch (submitError) {
+            if (resolvedProjectId) {
+                await releaseReservedCredits({
+                    supabase,
+                    operationId,
+                    projectId: resolvedProjectId,
+                    modelId: resolvedModelId,
+                    pricingVersion: ACTIVE_PRICING_VERSION,
+                    details: { reason: 'submit_failed' },
+                });
+            }
+            throw submitError;
+        }
 
         // Update job record with external ID
         if (jobRecord) {
@@ -117,9 +231,13 @@ export async function POST(request: NextRequest) {
             jobId: jobRecord?.id || externalJobId,
             externalJobId,
             provider: providerType,
+            modelId: resolvedModelId,
             status: 'running',
             generatedPrompt: videoPrompt,
             promptAnalysis,
+            quoteCredits: quotedCredits,
+            pricingVersion: ACTIVE_PRICING_VERSION,
+            remainingCredits: reserveResult?.remainingCredits,
         });
     } catch (error) {
         console.error('Video generation error:', error);
@@ -183,7 +301,7 @@ export async function GET(request: NextRequest) {
             // If job is not in final state, check with provider
             if (job.status !== 'succeeded' && job.status !== 'failed') {
                 const provider = getVideoProvider(job.provider);
-                const statusResult = await provider.checkStatus(job.external_job_id);
+                const statusResult = await provider.checkStatus(job.external_job_id, job.model_id);
 
                 console.log(`[VideoAPI] Provider status for ${jobId}:`, statusResult);
 
@@ -211,6 +329,37 @@ export async function GET(request: NextRequest) {
                     .update(updateData)
                     .eq('id', job.id);
 
+                if (job.operation_id && job.segment_id) {
+                    const { data: seg } = await supabase
+                        .from('segments')
+                        .select('project_id')
+                        .eq('id', job.segment_id)
+                        .single();
+                    const projectIdForBilling = (seg as { project_id?: string } | null)?.project_id;
+
+                    if (projectIdForBilling && statusResult.status === 'succeeded') {
+                        await finalizeCredits({
+                            supabase,
+                            operationId: job.operation_id,
+                            projectId: projectIdForBilling,
+                            modelId: job.model_id || getDefaultVideoModelId(),
+                            pricingVersion: job.pricing_version || ACTIVE_PRICING_VERSION,
+                            details: { jobId: job.id },
+                        });
+                    }
+
+                    if (projectIdForBilling && (statusResult.status === 'failed' || statusResult.status === 'cancelled')) {
+                        await releaseReservedCredits({
+                            supabase,
+                            operationId: job.operation_id,
+                            projectId: projectIdForBilling,
+                            modelId: job.model_id || getDefaultVideoModelId(),
+                            pricingVersion: job.pricing_version || ACTIVE_PRICING_VERSION,
+                            details: { jobId: job.id, reason: statusResult.status },
+                        });
+                    }
+                }
+
                 job = { ...job, ...updateData };
             }
 
@@ -235,11 +384,14 @@ export async function GET(request: NextRequest) {
                 jobId: job.id,
                 externalJobId: job.external_job_id,
                 provider: job.provider,
+                modelId: job.model_id,
                 status: job.status,
                 progress: job.progress,
                 videoUrl: job.output_url,
                 generatedPrompt: job.segments?.video_prompt || job.video_prompt,
                 error: job.error,
+                quoteCredits: job.quote_credits,
+                pricingVersion: job.pricing_version,
                 debug: {
                     rawStatus: job.status,
                     hasVideoUrl: !!job.output_url,
@@ -250,8 +402,12 @@ export async function GET(request: NextRequest) {
         // Fallback: Direct provider check without video_jobs table
         if (requestId) {
             console.log(`[VideoAPI] Direct provider check for requestId: ${requestId}`);
+            const fallbackModel = searchParams.get('modelId');
             const provider = getVideoProvider('fal');
-            const statusResult = await provider.checkStatus(requestId);
+            const statusResult = await provider.checkStatus(
+                requestId,
+                isVideoModelId(fallbackModel) ? fallbackModel : getDefaultVideoModelId()
+            );
 
             console.log(`[VideoAPI] Direct provider status:`, statusResult);
 

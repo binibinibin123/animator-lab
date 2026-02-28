@@ -1,9 +1,19 @@
-// Nano Banana (Gemini 2.5 Flash Image) for image generation
+// Nano Banana image generation
 // This uses the Google AI Studio Generative Language API
 
+import {
+    getDefaultImageModelId,
+    IMAGE_MODEL_REGISTRY,
+    isImageModelId,
+    type ImageModelId,
+} from '@/lib/models/registry';
+
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY!;
-const MODEL_NAME = 'gemini-2.5-flash-image';
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
+
+function getGeminiApiUrl(modelId: ImageModelId) {
+    const modelName = IMAGE_MODEL_REGISTRY[modelId].providerModel;
+    return `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+}
 
 export interface ImageGenerationOptions {
     prompt: string;
@@ -15,6 +25,7 @@ export interface ImageGenerationOptions {
     referenceImage?: string; // Base64 encoded image data
     referenceMimeType?: string; // e.g., 'image/png' or 'image/jpeg'
     referenceIntent?: 'character' | 'style' | null;
+    modelId?: ImageModelId;
 }
 
 export interface ImageResult {
@@ -50,7 +61,11 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
         referenceImage,
         referenceMimeType = 'image/png',
         referenceIntent,
+        modelId,
     } = options;
+
+    const resolvedModelId = isImageModelId(modelId) ? modelId : getDefaultImageModelId();
+    const geminiApiUrl = getGeminiApiUrl(resolvedModelId);
 
     const styleModifier = STYLE_PRESETS[style] || '';
 
@@ -95,10 +110,10 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
         throw new Error('GOOGLE_AI_API_KEY is not configured. Please set the environment variable.');
     }
 
-    console.log('Calling Gemini Image API with prompt:', fullPrompt.slice(0, 100) + '...');
+    console.log(`[NanoBanana] Calling model ${resolvedModelId} with prompt:`, fullPrompt.slice(0, 100) + '...');
 
     try {
-        const response = await fetch(`${GEMINI_API_URL}?key=${GOOGLE_AI_API_KEY}`, {
+        const response = await fetch(`${geminiApiUrl}?key=${GOOGLE_AI_API_KEY}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -170,7 +185,7 @@ export function scriptToImagePrompt(scriptText: string, style: string): string {
 
 export async function testNanoBananaConnection(): Promise<boolean> {
     try {
-        const response = await fetch(`${GEMINI_API_URL}?key=${GOOGLE_AI_API_KEY}`, {
+        const response = await fetch(`${getGeminiApiUrl(getDefaultImageModelId())}?key=${GOOGLE_AI_API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

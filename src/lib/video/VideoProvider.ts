@@ -11,6 +11,7 @@ export interface VideoGenerationRequest {
     duration?: number;
     segmentId: string;
     style?: string;
+    modelId?: string;
 }
 
 export interface VideoGenerationResult {
@@ -36,7 +37,7 @@ export interface VideoProvider {
      * Check the status of a submitted job
      * @param externalJobId - The provider's job ID
      */
-    checkStatus(externalJobId: string): Promise<{
+    checkStatus(externalJobId: string, modelId?: string): Promise<{
         status: VideoJobStatus;
         progress: number;
         videoUrl?: string;
@@ -46,7 +47,7 @@ export interface VideoProvider {
      * Cancel a running or queued job
      * @param externalJobId - The provider's job ID
      */
-    cancelJob?(externalJobId: string): Promise<boolean>;
+    cancelJob?(externalJobId: string, modelId?: string): Promise<boolean>;
 }
 
 // Factory function to get the appropriate provider
