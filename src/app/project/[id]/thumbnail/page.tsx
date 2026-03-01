@@ -229,7 +229,7 @@ export default function ThumbnailPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Left: Thumbnail */}
                 <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-800">📸 썸네일 (NanoBanana Pro)</h3>
+                    <h3 className="text-lg font-semibold text-gray-800">📸 썸네일 (나노 바나나 프로)</h3>
                     <div className="aspect-video bg-gray-100 rounded-xl overflow-hidden border-2 border-gray-200 relative group">
                         {imageUrl ? (
                             <>

@@ -11,13 +11,6 @@ interface LogMessage {
     timestamp: number;
 }
 
-interface ModelRegistryWarning {
-    code: 'IMAGE_PROVIDER_MODEL_UNSET' | 'IMAGE_PROVIDER_MODEL_SHARED';
-    severity: 'warning';
-    message: string;
-    modelId?: 'nano-banana-2' | 'nano-banana-pro';
-}
-
 interface ImageModelOption {
     id: string;
     label: string;
@@ -80,7 +73,6 @@ export default function AutopilotPage() {
     const [showAdvancedModels, setShowAdvancedModels] = useState(false);
     const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
     const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
-    const [modelWarnings, setModelWarnings] = useState<ModelRegistryWarning[]>([]);
     const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
     const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
     const [referenceError, setReferenceError] = useState<string | null>(null);
@@ -121,7 +113,6 @@ export default function AutopilotPage() {
                 const nextVideoModels: VideoModelOption[] = videoPayload?.models || [];
                 setImageModels(nextImageModels);
                 setVideoModels(nextVideoModels);
-                setModelWarnings(imagePayload?.warnings || []);
 
                 if (nextImageModels.length > 0) {
                     setImageModelId((prevId) => {
@@ -618,13 +609,6 @@ export default function AutopilotPage() {
                                         ))}
                                     </div>
                                 </div>
-                            </div>
-                        )}
-                        {modelWarnings.length > 0 && (
-                            <div className="mt-3 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                                {modelWarnings.map((warning) => (
-                                    <p key={`${warning.code}-${warning.modelId || 'global'}`}>⚠️ {warning.message}</p>
-                                ))}
                             </div>
                         )}
                     </div>

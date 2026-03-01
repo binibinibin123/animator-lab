@@ -638,28 +638,33 @@ export default function VideoPage() {
                     <span className="text-sm font-medium text-gray-700">생성기:</span>
                     <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">☁️ fal.ai (클라우드)</span>
                 </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">모델:</span>
-                    <select
-                        value={selectedModel}
-                        onChange={(e) => {
-                            const nextModelId = e.target.value;
-                            const nextModel = videoModels.find((model) => model.id === nextModelId) || videoModels[0];
-                            setSelectedModel(nextModelId);
-                            if (nextModel?.resolutions[0]) {
-                                setSelectedResolution(nextModel.resolutions[0].id);
-                            }
-                        }}
-                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
-                        disabled={isGlobalGenerating || generatingIds.size > 0}
-                    >
-                        {videoModels.map((model) => (
-                            <option key={model.id} value={model.id}>{model.label}</option>
-                        ))}
-                    </select>
-                    <span className="text-xs text-gray-500">
-                        예상 {selectedResolutionOption?.creditsPerCut || 0} credits / 6초 컷 ({(selectedResolutionOption?.creditsPerCut || 0) * 5} credits / 30초)
-                    </span>
+                <div className="flex flex-col items-start gap-1">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-700">모델:</span>
+                        <select
+                            value={selectedModel}
+                            onChange={(e) => {
+                                const nextModelId = e.target.value;
+                                const nextModel = videoModels.find((model) => model.id === nextModelId) || videoModels[0];
+                                setSelectedModel(nextModelId);
+                                if (nextModel?.resolutions[0]) {
+                                    setSelectedResolution(nextModel.resolutions[0].id);
+                                }
+                            }}
+                            className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+                            disabled={isGlobalGenerating || generatingIds.size > 0}
+                        >
+                            {videoModels.map((model) => (
+                                <option key={model.id} value={model.id}>{model.label}</option>
+                            ))}
+                        </select>
+                        <span className="text-xs text-gray-500">
+                            예상 {selectedResolutionOption?.creditsPerCut || 0} credits / 6초 컷 ({(selectedResolutionOption?.creditsPerCut || 0) * 5} credits / 30초)
+                        </span>
+                    </div>
+                    {selectedVideoModel?.description && (
+                        <p className="text-xs text-gray-500">{selectedVideoModel.description}</p>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">화질:</span>

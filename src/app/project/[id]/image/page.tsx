@@ -402,28 +402,33 @@ export default function ImagePage() {
                     <span className="text-sm font-medium text-gray-700">생성기:</span>
                     <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">☁️ Gemini (클라우드)</span>
                 </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">모델:</span>
-                    <select
-                        value={imageModelId}
-                        onChange={(e) => {
-                            const nextModelId = e.target.value;
-                            const nextModel = imageModels.find((model) => model.id === nextModelId);
-                            setImageModelId(nextModelId);
-                            if (nextModel) {
-                                setResolution(nextModel.qualities[0].id);
-                            }
-                        }}
-                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
-                        disabled={isGenerating}
-                    >
-                        {imageModels.map((model) => (
-                            <option key={model.id} value={model.id}>{model.label}</option>
-                        ))}
-                    </select>
-                    <span className="text-xs text-gray-500">
-                        예상 {selectedImageQuality?.credits || 0} credits / image
-                    </span>
+                <div className="flex flex-col items-start gap-1">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-700">모델:</span>
+                        <select
+                            value={imageModelId}
+                            onChange={(e) => {
+                                const nextModelId = e.target.value;
+                                const nextModel = imageModels.find((model) => model.id === nextModelId);
+                                setImageModelId(nextModelId);
+                                if (nextModel) {
+                                    setResolution(nextModel.qualities[0].id);
+                                }
+                            }}
+                            className="px-3 py-1.5 border rounded-lg text-sm bg-white"
+                            disabled={isGenerating}
+                        >
+                            {imageModels.map((model) => (
+                                <option key={model.id} value={model.id}>{model.label}</option>
+                            ))}
+                        </select>
+                        <span className="text-xs text-gray-500">
+                            예상 {selectedImageQuality?.credits || 0} credits / image
+                        </span>
+                    </div>
+                    {selectedImageModel?.description && (
+                        <p className="text-xs text-gray-500">{selectedImageModel.description}</p>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">해상도:</span>
