@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createUploadSessionId, uploadProjectReference } from '@/lib/api/referenceUploadClient';
@@ -9,6 +9,33 @@ import type { AspectRatio, RenderStrategy } from '@/types';
 interface LogMessage {
     message: string;
     timestamp: number;
+}
+
+interface ModelRegistryWarning {
+    code: 'IMAGE_PROVIDER_MODEL_UNSET' | 'IMAGE_PROVIDER_MODEL_SHARED';
+    severity: 'warning';
+    message: string;
+    modelId?: 'nano-banana-2' | 'nano-banana-pro';
+}
+
+interface ImageModelOption {
+    id: string;
+    label: string;
+    description: string;
+    qualities: Array<{
+        id: string;
+        credits: number;
+    }>;
+}
+
+interface VideoModelOption {
+    id: string;
+    label: string;
+    description: string;
+    resolutions: Array<{
+        id: string;
+        creditsPerCut: number;
+    }>;
 }
 
 type VisualMode = 'character_fixed' | 'style_fixed';
@@ -30,84 +57,8 @@ const STYLE_OPTIONS = [
     { id: 'sketch', name: '스케치', thumbnail: '/styles/sketch.png' },
 ];
 
-const IMAGE_MODELS = [
-    {
-        id: 'nano-banana-2',
-        label: 'Nano Banana 2',
-        qualities: [
-            { id: '2K', credits: 25 },
-        ],
-    },
-    {
-        id: 'nano-banana-pro',
-        label: 'Nano Banana Pro',
-        qualities: [
-            { id: '2K', credits: 40 },
-            { id: '4K', credits: 72 },
-        ],
-    },
-];
-
-const VIDEO_MODELS = [
-    {
-        id: 'ltx-2-fast',
-        label: 'Standard Eco (LTX Fast)',
-        resolutions: [
-            { id: '1080p', creditsPerCut: 36 },
-            { id: '1440p', creditsPerCut: 72 },
-            { id: '2160p', creditsPerCut: 144 },
-        ],
-    },
-    {
-        id: 'hailuo-02-standard',
-        label: 'Standard Balanced (Hailuo 02 Standard)',
-        resolutions: [
-            { id: '720p', creditsPerCut: 40 },
-            { id: '1080p', creditsPerCut: 40 },
-        ],
-    },
-    {
-        id: 'ltx-2.0-pro',
-        label: 'Standard Plus (LTX Pro)',
-        resolutions: [
-            { id: '1080p', creditsPerCut: 48 },
-            { id: '1440p', creditsPerCut: 96 },
-            { id: '2160p', creditsPerCut: 192 },
-        ],
-    },
-    {
-        id: 'hailuo-02-pro',
-        label: 'Hailuo 02 Pro (Legacy)',
-        resolutions: [
-            { id: '1080p', creditsPerCut: 48 },
-        ],
-    },
-    {
-        id: 'kling-2.6-pro',
-        label: 'Kling 2.6 Pro (Legacy)',
-        resolutions: [
-            { id: '1080p', creditsPerCut: 42 },
-        ],
-    },
-    {
-        id: 'wan-2.5',
-        label: 'Wan 2.5 (Legacy)',
-        resolutions: [
-            { id: '480p', creditsPerCut: 30 },
-            { id: '720p', creditsPerCut: 60 },
-            { id: '1080p', creditsPerCut: 90 },
-        ],
-    },
-    {
-        id: 'veo-3-fast',
-        label: 'Veo 3 Fast (Legacy)',
-        resolutions: [
-            { id: '720p', creditsPerCut: 60 },
-            { id: '1080p', creditsPerCut: 60 },
-            { id: '2160p', creditsPerCut: 180 },
-        ],
-    },
-];
+const DEFAULT_IMAGE_MODEL_ID = 'nano-banana-2';
+const DEFAULT_VIDEO_MODEL_ID = 'ltx-2-fast';
 
 const ORIENTATION_OPTIONS: { value: AspectRatio; label: string; desc: string }[] = [
     { value: '16:9', label: '가로 (16:9)', desc: '유튜브 기본 가로형' },
@@ -122,11 +73,14 @@ export default function AutopilotPage() {
     const [styleText, setStyleText] = useState('');
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
     const [renderStrategy, setRenderStrategy] = useState<RenderStrategy>('native');
-    const [imageModelId, setImageModelId] = useState('nano-banana-2');
-    const [videoModelId, setVideoModelId] = useState('ltx-2-fast');
+    const [imageModelId, setImageModelId] = useState(DEFAULT_IMAGE_MODEL_ID);
+    const [videoModelId, setVideoModelId] = useState(DEFAULT_VIDEO_MODEL_ID);
     const [imageQuality, setImageQuality] = useState('2K');
     const [videoResolution, setVideoResolution] = useState('1080p');
     const [showAdvancedModels, setShowAdvancedModels] = useState(false);
+    const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
+    const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
+    const [modelWarnings, setModelWarnings] = useState<ModelRegistryWarning[]>([]);
     const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
     const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
     const [referenceError, setReferenceError] = useState<string | null>(null);
@@ -142,10 +96,72 @@ export default function AutopilotPage() {
     const logsEndRef = useRef<HTMLDivElement>(null);
     const streamAbortRef = useRef<AbortController | null>(null);
 
-    const selectedImageModel = IMAGE_MODELS.find((model) => model.id === imageModelId) || IMAGE_MODELS[0];
-    const selectedImageQuality = selectedImageModel.qualities.find((quality) => quality.id === imageQuality) || selectedImageModel.qualities[0];
-    const selectedVideoModel = VIDEO_MODELS.find((model) => model.id === videoModelId) || VIDEO_MODELS[0];
-    const selectedVideoResolution = selectedVideoModel.resolutions.find((resolution) => resolution.id === videoResolution) || selectedVideoModel.resolutions[0];
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadModelOptions = async () => {
+            try {
+                const [imageResponse, videoResponse] = await Promise.all([
+                    fetch('/api/models/image'),
+                    fetch('/api/models/video'),
+                ]);
+
+                if (!imageResponse.ok || !videoResponse.ok) {
+                    throw new Error('모델 정보를 불러오지 못했습니다.');
+                }
+
+                const imagePayload = await imageResponse.json();
+                const videoPayload = await videoResponse.json();
+
+                if (cancelled) {
+                    return;
+                }
+
+                const nextImageModels: ImageModelOption[] = imagePayload?.models || [];
+                const nextVideoModels: VideoModelOption[] = videoPayload?.models || [];
+                setImageModels(nextImageModels);
+                setVideoModels(nextVideoModels);
+                setModelWarnings(imagePayload?.warnings || []);
+
+                if (nextImageModels.length > 0) {
+                    setImageModelId((prevId) => {
+                        const currentImageModel = nextImageModels.find((model) => model.id === prevId) || nextImageModels[0];
+                        setImageQuality((prevQuality) => {
+                            const currentQuality = currentImageModel.qualities.find((quality) => quality.id === prevQuality) || currentImageModel.qualities[0];
+                            return currentQuality ? currentQuality.id : prevQuality;
+                        });
+                        return currentImageModel.id;
+                    });
+                }
+
+                if (nextVideoModels.length > 0) {
+                    setVideoModelId((prevId) => {
+                        const currentVideoModel = nextVideoModels.find((model) => model.id === prevId) || nextVideoModels[0];
+                        setVideoResolution((prevResolution) => {
+                            const currentResolution = currentVideoModel.resolutions.find((resolution) => resolution.id === prevResolution) || currentVideoModel.resolutions[0];
+                            return currentResolution ? currentResolution.id : prevResolution;
+                        });
+                        return currentVideoModel.id;
+                    });
+                }
+            } catch (error: any) {
+                if (!cancelled) {
+                    setNotice({ type: 'warn', message: error?.message || '모델 설정을 불러오지 못했습니다.' });
+                }
+            }
+        };
+
+        void loadModelOptions();
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const selectedImageModel = imageModels.find((model) => model.id === imageModelId) || imageModels[0] || null;
+    const selectedImageQuality = selectedImageModel?.qualities.find((quality) => quality.id === imageQuality) || selectedImageModel?.qualities[0] || null;
+    const selectedVideoModel = videoModels.find((model) => model.id === videoModelId) || videoModels[0] || null;
+    const selectedVideoResolution = selectedVideoModel?.resolutions.find((resolution) => resolution.id === videoResolution) || selectedVideoModel?.resolutions[0] || null;
 
     const handleVisualModeChange = (nextMode: VisualMode) => {
         if (nextMode === visualMode) {
@@ -196,6 +212,11 @@ export default function AutopilotPage() {
 
         if (isUploadingReference) {
             setNotice({ type: 'warn', message: '참조 이미지 업로드가 완료된 뒤 다시 시도해 주세요.' });
+            return;
+        }
+
+        if (!selectedImageQuality || !selectedVideoResolution) {
+            setNotice({ type: 'warn', message: '모델 옵션을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.' });
             return;
         }
 
@@ -527,7 +548,7 @@ export default function AutopilotPage() {
                                 <div className="space-y-2 p-3 border rounded-xl bg-white">
                                     <p className="text-sm font-medium text-gray-700">이미지 모델</p>
                                     <div className="space-y-2">
-                                        {IMAGE_MODELS.map((item) => (
+                                        {imageModels.map((item) => (
                                             <button
                                                 key={item.id}
                                                 type="button"
@@ -542,17 +563,18 @@ export default function AutopilotPage() {
                                                 }`}
                                             >
                                                 <div className="font-medium">{item.label}</div>
+                                                <div className="text-xs text-gray-500">{item.description}</div>
                                                 <div className="text-xs text-gray-500">예상 {item.qualities[0].credits}~{item.qualities[item.qualities.length - 1].credits} credits / image</div>
                                             </button>
                                         ))}
                                     </div>
                                     <div className="flex gap-2 pt-1">
-                                        {selectedImageModel.qualities.map((quality) => (
+                                        {(selectedImageModel?.qualities || []).map((quality) => (
                                             <button
                                                 key={quality.id}
                                                 type="button"
                                                 onClick={() => setImageQuality(quality.id)}
-                                                className={`px-3 py-1 text-xs rounded-md border ${selectedImageQuality.id === quality.id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-700 border-gray-200'}`}
+                                                className={`px-3 py-1 text-xs rounded-md border ${selectedImageQuality?.id === quality.id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-700 border-gray-200'}`}
                                             >
                                                 {quality.id} ({quality.credits})
                                             </button>
@@ -563,7 +585,7 @@ export default function AutopilotPage() {
                                 <div className="space-y-2 p-3 border rounded-xl bg-white">
                                     <p className="text-sm font-medium text-gray-700">비디오 모델</p>
                                     <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                                        {VIDEO_MODELS.map((item) => (
+                                        {videoModels.map((item) => (
                                             <button
                                                 key={item.id}
                                                 type="button"
@@ -578,23 +600,31 @@ export default function AutopilotPage() {
                                                 }`}
                                             >
                                                 <div className="font-medium">{item.label}</div>
+                                                <div className="text-xs text-gray-500">{item.description}</div>
                                                 <div className="text-xs text-gray-500">예상 {item.resolutions[0].creditsPerCut}~{item.resolutions[item.resolutions.length - 1].creditsPerCut} credits / 6초 컷</div>
                                             </button>
                                         ))}
                                     </div>
                                     <div className="flex flex-wrap gap-2 pt-1">
-                                        {selectedVideoModel.resolutions.map((resolution) => (
+                                        {(selectedVideoModel?.resolutions || []).map((resolution) => (
                                             <button
                                                 key={resolution.id}
                                                 type="button"
                                                 onClick={() => setVideoResolution(resolution.id)}
-                                                className={`px-3 py-1 text-xs rounded-md border ${selectedVideoResolution.id === resolution.id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-700 border-gray-200'}`}
+                                                className={`px-3 py-1 text-xs rounded-md border ${selectedVideoResolution?.id === resolution.id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-700 border-gray-200'}`}
                                             >
                                                 {resolution.id} ({resolution.creditsPerCut})
                                             </button>
                                         ))}
                                     </div>
                                 </div>
+                            </div>
+                        )}
+                        {modelWarnings.length > 0 && (
+                            <div className="mt-3 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                                {modelWarnings.map((warning) => (
+                                    <p key={`${warning.code}-${warning.modelId || 'global'}`}>⚠️ {warning.message}</p>
+                                ))}
                             </div>
                         )}
                     </div>

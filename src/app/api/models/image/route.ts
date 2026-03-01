@@ -1,18 +1,36 @@
 import { NextResponse } from 'next/server';
-import { listEnabledImageModels, quoteImageCredits } from '@/lib/models/registry';
+import {
+    ACTIVE_PRICING_VERSION,
+    getImageModelRegistryWarnings,
+    listEnabledImageModels,
+    quoteImageCredits,
+} from '@/lib/models/registry';
 
 export async function GET() {
-    return NextResponse.json({
-        pricingVersion: 'v1',
-        models: listEnabledImageModels().map((model) => ({
+    const models = listEnabledImageModels().map((model) => {
+        const qualities = model.supportedQualities.map((quality) => ({
+            id: quality,
+            credits: quoteImageCredits(model.id, quality),
+        }));
+
+        return {
             id: model.id,
             label: model.label,
+            description: model.description,
+            providerModelConfigured: model.providerModelConfigured,
             baseCreditsPerImage: model.baseCreditsPerImage,
             supportedQualities: model.supportedQualities,
-            creditsByQuality: model.supportedQualities.reduce((acc, quality) => {
-                acc[quality] = quoteImageCredits(model.id, quality);
+            creditsByQuality: qualities.reduce((acc, quality) => {
+                acc[quality.id] = quality.credits;
                 return acc;
             }, {} as Record<string, number>),
-        })),
+            qualities,
+        };
+    });
+
+    return NextResponse.json({
+        pricingVersion: ACTIVE_PRICING_VERSION,
+        warnings: getImageModelRegistryWarnings(),
+        models,
     });
 }

@@ -7,23 +7,17 @@ import { supabase } from '@/lib/supabase';
 import type { Segment } from '@/types/database';
 import type { AspectRatio } from '@/types';
 
-const IMAGE_MODELS = [
-    {
-        id: 'nano-banana-2',
-        label: 'Nano Banana 2',
-        qualities: [
-            { id: '2K', credits: 25 },
-        ],
-    },
-    {
-        id: 'nano-banana-pro',
-        label: 'Nano Banana Pro',
-        qualities: [
-            { id: '2K', credits: 40 },
-            { id: '4K', credits: 72 },
-        ],
-    },
-] as const;
+interface ImageModelOption {
+    id: string;
+    label: string;
+    description: string;
+    qualities: Array<{
+        id: string;
+        credits: number;
+    }>;
+}
+
+const DEFAULT_IMAGE_MODEL_ID = 'nano-banana-2';
 
 export default function ImagePage() {
     const router = useRouter();
@@ -36,13 +30,14 @@ export default function ImagePage() {
     const [currentGeneratingId, setCurrentGeneratingId] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
 
-    const [resolution, setResolution] = useState<'2K' | '4K'>('2K');
+    const [resolution, setResolution] = useState<string>('2K');
     const [customPrompt, setCustomPrompt] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [projectStyle, setProjectStyle] = useState<string>('anime');
     const [projectStyleText, setProjectStyleText] = useState<string>('');
     const [projectAspectRatio, setProjectAspectRatio] = useState<AspectRatio>('16:9');
-    const [imageModelId, setImageModelId] = useState<string>('nano-banana-2');
+    const [imageModelId, setImageModelId] = useState<string>(DEFAULT_IMAGE_MODEL_ID);
+    const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
     const [projectVisualMode, setProjectVisualMode] = useState<'legacy' | 'character_fixed' | 'style_fixed'>('legacy');
     const [hasCharacterReference, setHasCharacterReference] = useState(false);
     const [hasStyleReference, setHasStyleReference] = useState(false);
@@ -64,6 +59,48 @@ export default function ImagePage() {
             fetchSegments();
         }
     }, [projectId]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadImageModels = async () => {
+            try {
+                const response = await fetch('/api/models/image');
+                if (!response.ok) {
+                    throw new Error('이미지 모델 정보를 불러오지 못했습니다.');
+                }
+
+                const payload = await response.json();
+                if (cancelled) {
+                    return;
+                }
+
+                const nextModels: ImageModelOption[] = payload?.models || [];
+                setImageModels(nextModels);
+
+                if (nextModels.length > 0) {
+                    setImageModelId((prevId) => {
+                        const selected = nextModels.find((model) => model.id === prevId) || nextModels[0];
+                        setResolution((prevResolution) => {
+                            const quality = selected.qualities.find((item) => item.id === prevResolution) || selected.qualities[0];
+                            return quality ? quality.id : prevResolution;
+                        });
+                        return selected.id;
+                    });
+                }
+            } catch (loadError: any) {
+                if (!cancelled) {
+                    console.warn(loadError?.message || '이미지 모델 정보를 불러오지 못했습니다.');
+                }
+            }
+        };
+
+        void loadImageModels();
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         const seg = segments.find(s => s.id === selectedSegmentId);
@@ -161,14 +198,22 @@ export default function ImagePage() {
     }, [isLoading, segments, isGenerating]);
 
     const selectedSegment = segments.find(s => s.id === selectedSegmentId);
-    const selectedImageModel = IMAGE_MODELS.find((model) => model.id === imageModelId) || IMAGE_MODELS[0];
-    const supportedImageQualities = selectedImageModel.qualities;
-    const selectedImageQuality = supportedImageQualities.find((quality) => quality.id === resolution) || supportedImageQualities[0];
+    const selectedImageModel = imageModels.find((model) => model.id === imageModelId) || imageModels[0] || null;
+    const supportedImageQualities = selectedImageModel?.qualities || [];
+    const selectedImageQuality = supportedImageQualities.find((quality) => quality.id === resolution) || supportedImageQualities[0] || null;
 
     const handleGenerateImage = async (segment: Segment) => {
         setCurrentGeneratingId(segment.id);
         setIsGenerating(true);
         addLog('info', `🎨 이미지 생성 시작 (CUT #${segments.findIndex(s => s.id === segment.id) + 1}) - ${imageModelId}`);
+
+        if (!selectedImageQuality) {
+            addLog('error', '이미지 품질 설정이 준비되지 않았습니다. 모델 로딩 후 다시 시도해 주세요.');
+            setCurrentGeneratingId(null);
+            setIsGenerating(false);
+            return;
+        }
+        const selectedQualityId = selectedImageQuality.id;
 
         try {
             addLog('info', `📤 API 요청 중...`);
@@ -180,7 +225,7 @@ export default function ImagePage() {
                             scriptText: segment.script_text,
                             segmentId: segment.id,
                             projectId,
-                            resolution: selectedImageQuality.id,
+                            resolution: selectedQualityId,
                             style: projectStyle,
                             styleText: projectStyleText,
                             provider: imageProvider,
@@ -213,6 +258,13 @@ export default function ImagePage() {
         setIsGenerating(true);
         addLog('info', `🚀 전체 이미지 생성 시작 (${segments.filter(s => !s.image_url).length}개 컷)`);
 
+        if (!selectedImageQuality) {
+            addLog('error', '이미지 품질 설정이 준비되지 않았습니다. 모델 로딩 후 다시 시도해 주세요.');
+            setIsGenerating(false);
+            return;
+        }
+        const selectedQualityId = selectedImageQuality.id;
+
         for (const segment of segments) {
             if (!segment.image_url) {
                 const cutIndex = segments.findIndex(s => s.id === segment.id) + 1;
@@ -228,7 +280,7 @@ export default function ImagePage() {
                             scriptText: segment.script_text,
                             segmentId: segment.id,
                             projectId,
-                            resolution: selectedImageQuality.id,
+                            resolution: selectedQualityId,
                             style: projectStyle,
                             styleText: projectStyleText,
                             provider: imageProvider,
@@ -356,7 +408,7 @@ export default function ImagePage() {
                         value={imageModelId}
                         onChange={(e) => {
                             const nextModelId = e.target.value;
-                            const nextModel = IMAGE_MODELS.find((model) => model.id === nextModelId);
+                            const nextModel = imageModels.find((model) => model.id === nextModelId);
                             setImageModelId(nextModelId);
                             if (nextModel) {
                                 setResolution(nextModel.qualities[0].id);
@@ -365,12 +417,12 @@ export default function ImagePage() {
                         className="px-3 py-1.5 border rounded-lg text-sm bg-white"
                         disabled={isGenerating}
                     >
-                        {IMAGE_MODELS.map((model) => (
+                        {imageModels.map((model) => (
                             <option key={model.id} value={model.id}>{model.label}</option>
                         ))}
                     </select>
                     <span className="text-xs text-gray-500">
-                        예상 {selectedImageQuality.credits} credits / image
+                        예상 {selectedImageQuality?.credits || 0} credits / image
                     </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -381,7 +433,7 @@ export default function ImagePage() {
                                 key={quality.id}
                                 type="button"
                                 onClick={() => setResolution(quality.id)}
-                                className={`px-3 py-1 text-xs rounded-md transition-all ${selectedImageQuality.id === quality.id ? 'bg-violet-600 text-white' : 'hover:bg-gray-50'}`}
+                                className={`px-3 py-1 text-xs rounded-md transition-all ${selectedImageQuality?.id === quality.id ? 'bg-violet-600 text-white' : 'hover:bg-gray-50'}`}
                             >
                                 {quality.id}
                             </button>

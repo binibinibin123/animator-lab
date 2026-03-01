@@ -8,66 +8,17 @@ import { supabase } from '@/lib/supabase';
 import type { Segment } from '@/types/database';
 import { useVideoPolling } from '@/context/VideoPollingContext';
 
-const VIDEO_MODELS = [
-    {
-        id: 'ltx-2-fast',
-        label: 'Standard Eco (LTX Fast)',
-        resolutions: [
-            { id: '1080p', creditsPerCut: 36 },
-            { id: '1440p', creditsPerCut: 72 },
-            { id: '2160p', creditsPerCut: 144 },
-        ],
-    },
-    {
-        id: 'hailuo-02-standard',
-        label: 'Standard Balanced (Hailuo 02 Standard)',
-        resolutions: [
-            { id: '720p', creditsPerCut: 40 },
-            { id: '1080p', creditsPerCut: 40 },
-        ],
-    },
-    {
-        id: 'ltx-2.0-pro',
-        label: 'Standard Plus (LTX Pro)',
-        resolutions: [
-            { id: '1080p', creditsPerCut: 48 },
-            { id: '1440p', creditsPerCut: 96 },
-            { id: '2160p', creditsPerCut: 192 },
-        ],
-    },
-    {
-        id: 'hailuo-02-pro',
-        label: 'Hailuo 02 Pro (Legacy)',
-        resolutions: [
-            { id: '1080p', creditsPerCut: 48 },
-        ],
-    },
-    {
-        id: 'kling-2.6-pro',
-        label: 'Kling 2.6 Pro (Legacy)',
-        resolutions: [
-            { id: '1080p', creditsPerCut: 42 },
-        ],
-    },
-    {
-        id: 'wan-2.5',
-        label: 'Wan 2.5 (Legacy)',
-        resolutions: [
-            { id: '480p', creditsPerCut: 30 },
-            { id: '720p', creditsPerCut: 60 },
-            { id: '1080p', creditsPerCut: 90 },
-        ],
-    },
-    {
-        id: 'veo-3-fast',
-        label: 'Veo 3 Fast (Legacy)',
-        resolutions: [
-            { id: '720p', creditsPerCut: 60 },
-            { id: '1080p', creditsPerCut: 60 },
-            { id: '2160p', creditsPerCut: 180 },
-        ],
-    },
-] as const;
+interface VideoModelOption {
+    id: string;
+    label: string;
+    description: string;
+    resolutions: Array<{
+        id: string;
+        creditsPerCut: number;
+    }>;
+}
+
+const DEFAULT_VIDEO_MODEL_ID = 'ltx-2-fast';
 
 export default function VideoPage() {
     const router = useRouter();
@@ -78,14 +29,16 @@ export default function VideoPage() {
     const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const { generatingIds, logs, startPolling, addLog, resumePendingJobs, addGeneratingId, removeGeneratingId, lastCompletedJob } = useVideoPolling();
-    const [selectedModel, setSelectedModel] = useState<string>('ltx-2-fast');
+    const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_VIDEO_MODEL_ID);
     const [selectedResolution, setSelectedResolution] = useState<string>('1080p');
+    const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
     const selectedProvider = 'fal';
     const [videoPrompt, setVideoPrompt] = useState('');
 
-    const selectedVideoModel = VIDEO_MODELS.find((model) => model.id === selectedModel) || VIDEO_MODELS[0];
-    const selectedResolutionOption = selectedVideoModel.resolutions.find((resolution) => resolution.id === selectedResolution)
-        || selectedVideoModel.resolutions[0];
+    const selectedVideoModel = videoModels.find((model) => model.id === selectedModel) || videoModels[0] || null;
+    const selectedResolutionOption = selectedVideoModel?.resolutions.find((resolution) => resolution.id === selectedResolution)
+        || selectedVideoModel?.resolutions[0]
+        || null;
 
     // Pagination State
     const [currentPage, setCurrentPage] = useState(0);
@@ -123,6 +76,48 @@ export default function VideoPage() {
     const logsEndRef = useRef<HTMLDivElement>(null);
 
     // Polling intervals managed by Context
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadVideoModels = async () => {
+            try {
+                const response = await fetch('/api/models/video');
+                if (!response.ok) {
+                    throw new Error('비디오 모델 정보를 불러오지 못했습니다.');
+                }
+
+                const payload = await response.json();
+                if (cancelled) {
+                    return;
+                }
+
+                const nextModels: VideoModelOption[] = payload?.models || [];
+                setVideoModels(nextModels);
+
+                if (nextModels.length > 0) {
+                    setSelectedModel((prevModelId) => {
+                        const currentModel = nextModels.find((model) => model.id === prevModelId) || nextModels[0];
+                        setSelectedResolution((prevResolution) => {
+                            const currentResolution = currentModel.resolutions.find((resolution) => resolution.id === prevResolution) || currentModel.resolutions[0];
+                            return currentResolution ? currentResolution.id : prevResolution;
+                        });
+                        return currentModel.id;
+                    });
+                }
+            } catch (error: any) {
+                if (!cancelled) {
+                    addLog('warn', error?.message || '비디오 모델 정보를 불러오지 못했습니다.');
+                }
+            }
+        };
+
+        void loadVideoModels();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [addLog]);
 
     // Scroll to bottom when logs update
     useEffect(() => {
@@ -202,11 +197,13 @@ export default function VideoPage() {
 
             const project = projectData as { video_model?: string | null } | null;
             if (project?.video_model) {
-                const isSupportedModel = VIDEO_MODELS.some((model) => model.id === project.video_model);
-                const resolvedModelId = isSupportedModel ? project.video_model : 'ltx-2-fast';
+                const isSupportedModel = videoModels.length === 0 || videoModels.some((model) => model.id === project.video_model);
+                const resolvedModelId = isSupportedModel ? project.video_model : DEFAULT_VIDEO_MODEL_ID;
                 setSelectedModel(resolvedModelId);
-                const resolvedModel = VIDEO_MODELS.find((model) => model.id === resolvedModelId) || VIDEO_MODELS[0];
-                setSelectedResolution(resolvedModel.resolutions[0].id);
+                const resolvedModel = videoModels.find((model) => model.id === resolvedModelId) || videoModels[0];
+                if (resolvedModel?.resolutions[0]) {
+                    setSelectedResolution(resolvedModel.resolutions[0].id);
+                }
             }
 
             // 1. Fetch only lightweight metadata first (No image_url, video_url)
@@ -283,9 +280,14 @@ export default function VideoPage() {
             return false;
         }
 
-        const selectedModelMeta = VIDEO_MODELS.find((m) => m.id === selectedModel);
+        const selectedModelMeta = videoModels.find((m) => m.id === selectedModel);
         const logLabel = selectedModelMeta?.label || selectedModel;
         const promptToUse = manualPrompt !== undefined ? manualPrompt : (segment.video_prompt || 'auto');
+
+        if (!selectedResolutionOption) {
+            addLog('error', '비디오 해상도 설정이 준비되지 않았습니다. 모델 로딩 후 다시 시도해 주세요.');
+            return false;
+        }
 
         // Optimistically show spinner via Context
         addGeneratingId(segment.id);
@@ -642,19 +644,21 @@ export default function VideoPage() {
                         value={selectedModel}
                         onChange={(e) => {
                             const nextModelId = e.target.value;
-                            const nextModel = VIDEO_MODELS.find((model) => model.id === nextModelId) || VIDEO_MODELS[0];
+                            const nextModel = videoModels.find((model) => model.id === nextModelId) || videoModels[0];
                             setSelectedModel(nextModelId);
-                            setSelectedResolution(nextModel.resolutions[0].id);
+                            if (nextModel?.resolutions[0]) {
+                                setSelectedResolution(nextModel.resolutions[0].id);
+                            }
                         }}
                         className="px-3 py-1.5 border rounded-lg text-sm bg-white"
                         disabled={isGlobalGenerating || generatingIds.size > 0}
                     >
-                        {VIDEO_MODELS.map((model) => (
+                        {videoModels.map((model) => (
                             <option key={model.id} value={model.id}>{model.label}</option>
                         ))}
                     </select>
                     <span className="text-xs text-gray-500">
-                        예상 {selectedResolutionOption.creditsPerCut} credits / 6초 컷 ({selectedResolutionOption.creditsPerCut * 5} credits / 30초)
+                        예상 {selectedResolutionOption?.creditsPerCut || 0} credits / 6초 컷 ({(selectedResolutionOption?.creditsPerCut || 0) * 5} credits / 30초)
                     </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -665,7 +669,7 @@ export default function VideoPage() {
                         className="px-3 py-1.5 border rounded-lg text-sm bg-white"
                         disabled={isGlobalGenerating || generatingIds.size > 0}
                     >
-                        {selectedVideoModel.resolutions.map((resolution) => (
+                        {(selectedVideoModel?.resolutions || []).map((resolution) => (
                             <option key={resolution.id} value={resolution.id}>{resolution.id}</option>
                         ))}
                     </select>

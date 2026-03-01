@@ -39,9 +39,11 @@ export function resolveRenderStrategy(value: unknown, aspectRatio: string): Rend
 export interface ImageModelConfig {
     id: ImageModelId;
     label: string;
+    description: string;
     enabled: boolean;
     provider: 'gemini';
     providerModel: string;
+    providerModelConfigured: boolean;
     baseCreditsPerImage: number;
     supportedQualities: ImageQuality[];
     qualityMultiplier: Partial<Record<ImageQuality, number>>;
@@ -50,6 +52,7 @@ export interface ImageModelConfig {
 export interface VideoModelConfig {
     id: VideoModelId;
     label: string;
+    description: string;
     enabled: boolean;
     provider: 'fal';
     endpoint: string;
@@ -63,13 +66,40 @@ export interface VideoModelConfig {
 
 export const ACTIVE_PRICING_VERSION: PricingVersion = 'v1';
 
+interface ResolvedProviderModel {
+    value: string;
+    configured: boolean;
+}
+
+function resolveProviderModel(envVar: string, fallback: string): ResolvedProviderModel {
+    const raw = process.env[envVar];
+    const value = typeof raw === 'string' ? raw.trim() : '';
+
+    if (!value) {
+        return {
+            value: fallback,
+            configured: false,
+        };
+    }
+
+    return {
+        value,
+        configured: true,
+    };
+}
+
+const NANOBANANA_2_PROVIDER_MODEL = resolveProviderModel('NANOBANANA_2_MODEL_NAME', 'gemini-2.5-flash-image');
+const NANOBANANA_PRO_PROVIDER_MODEL = resolveProviderModel('NANOBANANA_PRO_MODEL_NAME', 'gemini-2.5-flash-image');
+
 export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
     'nano-banana-2': {
         id: 'nano-banana-2',
         label: 'Nano Banana 2',
+        description: 'Google Gemini 기반 고속 이미지 생성 모델. 2K 품질로 빠르게 컷 이미지를 만듭니다.',
         enabled: true,
         provider: 'gemini',
-        providerModel: process.env.NANOBANANA_2_MODEL_NAME || 'gemini-2.5-flash-image',
+        providerModel: NANOBANANA_2_PROVIDER_MODEL.value,
+        providerModelConfigured: NANOBANANA_2_PROVIDER_MODEL.configured,
         baseCreditsPerImage: 25,
         supportedQualities: ['2K'],
         qualityMultiplier: {
@@ -79,9 +109,11 @@ export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
     'nano-banana-pro': {
         id: 'nano-banana-pro',
         label: 'Nano Banana Pro',
+        description: 'Google Gemini 기반 고품질 이미지 생성 모델. 2K/4K 품질 선택으로 디테일을 강화할 수 있습니다.',
         enabled: true,
         provider: 'gemini',
-        providerModel: process.env.NANOBANANA_PRO_MODEL_NAME || 'gemini-2.5-flash-image',
+        providerModel: NANOBANANA_PRO_PROVIDER_MODEL.value,
+        providerModelConfigured: NANOBANANA_PRO_PROVIDER_MODEL.configured,
         baseCreditsPerImage: 40,
         supportedQualities: ['2K', '4K'],
         qualityMultiplier: {
@@ -94,7 +126,8 @@ export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
 export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
     'ltx-2-fast': {
         id: 'ltx-2-fast',
-        label: 'Standard Eco (LTX Fast)',
+        label: 'LTX-2 Fast',
+        description: '이미지 기반 I2V에 최적화된 고속 모델입니다. 빠른 처리로 짧은 컷을 대량 생성할 때 유리합니다.',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/ltx-2/image-to-video/fast',
@@ -111,7 +144,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
     },
     'hailuo-02-standard': {
         id: 'hailuo-02-standard',
-        label: 'Standard Balanced (Hailuo 02 Standard)',
+        label: 'Hailuo 02 Standard',
+        description: '균형형 I2V 모델로 자연스러운 모션 표현에 강점이 있습니다. 6초 숏컷 제작에 적합합니다.',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/minimax/hailuo-02/standard/image-to-video',
@@ -127,7 +161,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
     },
     'hailuo-02-pro': {
         id: 'hailuo-02-pro',
-        label: 'Hailuo 02 Pro (Legacy)',
+        label: 'Hailuo 02 Pro',
+        description: 'Hailuo 계열의 고해상도 I2V 모델입니다. 1080p 품질 중심으로 안정적인 결과를 제공합니다.',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/minimax/hailuo-02/pro/image-to-video',
@@ -139,7 +174,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
     },
     'kling-2.6-pro': {
         id: 'kling-2.6-pro',
-        label: 'Kling 2.6 Pro (Legacy)',
+        label: 'Kling 2.6 Pro',
+        description: '정교한 장면 연출에 특화된 I2V 모델입니다. 시네마틱한 움직임이 필요한 컷에 적합합니다.',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/kling-video/v2.6/pro/image-to-video',
@@ -151,7 +187,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
     },
     'wan-2.5': {
         id: 'wan-2.5',
-        label: 'Wan 2.5 (Legacy)',
+        label: 'Wan 2.5',
+        description: '가벼운 비용으로 다양한 해상도를 선택할 수 있는 I2V 모델입니다. 실험용/대량 제작에 적합합니다.',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/wan-25-preview/image-to-video',
@@ -167,7 +204,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
     },
     'ltx-2.0-pro': {
         id: 'ltx-2.0-pro',
-        label: 'Standard Plus (LTX Pro)',
+        label: 'LTX-2 Pro',
+        description: 'LTX 고품질 라인업으로 1080p~4K 해상도를 지원합니다. 결과 품질 우선 작업에 적합합니다.',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/ltx-2/image-to-video',
@@ -184,7 +222,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
     },
     'veo-3-fast': {
         id: 'veo-3-fast',
-        label: 'Veo 3 Fast (Legacy)',
+        label: 'Veo 3 Fast',
+        description: '텍스트 기반 T2V 중심 모델입니다. 음성 옵션을 포함한 고급 샷 생성에 활용할 수 있습니다.',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/veo3/fast',
@@ -296,4 +335,93 @@ export function listEnabledImageModels() {
 
 export function listEnabledVideoModels() {
     return Object.values(VIDEO_MODEL_REGISTRY).filter((m) => m.enabled);
+}
+
+export interface ModelRegistryWarning {
+    code: 'IMAGE_PROVIDER_MODEL_UNSET' | 'IMAGE_PROVIDER_MODEL_SHARED';
+    severity: 'warning';
+    message: string;
+    modelId?: ImageModelId;
+}
+
+export function getImageModelRegistryWarnings(): ModelRegistryWarning[] {
+    const warnings: ModelRegistryWarning[] = [];
+    const nano2 = IMAGE_MODEL_REGISTRY['nano-banana-2'];
+    const nanoPro = IMAGE_MODEL_REGISTRY['nano-banana-pro'];
+
+    if (!nano2.providerModelConfigured) {
+        warnings.push({
+            code: 'IMAGE_PROVIDER_MODEL_UNSET',
+            severity: 'warning',
+            modelId: nano2.id,
+            message: 'NANOBANANA_2_MODEL_NAME is not set. Using fallback model mapping.',
+        });
+    }
+
+    if (!nanoPro.providerModelConfigured) {
+        warnings.push({
+            code: 'IMAGE_PROVIDER_MODEL_UNSET',
+            severity: 'warning',
+            modelId: nanoPro.id,
+            message: 'NANOBANANA_PRO_MODEL_NAME is not set. Using fallback model mapping.',
+        });
+    }
+
+    if (nano2.providerModel === nanoPro.providerModel) {
+        warnings.push({
+            code: 'IMAGE_PROVIDER_MODEL_SHARED',
+            severity: 'warning',
+            message: `nano-banana-2 and nano-banana-pro both resolve to "${nano2.providerModel}". Check provider model env mapping.`,
+        });
+    }
+
+    return warnings;
+}
+
+export interface ImageModelOption {
+    id: ImageModelId;
+    label: string;
+    description: string;
+    qualities: Array<{
+        id: ImageQuality;
+        credits: number;
+    }>;
+}
+
+export interface VideoModelOption {
+    id: VideoModelId;
+    label: string;
+    description: string;
+    resolutions: Array<{
+        id: VideoResolution;
+        creditsPerCut: number;
+    }>;
+}
+
+export function listImageModelOptions(): ImageModelOption[] {
+    return listEnabledImageModels().map((model) => ({
+        id: model.id,
+        label: model.label,
+        description: model.description,
+        qualities: model.supportedQualities.map((quality) => ({
+            id: quality,
+            credits: quoteImageCredits(model.id, quality),
+        })),
+    }));
+}
+
+export function listVideoModelOptions(): VideoModelOption[] {
+    return listEnabledVideoModels().map((model) => ({
+        id: model.id,
+        label: model.label,
+        description: model.description,
+        resolutions: model.supportedResolutions.map((resolution) => ({
+            id: resolution,
+            creditsPerCut: quoteVideoCredits(model.id, {
+                durationSeconds: 6,
+                resolution,
+                audioEnabled: false,
+            }),
+        })),
+    }));
 }
