@@ -70,31 +70,6 @@ export interface VideoModelConfig {
 
 export const ACTIVE_PRICING_VERSION: PricingVersion = 'v1';
 
-interface ResolvedProviderModel {
-    value: string;
-    configured: boolean;
-}
-
-function resolveProviderModel(envVar: string, fallback: string): ResolvedProviderModel {
-    const raw = process.env[envVar];
-    const value = typeof raw === 'string' ? raw.trim() : '';
-
-    if (!value) {
-        return {
-            value: fallback,
-            configured: false,
-        };
-    }
-
-    return {
-        value,
-        configured: true,
-    };
-}
-
-const NANOBANANA_2_PROVIDER_MODEL = resolveProviderModel('NANOBANANA_2_MODEL_NAME', 'gemini-2.5-flash-image');
-const NANOBANANA_PRO_PROVIDER_MODEL = resolveProviderModel('NANOBANANA_PRO_MODEL_NAME', 'gemini-2.5-flash-image');
-
 export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
     'nano-banana-2': {
         id: 'nano-banana-2',
@@ -103,8 +78,8 @@ export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
         fallbackPreviewImageUrl: '/styles/illustration.png',
         enabled: true,
         provider: 'gemini',
-        providerModel: NANOBANANA_2_PROVIDER_MODEL.value,
-        providerModelConfigured: NANOBANANA_2_PROVIDER_MODEL.configured,
+        providerModel: 'gemini-3.1-flash-image-preview',
+        providerModelConfigured: true,
         baseCreditsPerImage: 25,
         supportedQualities: ['2K'],
         qualityMultiplier: {
@@ -118,8 +93,8 @@ export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
         fallbackPreviewImageUrl: '/styles/realistic.png',
         enabled: true,
         provider: 'gemini',
-        providerModel: NANOBANANA_PRO_PROVIDER_MODEL.value,
-        providerModelConfigured: NANOBANANA_PRO_PROVIDER_MODEL.configured,
+        providerModel: 'gemini-3-pro-image-preview',
+        providerModelConfigured: true,
         baseCreditsPerImage: 40,
         supportedQualities: ['2K', '4K'],
         qualityMultiplier: {
@@ -365,37 +340,7 @@ export interface ModelRegistryWarning {
 }
 
 export function getImageModelRegistryWarnings(): ModelRegistryWarning[] {
-    const warnings: ModelRegistryWarning[] = [];
-    const nano2 = IMAGE_MODEL_REGISTRY['nano-banana-2'];
-    const nanoPro = IMAGE_MODEL_REGISTRY['nano-banana-pro'];
-
-    if (!nano2.providerModelConfigured) {
-        warnings.push({
-            code: 'IMAGE_PROVIDER_MODEL_UNSET',
-            severity: 'warning',
-            modelId: nano2.id,
-            message: 'NANOBANANA_2_MODEL_NAME is not set. Using fallback model mapping.',
-        });
-    }
-
-    if (!nanoPro.providerModelConfigured) {
-        warnings.push({
-            code: 'IMAGE_PROVIDER_MODEL_UNSET',
-            severity: 'warning',
-            modelId: nanoPro.id,
-            message: 'NANOBANANA_PRO_MODEL_NAME is not set. Using fallback model mapping.',
-        });
-    }
-
-    if (nano2.providerModel === nanoPro.providerModel) {
-        warnings.push({
-            code: 'IMAGE_PROVIDER_MODEL_SHARED',
-            severity: 'warning',
-            message: `nano-banana-2 and nano-banana-pro both resolve to "${nano2.providerModel}". Check provider model env mapping.`,
-        });
-    }
-
-    return warnings;
+    return [];
 }
 
 export interface ImageModelOption {

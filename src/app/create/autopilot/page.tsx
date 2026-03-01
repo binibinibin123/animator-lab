@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createUploadSessionId, uploadProjectReference } from '@/lib/api/referenceUploadClient';
@@ -38,6 +38,12 @@ interface VideoModelOption {
     }>;
 }
 
+interface HoverPreviewState {
+    modelId: string;
+    left: number;
+    top: number;
+}
+
 type VisualMode = 'character_fixed' | 'style_fixed';
 
 const STYLE_OPTIONS = [
@@ -65,6 +71,9 @@ const ORIENTATION_OPTIONS: { value: AspectRatio; label: string; desc: string }[]
     { value: '9:16', label: '세로 (9:16)', desc: '쇼츠/릴스 기본형' },
 ];
 
+const HOVER_PREVIEW_WIDTH = 288;
+const HOVER_PREVIEW_HEIGHT = 162;
+
 export default function AutopilotPage() {
     const router = useRouter();
     const [topic, setTopic] = useState('');
@@ -82,10 +91,12 @@ export default function AutopilotPage() {
     const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
     const [failedVideoPreviewIds, setFailedVideoPreviewIds] = useState<Record<string, true>>({});
     const [readyVideoPreviewIds, setReadyVideoPreviewIds] = useState<Record<string, true>>({});
+    const [hoverPreview, setHoverPreview] = useState<HoverPreviewState | null>(null);
     const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
     const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
     const [referenceError, setReferenceError] = useState<string | null>(null);
     const [isUploadingReference, setIsUploadingReference] = useState(false);
+    const [isReferenceDragOver, setIsReferenceDragOver] = useState(false);
     const [uploadSessionId] = useState(() => createUploadSessionId());
 
     const [isRunning, setIsRunning] = useState(false);
@@ -96,6 +107,8 @@ export default function AutopilotPage() {
     const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'warn' | 'error'; message: string } | null>(null);
     const logsEndRef = useRef<HTMLDivElement>(null);
     const streamAbortRef = useRef<AbortController | null>(null);
+    const hoverHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const referenceInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -162,6 +175,9 @@ export default function AutopilotPage() {
     const selectedImageQuality = selectedImageModel?.qualities.find((quality) => quality.id === imageQuality) || selectedImageModel?.qualities[0] || null;
     const selectedVideoModel = videoModels.find((model) => model.id === videoModelId) || videoModels[0] || null;
     const selectedVideoResolution = selectedVideoModel?.resolutions.find((resolution) => resolution.id === videoResolution) || selectedVideoModel?.resolutions[0] || null;
+    const hoveredVideoModel = hoverPreview
+        ? videoModels.find((model) => model.id === hoverPreview.modelId) || null
+        : null;
 
     const getPreviewImageUrl = (model: { previewImageUrl?: string; fallbackPreviewImageUrl?: string } | null | undefined) => {
         return model?.previewImageUrl || model?.fallbackPreviewImageUrl || '/styles/minimalist.png';
@@ -193,6 +209,53 @@ export default function AutopilotPage() {
         });
     };
 
+    const clearHoverHideTimer = () => {
+        if (hoverHideTimerRef.current) {
+            clearTimeout(hoverHideTimerRef.current);
+            hoverHideTimerRef.current = null;
+        }
+    };
+
+    const scheduleHideHoverPreview = () => {
+        clearHoverHideTimer();
+        hoverHideTimerRef.current = setTimeout(() => {
+            setHoverPreview(null);
+        }, 120);
+    };
+
+    const showHoverPreviewForCard = (modelId: string, cardEl: HTMLButtonElement) => {
+        clearHoverHideTimer();
+
+        const anchor = cardEl.querySelector('[data-video-preview-anchor="true"]') as HTMLElement | null;
+        const rect = (anchor || cardEl).getBoundingClientRect();
+
+        let left = rect.right + 16;
+        if (left + HOVER_PREVIEW_WIDTH > window.innerWidth - 16) {
+            left = rect.left - HOVER_PREVIEW_WIDTH - 16;
+        }
+        if (left < 16) {
+            left = Math.max(16, Math.round((window.innerWidth - HOVER_PREVIEW_WIDTH) / 2));
+        }
+
+        const centeredTop = rect.top + (rect.height / 2) - (HOVER_PREVIEW_HEIGHT / 2);
+        const top = Math.max(16, Math.min(centeredTop, window.innerHeight - HOVER_PREVIEW_HEIGHT - 16));
+
+        setHoverPreview({
+            modelId,
+            left,
+            top,
+        });
+    };
+
+    useEffect(() => {
+        return () => {
+            if (hoverHideTimerRef.current) {
+                clearTimeout(hoverHideTimerRef.current);
+                hoverHideTimerRef.current = null;
+            }
+        };
+    }, []);
+
     const handleVisualModeChange = (nextMode: VisualMode) => {
         if (nextMode === visualMode) {
             return;
@@ -209,6 +272,18 @@ export default function AutopilotPage() {
             setReferencePreviewUrl(null);
             setReferenceFileName(null);
             setReferenceError(null);
+            return;
+        }
+
+        const supportedTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+        if (!supportedTypes.has(file.type)) {
+            setReferenceError('PNG, JPG, WEBP 파일만 업로드할 수 있습니다.');
+            return;
+        }
+
+        const maxBytes = 15 * 1024 * 1024;
+        if (file.size > maxBytes) {
+            setReferenceError('이미지 크기는 15MB 이하로 업로드해 주세요.');
             return;
         }
 
@@ -232,6 +307,25 @@ export default function AutopilotPage() {
         } finally {
             setIsUploadingReference(false);
         }
+    };
+
+    const triggerReferencePicker = () => {
+        if (isRunning || isUploadingReference) {
+            return;
+        }
+        referenceInputRef.current?.click();
+    };
+
+    const handleReferenceDrop = (event: DragEvent<HTMLElement>) => {
+        event.preventDefault();
+        setIsReferenceDragOver(false);
+
+        if (isRunning || isUploadingReference) {
+            return;
+        }
+
+        const file = event.dataTransfer.files?.[0] || null;
+        void handleReferenceFileChange(file);
     };
 
     const startAutopilot = async () => {
@@ -474,26 +568,70 @@ export default function AutopilotPage() {
                         </div>
                     )}
 
-                    <div className="space-y-2">
-                        <label htmlFor="autopilot-reference-image" className="text-sm font-medium text-gray-700">
-                            {visualMode === 'character_fixed' ? '캐릭터 참조 이미지 (선택)' : '스타일 참조 이미지 (선택)'}
-                        </label>
+                    <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-sm font-semibold text-gray-800">레퍼런스 이미지 업로드</p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    {visualMode === 'character_fixed' ? '캐릭터 외형 고정용 참조' : '그림체 고정용 참조'}
+                                </p>
+                            </div>
+                            <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700">
+                                {visualMode === 'character_fixed' ? '캐릭터 모드' : '스타일 모드'}
+                            </span>
+                        </div>
+
                         <input
+                            ref={referenceInputRef}
                             id="autopilot-reference-image"
                             type="file"
                             accept="image/png,image/jpeg,image/webp"
                             onChange={(e) => {
                                 void handleReferenceFileChange(e.target.files?.[0] || null);
                             }}
-                            className="block w-full text-sm text-gray-600"
+                            className="hidden"
                             disabled={isUploadingReference || isRunning}
                         />
+
+                        <button
+                            type="button"
+                            onClick={triggerReferencePicker}
+                            disabled={isUploadingReference || isRunning}
+                            onDragOver={(event) => {
+                                event.preventDefault();
+                                if (!isRunning && !isUploadingReference) {
+                                    setIsReferenceDragOver(true);
+                                }
+                            }}
+                            onDragLeave={() => setIsReferenceDragOver(false)}
+                            onDrop={handleReferenceDrop}
+                            className={`rounded-xl border-2 border-dashed bg-white p-4 transition-colors ${
+                                isReferenceDragOver
+                                    ? 'border-violet-400 bg-violet-50'
+                                    : 'border-gray-300'
+                            } ${isRunning || isUploadingReference ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} w-full text-left`}
+                        >
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div>
+                                    <p className="text-sm text-gray-700">이미지를 드래그해서 놓거나 파일을 선택하세요.</p>
+                                    <p className="text-xs text-gray-500 mt-1">PNG/JPG/WEBP, 최대 15MB</p>
+                                </div>
+                                <span
+                                    className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium"
+                                >
+                                    파일 선택
+                                </span>
+                            </div>
+                        </button>
+
                         {isUploadingReference && (
                             <p className="text-xs text-violet-600">참조 이미지를 업로드하고 있습니다...</p>
                         )}
+
                         {referenceError && (
                             <p className="text-xs text-red-600">{referenceError}</p>
                         )}
+
                         {referencePreviewUrl && (
                             <div className="rounded-lg border bg-white p-3 space-y-2">
                                 <div className="flex items-center justify-between gap-3">
@@ -506,6 +644,9 @@ export default function AutopilotPage() {
                                             setReferencePreviewUrl(null);
                                             setReferenceFileName(null);
                                             setReferenceError(null);
+                                            if (referenceInputRef.current) {
+                                                referenceInputRef.current.value = '';
+                                            }
                                         }}
                                         className="text-xs text-gray-500 hover:text-gray-700"
                                     >
@@ -515,6 +656,7 @@ export default function AutopilotPage() {
                                 <img src={referencePreviewUrl} alt="참조 이미지 미리보기" className="w-full max-h-56 object-contain rounded-md bg-gray-50" />
                             </div>
                         )}
+
                         <p className="text-xs text-gray-500">
                             업로드하지 않아도 오토파일럿 시작은 가능합니다. 다만 고정 모드 일관성은 참조 이미지가 있을 때 더 좋아집니다.
                         </p>
@@ -639,18 +781,23 @@ export default function AutopilotPage() {
                                             <button
                                                 key={item.id}
                                                 type="button"
+                                                onMouseEnter={(event) => showHoverPreviewForCard(item.id, event.currentTarget)}
+                                                onMouseLeave={scheduleHideHoverPreview}
+                                                onFocus={(event) => showHoverPreviewForCard(item.id, event.currentTarget)}
+                                                onBlur={scheduleHideHoverPreview}
                                                 onClick={() => {
                                                     setVideoModelId(item.id);
                                                     setVideoResolution(item.resolutions[0].id);
                                                 }}
-                                                className={`w-full px-3 py-2 rounded-lg border text-left text-sm transition-all ${
+                                                className={`relative w-full px-3 py-2 rounded-lg border text-left text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 ${
                                                     videoModelId === item.id
                                                         ? 'border-violet-500 bg-violet-50 text-violet-700 shadow-sm'
                                                         : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
                                                 }`}
                                             >
                                                 <div className="flex items-start gap-3">
-                                                    <div className="relative w-24 h-14 shrink-0 overflow-hidden rounded-md border bg-slate-100">
+                                                    <div className="relative w-24 h-14 shrink-0" data-video-preview-anchor="true">
+                                                        <div className="relative w-full h-full overflow-hidden rounded-md border bg-slate-100">
                                                         {item.previewVideoUrl && !failedVideoPreviewIds[item.id] ? (
                                                             <>
                                                                 {!readyVideoPreviewIds[item.id] && (
@@ -687,6 +834,7 @@ export default function AutopilotPage() {
                                                                 }}
                                                             />
                                                         )}
+                                                        </div>
                                                     </div>
                                                     <div className="min-w-0 space-y-0.5">
                                                         <div className="font-medium truncate">{item.label}</div>
@@ -697,6 +845,57 @@ export default function AutopilotPage() {
                                             </button>
                                         ))}
                                     </div>
+                                    {hoveredVideoModel && hoverPreview && (
+                                        <div
+                                            className="hidden md:block fixed z-[90] pointer-events-none"
+                                            style={{ left: `${hoverPreview.left}px`, top: `${hoverPreview.top}px` }}
+                                        >
+                                            <div className="w-72 rounded-2xl border border-violet-200 bg-white/95 backdrop-blur-sm shadow-2xl p-2.5 animate-in fade-in zoom-in-95 duration-200">
+                                                <div className="flex items-center justify-between px-1 pb-2">
+                                                    <span className="text-[11px] font-semibold uppercase tracking-wide text-violet-700">Hover Preview</span>
+                                                    <span className="text-[11px] text-gray-500 truncate max-w-[150px]">{hoveredVideoModel.label}</span>
+                                                </div>
+                                                <div className="relative overflow-hidden rounded-xl border border-gray-200 bg-slate-100 aspect-video">
+                                                    {hoveredVideoModel.previewVideoUrl && !failedVideoPreviewIds[hoveredVideoModel.id] ? (
+                                                        <>
+                                                            {!readyVideoPreviewIds[hoveredVideoModel.id] && (
+                                                                <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200" />
+                                                            )}
+                                                            <video
+                                                                src={hoveredVideoModel.previewVideoUrl}
+                                                                className={`w-full h-full object-cover transition-opacity duration-300 ${readyVideoPreviewIds[hoveredVideoModel.id] ? 'opacity-100' : 'opacity-0'}`}
+                                                                muted
+                                                                loop
+                                                                autoPlay
+                                                                playsInline
+                                                                preload="auto"
+                                                                aria-label={`${hoveredVideoModel.label} 확대 미리보기 영상`}
+                                                                onLoadedData={() => markVideoPreviewReady(hoveredVideoModel.id)}
+                                                                onError={() => markVideoPreviewFailed(hoveredVideoModel.id)}
+                                                            >
+                                                                <track kind="captions" srcLang="ko" label="확대 미리보기 자막" src="data:text/vtt,WEBVTT" />
+                                                            </video>
+                                                        </>
+                                                    ) : (
+                                                        <img
+                                                            src={getPreviewImageUrl(hoveredVideoModel)}
+                                                            alt={`${hoveredVideoModel.label} 확대 미리보기`}
+                                                            className="w-full h-full object-cover"
+                                                            loading="lazy"
+                                                            onError={(event) => {
+                                                                const img = event.currentTarget;
+                                                                if (img.dataset.fallbackApplied === 'true') {
+                                                                    return;
+                                                                }
+                                                                img.dataset.fallbackApplied = 'true';
+                                                                img.src = hoveredVideoModel.fallbackPreviewImageUrl || '/styles/minimalist.png';
+                                                            }}
+                                                        />
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="flex flex-wrap gap-2 pt-1">
                                         {(selectedVideoModel?.resolutions || []).map((resolution) => (
                                             <button

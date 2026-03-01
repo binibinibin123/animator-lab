@@ -42,6 +42,11 @@ function errorResponse(status: number, code: string, message: string, details?: 
     );
 }
 
+function isSchemaMissingColumnError(error: any) {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    return message.includes('schema cache') && message.includes('Could not find the');
+}
+
 export async function POST(request: NextRequest) {
     const authenticated = await hasApiAuthUser();
     if (!authenticated) {
@@ -97,26 +102,50 @@ export async function POST(request: NextRequest) {
                 sendProgress(5);
 
                 const supabase = createServerClient();
-                const { data: project, error: projectError } = await supabase
+                const modernProjectInsert = {
+                    title: topic,
+                    topic,
+                    style: normalizedStyle.style,
+                    style_text: normalizedStyle.styleText,
+                    image_model: imageModelId,
+                    video_model: videoModelId,
+                    aspect_ratio: aspectRatio,
+                    render_strategy: renderStrategy,
+                    visual_mode: visualMode,
+                    character_reference_url: body.characterReferenceUrl || null,
+                    style_reference_url: body.styleReferenceUrl || null,
+                    status: 'script',
+                    autopilot_status: 'generating_script',
+                    autopilot_progress: 5,
+                } as any;
+
+                let { data: project, error: projectError } = await supabase
                     .from('projects')
-                    .insert({
+                    .insert(modernProjectInsert)
+                    .select()
+                    .single();
+
+                if ((!project || projectError) && isSchemaMissingColumnError(projectError)) {
+                    sendLog('⚠️ DB schema is behind. Retrying project insert with legacy-safe columns.');
+                    const legacyProjectInsert = {
                         title: topic,
                         topic,
                         style: normalizedStyle.style,
-                        style_text: normalizedStyle.styleText,
-                        image_model: imageModelId,
-                        video_model: videoModelId,
                         aspect_ratio: aspectRatio,
-                        render_strategy: renderStrategy,
-                        visual_mode: visualMode,
-                        character_reference_url: body.characterReferenceUrl || null,
-                        style_reference_url: body.styleReferenceUrl || null,
                         status: 'script',
                         autopilot_status: 'generating_script',
                         autopilot_progress: 5,
-                    } as any)
-                    .select()
-                    .single();
+                    } as any;
+
+                    const retryResult = await supabase
+                        .from('projects')
+                        .insert(legacyProjectInsert)
+                        .select()
+                        .single();
+
+                    project = retryResult.data;
+                    projectError = retryResult.error;
+                }
 
                 if (projectError || !project) {
                     throw new Error(`Failed to create project: ${projectError?.message || 'Unknown error'}`);
@@ -233,7 +262,7 @@ export async function POST(request: NextRequest) {
                             modelId: imageModelId,
                         });
 
-                        await supabase
+                        const segmentUpdate = await supabase
                             .from('segments')
                             .update({
                                 image_url: imageResult.imageUrl,
@@ -241,6 +270,24 @@ export async function POST(request: NextRequest) {
                                 last_quote_credits: quotedCredits,
                             } as never)
                             .eq('id', segment.id);
+
+                        if (segmentUpdate.error) {
+                            if (isSchemaMissingColumnError(segmentUpdate.error)) {
+                                sendLog(`⚠️ Segment schema is behind. Falling back to image_url-only update for cut ${segment.order_index + 1}.`);
+                                const fallbackSegmentUpdate = await supabase
+                                    .from('segments')
+                                    .update({
+                                        image_url: imageResult.imageUrl,
+                                    } as never)
+                                    .eq('id', segment.id);
+
+                                if (fallbackSegmentUpdate.error) {
+                                    throw new Error(fallbackSegmentUpdate.error.message || 'Failed to update segment image_url');
+                                }
+                            } else {
+                                throw new Error(segmentUpdate.error.message || 'Failed to update segment image data');
+                            }
+                        }
 
                         await finalizeCredits({
                             supabase,

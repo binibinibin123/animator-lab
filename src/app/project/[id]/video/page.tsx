@@ -22,7 +22,14 @@ interface VideoModelOption {
     }>;
 }
 
+interface HoverPreviewPosition {
+    left: number;
+    top: number;
+}
+
 const DEFAULT_VIDEO_MODEL_ID = 'ltx-2-fast';
+const MODEL_HOVER_PREVIEW_WIDTH = 432;
+const MODEL_HOVER_PREVIEW_HEIGHT = 243;
 
 export default function VideoPage() {
     const router = useRouter();
@@ -38,13 +45,47 @@ export default function VideoPage() {
     const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
     const [failedModelPreviewVideoIds, setFailedModelPreviewVideoIds] = useState<Record<string, true>>({});
     const [readyModelPreviewVideoIds, setReadyModelPreviewVideoIds] = useState<Record<string, true>>({});
+    const [modelHoverPreview, setModelHoverPreview] = useState<HoverPreviewPosition | null>(null);
     const selectedProvider = 'fal';
     const [videoPrompt, setVideoPrompt] = useState('');
+    const hoverPreviewHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const selectedVideoModel = videoModels.find((model) => model.id === selectedModel) || videoModels[0] || null;
     const selectedResolutionOption = selectedVideoModel?.resolutions.find((resolution) => resolution.id === selectedResolution)
         || selectedVideoModel?.resolutions[0]
         || null;
+
+    const clearHoverPreviewHideTimer = () => {
+        if (hoverPreviewHideTimerRef.current) {
+            clearTimeout(hoverPreviewHideTimerRef.current);
+            hoverPreviewHideTimerRef.current = null;
+        }
+    };
+
+    const openModelHoverPreview = (previewEl: HTMLElement) => {
+        clearHoverPreviewHideTimer();
+
+        const rect = previewEl.getBoundingClientRect();
+        let left = rect.right + 16;
+        if (left + MODEL_HOVER_PREVIEW_WIDTH > window.innerWidth - 16) {
+            left = rect.left - MODEL_HOVER_PREVIEW_WIDTH - 16;
+        }
+        if (left < 16) {
+            left = Math.max(16, Math.round((window.innerWidth - MODEL_HOVER_PREVIEW_WIDTH) / 2));
+        }
+
+        const centeredTop = rect.top + (rect.height / 2) - (MODEL_HOVER_PREVIEW_HEIGHT / 2);
+        const top = Math.max(16, Math.min(centeredTop, window.innerHeight - MODEL_HOVER_PREVIEW_HEIGHT - 16));
+
+        setModelHoverPreview({ left, top });
+    };
+
+    const scheduleCloseModelHoverPreview = () => {
+        clearHoverPreviewHideTimer();
+        hoverPreviewHideTimerRef.current = setTimeout(() => {
+            setModelHoverPreview(null);
+        }, 120);
+    };
 
     const markModelPreviewVideoFailed = (modelId: string) => {
         setFailedModelPreviewVideoIds((prev) => {
@@ -178,6 +219,15 @@ export default function VideoPage() {
             ));
         }
     }, [lastCompletedJob]);
+
+    useEffect(() => {
+        return () => {
+            if (hoverPreviewHideTimerRef.current) {
+                clearTimeout(hoverPreviewHideTimerRef.current);
+                hoverPreviewHideTimerRef.current = null;
+            }
+        };
+    }, []);
 
     // Update video prompt when selected segment changes
     useEffect(() => {
@@ -739,7 +789,15 @@ export default function VideoPage() {
                     {selectedVideoModel && (
                         <div className="rounded-xl border border-gray-200 bg-gray-50 p-2.5">
                             <p className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">모델 미리보기</p>
-                            <div className="relative overflow-hidden rounded-lg border border-gray-200 bg-slate-100 aspect-video">
+                            <button
+                                type="button"
+                                className="relative overflow-hidden rounded-lg border border-gray-200 bg-slate-100 aspect-video cursor-zoom-in"
+                                onMouseEnter={(event) => openModelHoverPreview(event.currentTarget)}
+                                onMouseLeave={scheduleCloseModelHoverPreview}
+                                onFocus={(event) => openModelHoverPreview(event.currentTarget)}
+                                onBlur={scheduleCloseModelHoverPreview}
+                                aria-label={`${selectedVideoModel.label} 확대 미리보기`}
+                            >
                                 {selectedVideoModel.previewVideoUrl && !failedModelPreviewVideoIds[selectedVideoModel.id] ? (
                                     <>
                                         {!readyModelPreviewVideoIds[selectedVideoModel.id] && (
@@ -776,7 +834,58 @@ export default function VideoPage() {
                                         }}
                                     />
                                 )}
-                            </div>
+                            </button>
+                            {modelHoverPreview && (
+                                <div
+                                    className="hidden md:block fixed z-[90] pointer-events-none"
+                                    style={{ left: `${modelHoverPreview.left}px`, top: `${modelHoverPreview.top}px` }}
+                                >
+                                    <div className="w-[27rem] rounded-2xl border border-violet-200 bg-white/95 backdrop-blur-sm shadow-2xl p-2.5 animate-in fade-in zoom-in-95 duration-200">
+                                        <div className="flex items-center justify-between px-1 pb-2">
+                                            <span className="text-[11px] font-semibold uppercase tracking-wide text-violet-700">Hover Preview</span>
+                                            <span className="text-[11px] text-gray-500 truncate max-w-[180px]">{selectedVideoModel.label}</span>
+                                        </div>
+                                        <div className="relative overflow-hidden rounded-xl border border-gray-200 bg-slate-100 aspect-video">
+                                            {selectedVideoModel.previewVideoUrl && !failedModelPreviewVideoIds[selectedVideoModel.id] ? (
+                                                <>
+                                                    {!readyModelPreviewVideoIds[selectedVideoModel.id] && (
+                                                        <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200" />
+                                                    )}
+                                                    <video
+                                                        src={selectedVideoModel.previewVideoUrl}
+                                                        className={`w-full h-full object-cover transition-opacity duration-300 ${readyModelPreviewVideoIds[selectedVideoModel.id] ? 'opacity-100' : 'opacity-0'}`}
+                                                        muted
+                                                        loop
+                                                        autoPlay
+                                                        playsInline
+                                                        preload="auto"
+                                                        aria-label={`${selectedVideoModel.label} 확대 미리보기 영상`}
+                                                        onLoadedData={() => markModelPreviewVideoReady(selectedVideoModel.id)}
+                                                        onError={() => markModelPreviewVideoFailed(selectedVideoModel.id)}
+                                                    >
+                                                        <track kind="captions" srcLang="ko" label="확대 미리보기 자막" src="data:text/vtt,WEBVTT" />
+                                                    </video>
+                                                </>
+                                            ) : (
+                                                <img
+                                                    src={selectedVideoModel.previewImageUrl || selectedVideoModel.fallbackPreviewImageUrl || '/styles/cinematic.png'}
+                                                    alt={`${selectedVideoModel.label} 확대 미리보기`}
+                                                    className="w-full h-full object-cover"
+                                                    loading="lazy"
+                                                    onError={(event) => {
+                                                        const img = event.currentTarget;
+                                                        if (img.dataset.fallbackApplied === 'true') {
+                                                            return;
+                                                        }
+                                                        img.dataset.fallbackApplied = 'true';
+                                                        img.src = selectedVideoModel.fallbackPreviewImageUrl || '/styles/cinematic.png';
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
