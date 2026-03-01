@@ -33,6 +33,7 @@ interface VideoModelOption {
     previewImageUrl?: string;
     previewVideoUrl?: string;
     fallbackPreviewImageUrl?: string;
+    defaultDurationSeconds?: number;
     resolutions: Array<{
         id: string;
         creditsPerCut: number;
@@ -271,6 +272,7 @@ export default function AutopilotPage() {
     const selectedImageQuality = selectedImageModel?.qualities.find((quality) => quality.id === imageQuality) || selectedImageModel?.qualities[0] || null;
     const selectedVideoModel = videoModels.find((model) => model.id === videoModelId) || videoModels[0] || null;
     const selectedVideoResolution = selectedVideoModel?.resolutions.find((resolution) => resolution.id === videoResolution) || selectedVideoModel?.resolutions[0] || null;
+    const selectedVideoDurationSeconds = selectedVideoModel?.defaultDurationSeconds || 6;
     const hoveredVideoModel = hoverPreview
         ? videoModels.find((model) => model.id === hoverPreview.modelId) || null
         : null;
@@ -1056,7 +1058,7 @@ export default function AutopilotPage() {
                                                     <div className="min-w-0 space-y-0.5">
                                                         <div className="font-medium truncate">{item.label}</div>
                                                         <div className="text-xs text-gray-500 leading-relaxed">{item.description}</div>
-                                                        <div className="text-[11px] text-gray-500">예상 {item.resolutions[0].creditsPerCut}~{item.resolutions[item.resolutions.length - 1].creditsPerCut} credits / 6초 컷</div>
+                                                        <div className="text-[11px] text-gray-500">예상 {item.resolutions[0].creditsPerCut}~{item.resolutions[item.resolutions.length - 1].creditsPerCut} credits / {item.defaultDurationSeconds || 6}초 컷</div>
                                                     </div>
                                                 </div>
                                             </button>
@@ -1125,6 +1127,7 @@ export default function AutopilotPage() {
                                             </button>
                                         ))}
                                     </div>
+                                    <p className="text-[11px] text-gray-500">모델 기본 컷 길이: {selectedVideoDurationSeconds}초</p>
                                 </div>
                             </div>
                         )}

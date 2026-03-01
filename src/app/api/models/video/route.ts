@@ -1,19 +1,25 @@
 import { NextResponse } from 'next/server';
-import { ACTIVE_PRICING_VERSION, listEnabledVideoModels, quoteVideoCredits } from '@/lib/models/registry';
+import { listEnabledVideoModels, resolveDefaultVideoDuration } from '@/lib/models/registry';
+import { createServerClient } from '@/lib/supabase';
+import { getDefaultVideoDurationSeconds, loadPricingContext, quoteVideoCreditsWithContext } from '@/lib/credits/pricing';
 import { fetchFalModelPreviews } from '@/lib/video/falModelMetadata';
 
 export async function GET() {
+    const supabase = createServerClient();
+    const pricingContext = await loadPricingContext(supabase);
     const enabledModels = listEnabledVideoModels();
     const falPreviewMap = await fetchFalModelPreviews(enabledModels.map((model) => model.endpoint));
 
     const models = enabledModels.map((model) => {
+        const defaultDurationSeconds = getDefaultVideoDurationSeconds(model.id, pricingContext);
+
         const resolutions = model.supportedResolutions.map((resolution) => ({
             id: resolution,
-            creditsPerCut: quoteVideoCredits(model.id, {
-                durationSeconds: 6,
+            creditsPerCut: quoteVideoCreditsWithContext(pricingContext, model.id, {
+                durationSeconds: defaultDurationSeconds,
                 resolution,
                 audioEnabled: false,
-            }),
+            }).quoteCredits,
         }));
 
         const falPreview = falPreviewMap[model.endpoint];
@@ -34,6 +40,11 @@ export async function GET() {
             acceptsImageInput: model.acceptsImageInput,
             audioMultiplier: model.audioMultiplier,
             supportedResolutions: model.supportedResolutions,
+            defaultDurationSeconds: defaultDurationSeconds || resolveDefaultVideoDuration(model.id),
+            creditsByResolution: resolutions.reduce((acc, resolution) => {
+                acc[resolution.id] = resolution.creditsPerCut;
+                return acc;
+            }, {} as Record<string, number>),
             creditsPerSixSecondsByResolution: resolutions.reduce((acc, resolution) => {
                 acc[resolution.id] = resolution.creditsPerCut;
                 return acc;
@@ -43,7 +54,8 @@ export async function GET() {
     });
 
     return NextResponse.json({
-        pricingVersion: ACTIVE_PRICING_VERSION,
+        pricingVersion: pricingContext.pricingVersion,
+        pricingSource: pricingContext.source,
         models,
     });
 }

@@ -1,16 +1,19 @@
 import { NextResponse } from 'next/server';
 import {
-    ACTIVE_PRICING_VERSION,
     getImageModelRegistryWarnings,
     listEnabledImageModels,
-    quoteImageCredits,
 } from '@/lib/models/registry';
+import { createServerClient } from '@/lib/supabase';
+import { loadPricingContext, quoteImageCreditsWithContext } from '@/lib/credits/pricing';
 
 export async function GET() {
+    const supabase = createServerClient();
+    const pricingContext = await loadPricingContext(supabase);
+
     const models = listEnabledImageModels().map((model) => {
         const qualities = model.supportedQualities.map((quality) => ({
             id: quality,
-            credits: quoteImageCredits(model.id, quality),
+            credits: quoteImageCreditsWithContext(pricingContext, model.id, quality).quoteCredits,
         }));
 
         return {
@@ -32,7 +35,8 @@ export async function GET() {
     });
 
     return NextResponse.json({
-        pricingVersion: ACTIVE_PRICING_VERSION,
+        pricingVersion: pricingContext.pricingVersion,
+        pricingSource: pricingContext.source,
         warnings: getImageModelRegistryWarnings(),
         models,
     });

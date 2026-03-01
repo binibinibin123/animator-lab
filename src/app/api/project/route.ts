@@ -10,13 +10,13 @@ import {
     parseUpdateVisualMode,
 } from '@/lib/api/visualModeValidation';
 import {
-    ACTIVE_PRICING_VERSION,
     getDefaultImageModelId,
     getDefaultVideoModelId,
     isImageModelId,
     resolveRenderStrategy,
     isVideoModelId,
 } from '@/lib/models/registry';
+import { loadPricingContext } from '@/lib/credits/pricing';
 
 const ASPECT_RATIOS = ['16:9', '1:1', '3:4', '9:16'] as const;
 
@@ -78,6 +78,8 @@ export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
         const supabase = createServerClient();
+        const pricingContext = await loadPricingContext(supabase);
+        const pricingVersion = pricingContext.pricingVersion;
 
         const inputVisualMode = parseCreateVisualMode(body.visualMode);
         if (inputVisualMode === null) {
@@ -178,7 +180,7 @@ export async function POST(request: NextRequest) {
                 visual_mode: visualMode,
                 image_model: inputImageModel,
                 video_model: inputVideoModel,
-                pricing_version: ACTIVE_PRICING_VERSION,
+                pricing_version: pricingVersion,
                 character_reference_url: body.characterReferenceUrl || null,
                 style_reference_url: body.styleReferenceUrl || null,
                 aspect_ratio: inputAspectRatio,
@@ -243,7 +245,7 @@ export async function POST(request: NextRequest) {
                     visual_mode: original.visual_mode || 'legacy',
                     image_model: original.image_model || getDefaultImageModelId(),
                     video_model: original.video_model || getDefaultVideoModelId(),
-                    pricing_version: original.pricing_version || ACTIVE_PRICING_VERSION,
+                    pricing_version: original.pricing_version || pricingVersion,
                     render_strategy: original.render_strategy || 'native',
                     character_reference_url: original.character_reference_url || null,
                     style_reference_url: original.style_reference_url || null,
@@ -291,7 +293,7 @@ export async function POST(request: NextRequest) {
             visual_mode: inputVisualMode,
             image_model: inputImageModel,
             video_model: inputVideoModel,
-            pricing_version: ACTIVE_PRICING_VERSION,
+            pricing_version: pricingVersion,
             render_strategy: inputRenderStrategy,
             character_reference_url: body.characterReferenceUrl || null,
             style_reference_url: body.styleReferenceUrl || null,

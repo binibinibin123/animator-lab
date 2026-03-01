@@ -6,15 +6,14 @@ import { generateImage, scriptToImagePrompt, type ImageResult } from '@/lib/ai/n
 import { generateVideoPrompt } from '@/lib/ai/videoPrompt';
 import { ResolverError, resolveReferenceContext } from '@/lib/image/referenceResolver';
 import {
-    ACTIVE_PRICING_VERSION,
     getDefaultImageModelId,
     getSupportedImageQualities,
     isSupportedImageQuality,
     isImageModelId,
-    quoteImageCredits,
     resolveImageQuality,
 } from '@/lib/models/registry';
 import { finalizeCredits, releaseReservedCredits, reserveCredits } from '@/lib/credits/ledger';
+import { loadPricingContext, quoteImageCreditsWithContext } from '@/lib/credits/pricing';
 
 function errorResponse(status: number, code: string, message: string, details?: unknown) {
     return NextResponse.json(
@@ -39,6 +38,10 @@ export async function POST(request: NextRequest) {
     console.log('[Image API] Received request');
 
     try {
+        const supabase = createServerClient();
+        const pricingContext = await loadPricingContext(supabase);
+        const pricingVersion = pricingContext.pricingVersion;
+
         const body = await request.json();
         const {
             prompt,
@@ -87,16 +90,16 @@ export async function POST(request: NextRequest) {
             console.warn(warning);
         });
 
-        const quotedCredits = quoteImageCredits(resolvedModelId, resolvedQuality);
+        const quotedCredits = quoteImageCreditsWithContext(pricingContext, resolvedModelId, resolvedQuality).quoteCredits;
         const operationId = request.headers.get('x-idempotency-key') || randomUUID();
 
         const reserveResult = await reserveCredits({
-            supabase: createServerClient(),
+            supabase,
             projectId: resolved.projectId,
             operationId,
             amount: quotedCredits,
             modelId: resolvedModelId,
-            pricingVersion: ACTIVE_PRICING_VERSION,
+            pricingVersion,
             details: {
                 segmentId: segmentId || null,
                 quality: resolvedQuality,
@@ -126,11 +129,11 @@ export async function POST(request: NextRequest) {
             });
         } catch (generationError) {
             await releaseReservedCredits({
-                supabase: createServerClient(),
+                supabase,
                 operationId,
                 projectId: resolved.projectId,
                 modelId: resolvedModelId,
-                pricingVersion: ACTIVE_PRICING_VERSION,
+                pricingVersion,
                 details: { reason: 'image_generation_failed' },
             });
             throw generationError;
@@ -152,8 +155,6 @@ export async function POST(request: NextRequest) {
             }
 
             if (segmentId) {
-                const supabase = createServerClient();
-
                 const { error: imageError } = await supabase
                     .from('segments')
                     .update({
@@ -198,22 +199,22 @@ export async function POST(request: NextRequest) {
             }
 
             await finalizeCredits({
-                supabase: createServerClient(),
+                supabase,
                 operationId,
                 projectId: resolved.projectId,
                 modelId: resolvedModelId,
-                pricingVersion: ACTIVE_PRICING_VERSION,
+                pricingVersion,
                 details: {
                     segmentId: segmentId || null,
                 },
             });
         } catch (postProcessError) {
             await releaseReservedCredits({
-                supabase: createServerClient(),
+                supabase,
                 operationId,
                 projectId: resolved.projectId,
                 modelId: resolvedModelId,
-                pricingVersion: ACTIVE_PRICING_VERSION,
+                pricingVersion,
                 details: { reason: 'image_postprocess_failed' },
             });
             throw postProcessError;
@@ -229,7 +230,8 @@ export async function POST(request: NextRequest) {
             modelId: resolvedModelId,
             quality: resolvedQuality,
             quoteCredits: quotedCredits,
-            pricingVersion: ACTIVE_PRICING_VERSION,
+            pricingVersion,
+            pricingSource: pricingContext.source,
             remainingCredits: reserveResult.remainingCredits,
         });
     } catch (error: any) {

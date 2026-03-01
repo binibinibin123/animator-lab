@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-    ACTIVE_PRICING_VERSION,
     getDefaultImageModelId,
     getDefaultVideoModelId,
     isSupportedImageQuality,
@@ -9,13 +8,15 @@ import {
     isVideoModelId,
     resolveImageQuality,
     resolveVideoResolution,
-    quoteImageCredits,
-    quoteVideoCredits,
 } from '@/lib/models/registry';
+import { createServerClient } from '@/lib/supabase';
+import { loadPricingContext, quoteImageCreditsWithContext, quoteVideoCreditsWithContext } from '@/lib/credits/pricing';
 
 export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const mode = body.mode;
+    const supabase = createServerClient();
+    const pricingContext = await loadPricingContext(supabase, typeof body.pricingVersion === 'string' ? body.pricingVersion : undefined);
 
     if (mode === 'image') {
         const modelId = isImageModelId(body.modelId) ? body.modelId : getDefaultImageModelId();
@@ -29,12 +30,14 @@ export async function POST(request: NextRequest) {
         }
 
         const quality = resolveImageQuality(modelId, requestedQuality);
+        const quote = quoteImageCreditsWithContext(pricingContext, modelId, quality);
         return NextResponse.json({
             mode,
             modelId,
             quality,
-            pricingVersion: ACTIVE_PRICING_VERSION,
-            quoteCredits: quoteImageCredits(modelId, quality),
+            pricingVersion: quote.pricingVersion,
+            pricingSource: pricingContext.source,
+            quoteCredits: quote.quoteCredits,
         });
     }
 
@@ -48,7 +51,7 @@ export async function POST(request: NextRequest) {
         }
 
         const resolution = resolveVideoResolution(modelId, body.resolution);
-        const quoteCredits = quoteVideoCredits(modelId, {
+        const quote = quoteVideoCreditsWithContext(pricingContext, modelId, {
             durationSeconds: Number(body.duration || 6),
             resolution,
             audioEnabled: !!body.audioEnabled,
@@ -57,9 +60,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
             mode,
             modelId,
-            resolution,
-            pricingVersion: ACTIVE_PRICING_VERSION,
-            quoteCredits,
+            resolution: quote.resolvedResolution,
+            requestedDurationSeconds: Number(body.duration || 6),
+            resolvedDurationSeconds: quote.resolvedDurationSeconds,
+            pricingVersion: quote.pricingVersion,
+            pricingSource: pricingContext.source,
+            quoteCredits: quote.quoteCredits,
         });
     }
 

@@ -13,9 +13,6 @@ import {
     getSupportedVideoResolutions,
     isSupportedVideoResolution,
     isVideoModelId,
-    quoteVideoCredits,
-    resolveVideoDuration,
-    resolveVideoResolution,
     VIDEO_MODEL_REGISTRY,
 } from '@/lib/models/registry';
 import {
@@ -23,6 +20,7 @@ import {
     releaseReservedCredits,
     reserveCredits,
 } from '@/lib/credits/ledger';
+import { loadPricingContext, quoteVideoCreditsWithContext } from '@/lib/credits/pricing';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -31,6 +29,10 @@ export const revalidate = 0;
 // POST /api/video/generate - Submit video generation job
 export async function POST(request: NextRequest) {
     try {
+        const supabase = createServerClient();
+        const pricingContext = await loadPricingContext(supabase);
+        const pricingVersion = pricingContext.pricingVersion;
+
         const body = await request.json();
         const {
             imageUrl,
@@ -54,7 +56,6 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const supabase = createServerClient();
         const resolvedModelId = isVideoModelId(modelId) ? modelId : isVideoModelId(model) ? model : getDefaultVideoModelId();
 
         const modelConfig = VIDEO_MODEL_REGISTRY[resolvedModelId];
@@ -117,14 +118,14 @@ export async function POST(request: NextRequest) {
             resolvedProjectId = (segmentRow as { project_id?: string } | null)?.project_id || null;
         }
 
-        const resolvedResolution = resolveVideoResolution(resolvedModelId, resolution);
-
-        const quotedCredits = quoteVideoCredits(resolvedModelId, {
+        const quote = quoteVideoCreditsWithContext(pricingContext, resolvedModelId, {
             durationSeconds: Number(duration || 6),
-            resolution: resolvedResolution,
+            resolution,
             audioEnabled: !!audioEnabled,
         });
-        const effectiveDuration = resolveVideoDuration(resolvedModelId, Number(duration || 6));
+        const quotedCredits = quote.quoteCredits;
+        const effectiveDuration = quote.resolvedDurationSeconds;
+        const resolvedResolution = quote.resolvedResolution;
         const operationId = request.headers.get('x-idempotency-key') || randomUUID();
 
         let reserveResult: {
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
                 operationId,
                 amount: quotedCredits,
                 modelId: resolvedModelId,
-                pricingVersion: ACTIVE_PRICING_VERSION,
+                pricingVersion,
                 details: {
                     duration: effectiveDuration,
                     resolution: resolvedResolution,
@@ -169,8 +170,8 @@ export async function POST(request: NextRequest) {
                 status: 'queued',
                 progress: 0,
                 quote_credits: quotedCredits,
-                pricing_version: ACTIVE_PRICING_VERSION,
                 operation_id: operationId,
+                pricing_version: pricingVersion,
             })
             .select()
             .single();
@@ -183,7 +184,7 @@ export async function POST(request: NextRequest) {
                     operationId,
                     projectId: resolvedProjectId,
                     modelId: resolvedModelId,
-                    pricingVersion: ACTIVE_PRICING_VERSION,
+                    pricingVersion,
                     details: { reason: 'job_record_create_failed' },
                 });
             }
@@ -226,7 +227,7 @@ export async function POST(request: NextRequest) {
                     operationId,
                     projectId: resolvedProjectId,
                     modelId: resolvedModelId,
-                    pricingVersion: ACTIVE_PRICING_VERSION,
+                    pricingVersion,
                     details: { reason: 'submit_failed' },
                 });
             }
@@ -255,7 +256,8 @@ export async function POST(request: NextRequest) {
             generatedPrompt: videoPrompt,
             promptAnalysis,
             quoteCredits: quotedCredits,
-            pricingVersion: ACTIVE_PRICING_VERSION,
+            pricingVersion,
+            pricingSource: pricingContext.source,
             remainingCredits: reserveResult?.remainingCredits,
             duration: effectiveDuration,
             resolution: resolvedResolution,

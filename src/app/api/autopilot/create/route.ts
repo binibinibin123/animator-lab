@@ -10,7 +10,6 @@ import { parseCreateVisualMode, normalizeStyleInput } from '@/lib/api/visualMode
 import { resolveReferenceContext } from '@/lib/image/referenceResolver';
 import { getVideoProvider } from '@/lib/video';
 import {
-    ACTIVE_PRICING_VERSION,
     getDefaultImageModelId,
     getDefaultVideoModelId,
     getSupportedImageQualities,
@@ -20,13 +19,11 @@ import {
     isImageModelId,
     resolveRenderStrategy,
     isVideoModelId,
-    quoteImageCredits,
-    quoteVideoCredits,
     resolveImageQuality,
-    resolveVideoDuration,
     resolveVideoResolution,
 } from '@/lib/models/registry';
 import { finalizeCredits, releaseReservedCredits, reserveCredits } from '@/lib/credits/ledger';
+import { loadPricingContext, quoteImageCreditsWithContext, quoteVideoCreditsWithContext } from '@/lib/credits/pricing';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const ASPECT_RATIOS = ['16:9', '1:1', '3:4', '9:16'] as const;
@@ -250,6 +247,8 @@ export async function POST(request: NextRequest) {
                 sendProgress(5);
 
                 const supabase = createServerClient();
+                const pricingContext = await loadPricingContext(supabase);
+                const pricingVersion = pricingContext.pricingVersion;
                 const modernProjectInsert = {
                     title: topic,
                     topic,
@@ -258,6 +257,7 @@ export async function POST(request: NextRequest) {
                     style_text: normalizedStyle.styleText,
                     image_model: imageModelId,
                     video_model: videoModelId,
+                    pricing_version: pricingVersion,
                     aspect_ratio: aspectRatio,
                     render_strategy: renderStrategy,
                     visual_mode: visualMode,
@@ -415,7 +415,7 @@ export async function POST(request: NextRequest) {
                 for (const segment of segments) {
                     sendLog(`🖼️ Generating image ${segment.order_index + 1}/${segments.length}`);
                     const operationId = `autopilot:image:${project.id}:${segment.id}`;
-                    const quotedCredits = quoteImageCredits(imageModelId, imageQuality);
+                    const quotedCredits = quoteImageCreditsWithContext(pricingContext, imageModelId, imageQuality).quoteCredits;
 
                     try {
                         const reserveResult = await reserveCredits({
@@ -424,7 +424,7 @@ export async function POST(request: NextRequest) {
                             operationId,
                             amount: quotedCredits,
                             modelId: imageModelId,
-                            pricingVersion: ACTIVE_PRICING_VERSION,
+                            pricingVersion,
                             details: {
                                 segmentId: segment.id,
                                 source: 'autopilot',
@@ -492,7 +492,7 @@ export async function POST(request: NextRequest) {
                             operationId,
                             projectId: project.id,
                             modelId: imageModelId,
-                            pricingVersion: ACTIVE_PRICING_VERSION,
+                            pricingVersion,
                             details: {
                                 segmentId: segment.id,
                                 source: 'autopilot',
@@ -505,7 +505,7 @@ export async function POST(request: NextRequest) {
                             operationId,
                             projectId: project.id,
                             modelId: imageModelId,
-                            pricingVersion: ACTIVE_PRICING_VERSION,
+                            pricingVersion,
                             details: {
                                 segmentId: segment.id,
                                 reason: 'autopilot_image_failed',
@@ -555,12 +555,13 @@ export async function POST(request: NextRequest) {
                     }
 
                     const requestedVideoDurationSeconds = Math.max(1, Math.round(Number(segment.duration_ms || 6000) / 1000));
-                    const resolvedVideoDurationSeconds = resolveVideoDuration(videoModelId, requestedVideoDurationSeconds);
-                    const quotedVideoCredits = quoteVideoCredits(videoModelId, {
-                        durationSeconds: resolvedVideoDurationSeconds,
+                    const videoQuote = quoteVideoCreditsWithContext(pricingContext, videoModelId, {
+                        durationSeconds: requestedVideoDurationSeconds,
                         resolution: videoResolution,
                         audioEnabled: false,
                     });
+                    const resolvedVideoDurationSeconds = videoQuote.resolvedDurationSeconds;
+                    const quotedVideoCredits = videoQuote.quoteCredits;
                     const operationId = `autopilot:video:${project.id}:${segment.id}`;
                     const motionPrompt = generateQuickVideoPrompt(segment.script_text, segment.visual_description || undefined);
 
@@ -571,7 +572,7 @@ export async function POST(request: NextRequest) {
                             operationId,
                             amount: quotedVideoCredits,
                             modelId: videoModelId,
-                            pricingVersion: ACTIVE_PRICING_VERSION,
+                            pricingVersion,
                             details: {
                                 segmentId: segment.id,
                                 source: 'autopilot',
@@ -598,7 +599,7 @@ export async function POST(request: NextRequest) {
                                 status: 'queued',
                                 progress: 0,
                                 quote_credits: quotedVideoCredits,
-                                pricing_version: ACTIVE_PRICING_VERSION,
+                                pricing_version: pricingVersion,
                                 operation_id: operationId,
                             } as never)
                             .select('id')
@@ -692,7 +693,7 @@ export async function POST(request: NextRequest) {
                                 operationId,
                                 projectId: project.id,
                                 modelId: videoModelId,
-                                pricingVersion: ACTIVE_PRICING_VERSION,
+                                pricingVersion,
                                 details: {
                                     segmentId: segment.id,
                                     source: 'autopilot',
@@ -707,7 +708,7 @@ export async function POST(request: NextRequest) {
                                 operationId,
                                 projectId: project.id,
                                 modelId: videoModelId,
-                                pricingVersion: ACTIVE_PRICING_VERSION,
+                                pricingVersion,
                                 details: {
                                     segmentId: segment.id,
                                     source: 'autopilot',
@@ -724,7 +725,7 @@ export async function POST(request: NextRequest) {
                             operationId,
                             projectId: project.id,
                             modelId: videoModelId,
-                            pricingVersion: ACTIVE_PRICING_VERSION,
+                            pricingVersion,
                             details: {
                                 segmentId: segment.id,
                                 source: 'autopilot',

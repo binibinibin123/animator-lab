@@ -140,7 +140,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         audioMultiplier: 1,
         resolutionMultiplier: {
             '768P': 1,
-            '512P': 1,
+            '512P': 0.4,
         },
         allowedDurations: [6, 10],
     },
@@ -289,6 +289,15 @@ export function resolveVideoDuration(modelId: VideoModelId, requestedDuration?: 
     }, model.allowedDurations[0]);
 }
 
+export function resolveDefaultVideoDuration(modelId: VideoModelId): number {
+    const model = VIDEO_MODEL_REGISTRY[modelId];
+    if (model.allowedDurations && model.allowedDurations.length > 0) {
+        return model.allowedDurations[0];
+    }
+
+    return resolveVideoDuration(modelId, 6);
+}
+
 function normalizeVideoResolutionInput(modelId: VideoModelId, requestedResolution?: string): VideoResolution | undefined {
     if (!requestedResolution) {
         return undefined;
@@ -400,6 +409,7 @@ export interface VideoModelOption {
     previewVideoUrl?: string;
     fallbackPreviewImageUrl: string;
     fallbackPreviewVideoUrl?: string;
+    defaultDurationSeconds: number;
     resolutions: Array<{
         id: VideoResolution;
         creditsPerCut: number;
@@ -431,10 +441,11 @@ export function listVideoModelOptions(): VideoModelOption[] {
         previewVideoUrl: model.fallbackPreviewVideoUrl,
         fallbackPreviewImageUrl: model.fallbackPreviewImageUrl,
         fallbackPreviewVideoUrl: model.fallbackPreviewVideoUrl,
+        defaultDurationSeconds: resolveDefaultVideoDuration(model.id),
         resolutions: model.supportedResolutions.map((resolution) => ({
             id: resolution,
             creditsPerCut: quoteVideoCredits(model.id, {
-                durationSeconds: 6,
+                durationSeconds: resolveDefaultVideoDuration(model.id),
                 resolution,
                 audioEnabled: false,
             }),

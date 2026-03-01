@@ -16,6 +16,7 @@ interface VideoModelOption {
     previewImageUrl?: string;
     previewVideoUrl?: string;
     fallbackPreviewImageUrl?: string;
+    defaultDurationSeconds?: number;
     resolutions: Array<{
         id: string;
         creditsPerCut: number;
@@ -54,6 +55,8 @@ export default function VideoPage() {
     const selectedResolutionOption = selectedVideoModel?.resolutions.find((resolution) => resolution.id === selectedResolution)
         || selectedVideoModel?.resolutions[0]
         || null;
+    const selectedVideoDurationSeconds = selectedVideoModel?.defaultDurationSeconds || 6;
+    const estimatedCreditsForThirtySeconds = Math.ceil((selectedResolutionOption?.creditsPerCut || 0) * (30 / selectedVideoDurationSeconds));
 
     const clearHoverPreviewHideTimer = () => {
         if (hoverPreviewHideTimerRef.current) {
@@ -389,6 +392,7 @@ export default function VideoPage() {
                     imageUrl: segment.image_url,
                     modelId: selectedModel,
                     resolution: selectedResolution,
+                    duration: selectedVideoDurationSeconds,
                     scriptText: segment.script_text,
                     visualDescription: segment.visual_description,
                     provider: selectedProvider,
@@ -726,7 +730,7 @@ export default function VideoPage() {
                         <span>☁️ fal.ai 클라우드</span>
                     </div>
                     <div className="text-xs text-gray-600 rounded-full border border-violet-100 bg-violet-50 px-3 py-1.5">
-                        예상 {(selectedResolutionOption?.creditsPerCut || 0) * 5} credits / 30초
+                        예상 {estimatedCreditsForThirtySeconds} credits / 30초
                     </div>
                 </div>
 
@@ -753,7 +757,7 @@ export default function VideoPage() {
                                         <option key={model.id} value={model.id}>{model.label}</option>
                                     ))}
                                 </select>
-                                <p className="text-xs text-gray-500">예상 {selectedResolutionOption?.creditsPerCut || 0} credits / 6초 컷</p>
+                                <p className="text-xs text-gray-500">예상 {selectedResolutionOption?.creditsPerCut || 0} credits / {selectedVideoDurationSeconds}초 컷</p>
                             </div>
 
                             <div className="space-y-1.5 rounded-xl border border-gray-200 bg-gray-50 p-3">
@@ -780,7 +784,7 @@ export default function VideoPage() {
                         <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
                             <span>형식 <span className="text-gray-900 font-semibold">MP4</span></span>
                             <span className="w-px h-3 bg-gray-300"></span>
-                            <span>러닝타임 <span className="text-gray-900 font-semibold">컷당 6초</span></span>
+                                        <span>러닝타임 <span className="text-gray-900 font-semibold">컷당 {selectedVideoDurationSeconds}초</span></span>
                             <span className="w-px h-3 bg-gray-300"></span>
                             <span>FPS <span className="text-gray-900 font-semibold">24</span></span>
                         </div>
