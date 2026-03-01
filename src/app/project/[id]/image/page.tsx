@@ -11,6 +11,9 @@ interface ImageModelOption {
     id: string;
     label: string;
     description: string;
+    previewSource?: 'fal' | 'local' | 'none';
+    previewImageUrl?: string;
+    fallbackPreviewImageUrl?: string;
     qualities: Array<{
         id: string;
         credits: number;
@@ -397,53 +400,88 @@ export default function ImagePage() {
             </div>
 
             {/* Toolbar */}
-            <div className="flex items-center gap-6 p-4 bg-gray-50 rounded-xl border">
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">생성기:</span>
-                    <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">☁️ Gemini (클라우드)</span>
-                </div>
-                <div className="flex flex-col items-start gap-1">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-700">모델:</span>
-                        <select
-                            value={imageModelId}
-                            onChange={(e) => {
-                                const nextModelId = e.target.value;
-                                const nextModel = imageModels.find((model) => model.id === nextModelId);
-                                setImageModelId(nextModelId);
-                                if (nextModel) {
-                                    setResolution(nextModel.qualities[0].id);
-                                }
-                            }}
-                            className="px-3 py-1.5 border rounded-lg text-sm bg-white"
-                            disabled={isGenerating}
-                        >
-                            {imageModels.map((model) => (
-                                <option key={model.id} value={model.id}>{model.label}</option>
-                            ))}
-                        </select>
-                        <span className="text-xs text-gray-500">
-                            예상 {selectedImageQuality?.credits || 0} credits / image
-                        </span>
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 md:p-5 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700">
+                        <span className="font-medium">생성기</span>
+                        <span className="text-gray-400">|</span>
+                        <span>☁️ Gemini 클라우드</span>
                     </div>
-                    {selectedImageModel?.description && (
-                        <p className="text-xs text-gray-500">{selectedImageModel.description}</p>
+                    <div className="text-xs text-gray-600 rounded-full border border-violet-100 bg-violet-50 px-3 py-1.5">
+                        예상 {selectedImageQuality?.credits || 0} credits / image
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-4">
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1.5 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                                <label htmlFor="project-image-model" className="text-xs font-semibold tracking-wide text-gray-500 uppercase">이미지 모델</label>
+                                <select
+                                    id="project-image-model"
+                                    value={imageModelId}
+                                    onChange={(e) => {
+                                        const nextModelId = e.target.value;
+                                        const nextModel = imageModels.find((model) => model.id === nextModelId);
+                                        setImageModelId(nextModelId);
+                                        if (nextModel) {
+                                            setResolution(nextModel.qualities[0].id);
+                                        }
+                                    }}
+                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
+                                    disabled={isGenerating}
+                                >
+                                    {imageModels.map((model) => (
+                                        <option key={model.id} value={model.id}>{model.label}</option>
+                                    ))}
+                                </select>
+                                <p className="text-xs text-gray-500">컷별 고정 이미지 생성 기준</p>
+                            </div>
+
+                            <div className="space-y-1.5 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                                <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase">해상도</p>
+                                <div className="flex flex-wrap bg-white border rounded-lg p-1 gap-1">
+                                    {supportedImageQualities.map((quality) => (
+                                        <button
+                                            key={quality.id}
+                                            type="button"
+                                            onClick={() => setResolution(quality.id)}
+                                            className={`px-3 py-1.5 text-xs rounded-md transition-all ${selectedImageQuality?.id === quality.id ? 'bg-violet-600 text-white' : 'hover:bg-gray-50 text-gray-700'}`}
+                                        >
+                                            {quality.id}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="text-xs text-gray-500">모델별 지원 해상도만 선택 가능</p>
+                            </div>
+                        </div>
+
+                        {selectedImageModel?.description && (
+                            <p className="text-xs text-gray-600 leading-relaxed">{selectedImageModel.description}</p>
+                        )}
+                    </div>
+
+                    {selectedImageModel && (
+                        <div className="rounded-xl border border-gray-200 bg-gray-50 p-2.5">
+                            <p className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">모델 미리보기</p>
+                            <div className="overflow-hidden rounded-lg border border-gray-200 bg-slate-100 aspect-video">
+                                <img
+                                    src={selectedImageModel.previewImageUrl || selectedImageModel.fallbackPreviewImageUrl || '/styles/minimalist.png'}
+                                    alt={`${selectedImageModel.label} 미리보기`}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                    onError={(event) => {
+                                        const img = event.currentTarget;
+                                        if (img.dataset.fallbackApplied === 'true') {
+                                            return;
+                                        }
+                                        img.dataset.fallbackApplied = 'true';
+                                        img.src = selectedImageModel.fallbackPreviewImageUrl || '/styles/minimalist.png';
+                                    }}
+                                />
+                            </div>
+                        </div>
                     )}
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">해상도:</span>
-                    <div className="flex bg-white border rounded-lg p-1">
-                        {supportedImageQualities.map((quality) => (
-                            <button
-                                key={quality.id}
-                                type="button"
-                                onClick={() => setResolution(quality.id)}
-                                className={`px-3 py-1 text-xs rounded-md transition-all ${selectedImageQuality?.id === quality.id ? 'bg-violet-600 text-white' : 'hover:bg-gray-50'}`}
-                            >
-                                {quality.id}
-                            </button>
-                        ))}
-                    </div>
                 </div>
             </div>
 

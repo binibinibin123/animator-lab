@@ -15,6 +15,9 @@ interface ImageModelOption {
     id: string;
     label: string;
     description: string;
+    previewSource?: 'fal' | 'local' | 'none';
+    previewImageUrl?: string;
+    fallbackPreviewImageUrl?: string;
     qualities: Array<{
         id: string;
         credits: number;
@@ -25,6 +28,10 @@ interface VideoModelOption {
     id: string;
     label: string;
     description: string;
+    previewSource?: 'fal' | 'local' | 'none';
+    previewImageUrl?: string;
+    previewVideoUrl?: string;
+    fallbackPreviewImageUrl?: string;
     resolutions: Array<{
         id: string;
         creditsPerCut: number;
@@ -73,6 +80,8 @@ export default function AutopilotPage() {
     const [showAdvancedModels, setShowAdvancedModels] = useState(false);
     const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
     const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
+    const [failedVideoPreviewIds, setFailedVideoPreviewIds] = useState<Record<string, true>>({});
+    const [readyVideoPreviewIds, setReadyVideoPreviewIds] = useState<Record<string, true>>({});
     const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
     const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
     const [referenceError, setReferenceError] = useState<string | null>(null);
@@ -153,6 +162,36 @@ export default function AutopilotPage() {
     const selectedImageQuality = selectedImageModel?.qualities.find((quality) => quality.id === imageQuality) || selectedImageModel?.qualities[0] || null;
     const selectedVideoModel = videoModels.find((model) => model.id === videoModelId) || videoModels[0] || null;
     const selectedVideoResolution = selectedVideoModel?.resolutions.find((resolution) => resolution.id === videoResolution) || selectedVideoModel?.resolutions[0] || null;
+
+    const getPreviewImageUrl = (model: { previewImageUrl?: string; fallbackPreviewImageUrl?: string } | null | undefined) => {
+        return model?.previewImageUrl || model?.fallbackPreviewImageUrl || '/styles/minimalist.png';
+    };
+
+    const markVideoPreviewFailed = (modelId: string) => {
+        setFailedVideoPreviewIds((prev) => {
+            if (prev[modelId]) {
+                return prev;
+            }
+
+            return {
+                ...prev,
+                [modelId]: true,
+            };
+        });
+    };
+
+    const markVideoPreviewReady = (modelId: string) => {
+        setReadyVideoPreviewIds((prev) => {
+            if (prev[modelId]) {
+                return prev;
+            }
+
+            return {
+                ...prev,
+                [modelId]: true,
+            };
+        });
+    };
 
     const handleVisualModeChange = (nextMode: VisualMode) => {
         if (nextMode === visualMode) {
@@ -535,10 +574,10 @@ export default function AutopilotPage() {
                         </div>
 
                         {showAdvancedModels && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-                                <div className="space-y-2 p-3 border rounded-xl bg-white">
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pt-2">
+                                <div className="space-y-3 p-3.5 border rounded-xl bg-white">
                                     <p className="text-sm font-medium text-gray-700">이미지 모델</p>
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                                         {imageModels.map((item) => (
                                             <button
                                                 key={item.id}
@@ -547,15 +586,35 @@ export default function AutopilotPage() {
                                                     setImageModelId(item.id);
                                                     setImageQuality(item.qualities[0].id);
                                                 }}
-                                                className={`w-full px-3 py-2 rounded-lg border text-left text-sm ${
+                                                className={`w-full px-3 py-2 rounded-lg border text-left text-sm transition-all ${
                                                     imageModelId === item.id
-                                                        ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                                        : 'border-gray-200 bg-white text-gray-700'
+                                                        ? 'border-violet-500 bg-violet-50 text-violet-700 shadow-sm'
+                                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
                                                 }`}
                                             >
-                                                <div className="font-medium">{item.label}</div>
-                                                <div className="text-xs text-gray-500">{item.description}</div>
-                                                <div className="text-xs text-gray-500">예상 {item.qualities[0].credits}~{item.qualities[item.qualities.length - 1].credits} credits / image</div>
+                                                <div className="flex items-start gap-3">
+                                                    <div className="w-24 h-14 shrink-0 overflow-hidden rounded-md border bg-gray-100">
+                                                        <img
+                                                            src={getPreviewImageUrl(item)}
+                                                            alt={`${item.label} 미리보기`}
+                                                            className="w-full h-full object-cover"
+                                                            loading="lazy"
+                                                            onError={(event) => {
+                                                                const img = event.currentTarget;
+                                                                if (img.dataset.fallbackApplied === 'true') {
+                                                                    return;
+                                                                }
+                                                                img.dataset.fallbackApplied = 'true';
+                                                                img.src = item.fallbackPreviewImageUrl || '/styles/minimalist.png';
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <div className="min-w-0 space-y-0.5">
+                                                        <div className="font-medium truncate">{item.label}</div>
+                                                        <div className="text-xs text-gray-500 leading-relaxed">{item.description}</div>
+                                                        <div className="text-[11px] text-gray-500">예상 {item.qualities[0].credits}~{item.qualities[item.qualities.length - 1].credits} credits / image</div>
+                                                    </div>
+                                                </div>
                                             </button>
                                         ))}
                                     </div>
@@ -573,9 +632,9 @@ export default function AutopilotPage() {
                                     </div>
                                 </div>
 
-                                <div className="space-y-2 p-3 border rounded-xl bg-white">
+                                <div className="space-y-3 p-3.5 border rounded-xl bg-white">
                                     <p className="text-sm font-medium text-gray-700">비디오 모델</p>
-                                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                                         {videoModels.map((item) => (
                                             <button
                                                 key={item.id}
@@ -584,15 +643,57 @@ export default function AutopilotPage() {
                                                     setVideoModelId(item.id);
                                                     setVideoResolution(item.resolutions[0].id);
                                                 }}
-                                                className={`w-full px-3 py-2 rounded-lg border text-left text-sm ${
+                                                className={`w-full px-3 py-2 rounded-lg border text-left text-sm transition-all ${
                                                     videoModelId === item.id
-                                                        ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                                        : 'border-gray-200 bg-white text-gray-700'
+                                                        ? 'border-violet-500 bg-violet-50 text-violet-700 shadow-sm'
+                                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
                                                 }`}
                                             >
-                                                <div className="font-medium">{item.label}</div>
-                                                <div className="text-xs text-gray-500">{item.description}</div>
-                                                <div className="text-xs text-gray-500">예상 {item.resolutions[0].creditsPerCut}~{item.resolutions[item.resolutions.length - 1].creditsPerCut} credits / 6초 컷</div>
+                                                <div className="flex items-start gap-3">
+                                                    <div className="relative w-24 h-14 shrink-0 overflow-hidden rounded-md border bg-slate-100">
+                                                        {item.previewVideoUrl && !failedVideoPreviewIds[item.id] ? (
+                                                            <>
+                                                                {!readyVideoPreviewIds[item.id] && (
+                                                                    <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200" />
+                                                                )}
+                                                                <video
+                                                                    src={item.previewVideoUrl}
+                                                                    className={`w-full h-full object-cover transition-opacity duration-300 ${readyVideoPreviewIds[item.id] ? 'opacity-100' : 'opacity-0'}`}
+                                                                    muted
+                                                                    loop
+                                                                    autoPlay
+                                                                    playsInline
+                                                                    preload="auto"
+                                                                    aria-label={`${item.label} 미리보기 영상`}
+                                                                    onLoadedData={() => markVideoPreviewReady(item.id)}
+                                                                    onError={() => markVideoPreviewFailed(item.id)}
+                                                                >
+                                                                    <track kind="captions" srcLang="ko" label="미리보기 자막" src="data:text/vtt,WEBVTT" />
+                                                                </video>
+                                                            </>
+                                                        ) : (
+                                                            <img
+                                                                src={getPreviewImageUrl(item)}
+                                                                alt={`${item.label} 미리보기`}
+                                                                className="w-full h-full object-cover"
+                                                                loading="lazy"
+                                                                onError={(event) => {
+                                                                    const img = event.currentTarget;
+                                                                    if (img.dataset.fallbackApplied === 'true') {
+                                                                        return;
+                                                                    }
+                                                                    img.dataset.fallbackApplied = 'true';
+                                                                    img.src = item.fallbackPreviewImageUrl || '/styles/minimalist.png';
+                                                                }}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0 space-y-0.5">
+                                                        <div className="font-medium truncate">{item.label}</div>
+                                                        <div className="text-xs text-gray-500 leading-relaxed">{item.description}</div>
+                                                        <div className="text-[11px] text-gray-500">예상 {item.resolutions[0].creditsPerCut}~{item.resolutions[item.resolutions.length - 1].creditsPerCut} credits / 6초 컷</div>
+                                                    </div>
+                                                </div>
                                             </button>
                                         ))}
                                     </div>

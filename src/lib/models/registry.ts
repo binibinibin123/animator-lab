@@ -15,6 +15,7 @@ export type VideoModelId =
 export type ModelId = ImageModelId | VideoModelId;
 
 export type VideoResolution = '480p' | '720p' | '1080p' | '1440p' | '2160p';
+export type ModelPreviewSource = 'fal' | 'local' | 'none';
 
 export interface QuoteInput {
     durationSeconds?: number;
@@ -40,6 +41,7 @@ export interface ImageModelConfig {
     id: ImageModelId;
     label: string;
     description: string;
+    fallbackPreviewImageUrl: string;
     enabled: boolean;
     provider: 'gemini';
     providerModel: string;
@@ -53,6 +55,8 @@ export interface VideoModelConfig {
     id: VideoModelId;
     label: string;
     description: string;
+    fallbackPreviewImageUrl: string;
+    fallbackPreviewVideoUrl?: string;
     enabled: boolean;
     provider: 'fal';
     endpoint: string;
@@ -96,6 +100,7 @@ export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
         id: 'nano-banana-2',
         label: '나노 바나나 2',
         description: 'Google Gemini 기반 고속 이미지 생성 모델. 2K 품질로 빠르게 컷 이미지를 만듭니다.',
+        fallbackPreviewImageUrl: '/styles/illustration.png',
         enabled: true,
         provider: 'gemini',
         providerModel: NANOBANANA_2_PROVIDER_MODEL.value,
@@ -110,6 +115,7 @@ export const IMAGE_MODEL_REGISTRY: Record<ImageModelId, ImageModelConfig> = {
         id: 'nano-banana-pro',
         label: '나노 바나나 프로',
         description: 'Google Gemini 기반 고품질 이미지 생성 모델. 2K/4K 품질 선택으로 디테일을 강화할 수 있습니다.',
+        fallbackPreviewImageUrl: '/styles/realistic.png',
         enabled: true,
         provider: 'gemini',
         providerModel: NANOBANANA_PRO_PROVIDER_MODEL.value,
@@ -128,6 +134,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         id: 'ltx-2-fast',
         label: 'LTX-2 고속',
         description: '이미지 기반 I2V에 최적화된 고속 모델입니다. 빠른 처리로 짧은 컷을 대량 생성할 때 유리합니다.',
+        fallbackPreviewImageUrl: '/styles/cinematic.png',
+        fallbackPreviewVideoUrl: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/ltx-2/image-to-video/fast',
@@ -146,6 +154,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         id: 'hailuo-02-standard',
         label: '하이루오 02 스탠다드',
         description: '균형형 I2V 모델로 자연스러운 모션 표현에 강점이 있습니다. 6초 숏컷 제작에 적합합니다.',
+        fallbackPreviewImageUrl: '/styles/illustration.png',
+        fallbackPreviewVideoUrl: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/minimax/hailuo-02/standard/image-to-video',
@@ -163,6 +173,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         id: 'hailuo-02-pro',
         label: '하이루오 02 프로',
         description: 'Hailuo 계열의 고해상도 I2V 모델입니다. 1080p 품질 중심으로 안정적인 결과를 제공합니다.',
+        fallbackPreviewImageUrl: '/styles/realistic.png',
+        fallbackPreviewVideoUrl: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/minimax/hailuo-02/pro/image-to-video',
@@ -176,6 +188,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         id: 'kling-2.6-pro',
         label: '클링 2.6 프로',
         description: '정교한 장면 연출에 특화된 I2V 모델입니다. 시네마틱한 움직임이 필요한 컷에 적합합니다.',
+        fallbackPreviewImageUrl: '/styles/cinematic.png',
+        fallbackPreviewVideoUrl: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/kling-video/v2.6/pro/image-to-video',
@@ -189,6 +203,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         id: 'wan-2.5',
         label: '완 2.5',
         description: '가벼운 비용으로 다양한 해상도를 선택할 수 있는 I2V 모델입니다. 실험용/대량 제작에 적합합니다.',
+        fallbackPreviewImageUrl: '/styles/digital-art.png',
+        fallbackPreviewVideoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/wan-25-preview/image-to-video',
@@ -206,6 +222,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         id: 'ltx-2.0-pro',
         label: 'LTX-2 프로',
         description: 'LTX 고품질 라인업으로 1080p~4K 해상도를 지원합니다. 결과 품질 우선 작업에 적합합니다.',
+        fallbackPreviewImageUrl: '/styles/3d-render.png',
+        fallbackPreviewVideoUrl: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/ltx-2/image-to-video',
@@ -224,6 +242,8 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         id: 'veo-3-fast',
         label: 'Veo 3 고속',
         description: '텍스트 기반 T2V 중심 모델입니다. 음성 옵션을 포함한 고급 샷 생성에 활용할 수 있습니다.',
+        fallbackPreviewImageUrl: '/styles/neon.png',
+        fallbackPreviewVideoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm',
         enabled: true,
         provider: 'fal',
         endpoint: 'fal-ai/veo3/fast',
@@ -382,6 +402,9 @@ export interface ImageModelOption {
     id: ImageModelId;
     label: string;
     description: string;
+    previewSource: ModelPreviewSource;
+    previewImageUrl?: string;
+    fallbackPreviewImageUrl: string;
     qualities: Array<{
         id: ImageQuality;
         credits: number;
@@ -392,6 +415,11 @@ export interface VideoModelOption {
     id: VideoModelId;
     label: string;
     description: string;
+    previewSource: ModelPreviewSource;
+    previewImageUrl?: string;
+    previewVideoUrl?: string;
+    fallbackPreviewImageUrl: string;
+    fallbackPreviewVideoUrl?: string;
     resolutions: Array<{
         id: VideoResolution;
         creditsPerCut: number;
@@ -403,6 +431,9 @@ export function listImageModelOptions(): ImageModelOption[] {
         id: model.id,
         label: model.label,
         description: model.description,
+        previewSource: 'local',
+        previewImageUrl: model.fallbackPreviewImageUrl,
+        fallbackPreviewImageUrl: model.fallbackPreviewImageUrl,
         qualities: model.supportedQualities.map((quality) => ({
             id: quality,
             credits: quoteImageCredits(model.id, quality),
@@ -415,6 +446,11 @@ export function listVideoModelOptions(): VideoModelOption[] {
         id: model.id,
         label: model.label,
         description: model.description,
+        previewSource: 'local',
+        previewImageUrl: model.fallbackPreviewImageUrl,
+        previewVideoUrl: model.fallbackPreviewVideoUrl,
+        fallbackPreviewImageUrl: model.fallbackPreviewImageUrl,
+        fallbackPreviewVideoUrl: model.fallbackPreviewVideoUrl,
         resolutions: model.supportedResolutions.map((resolution) => ({
             id: resolution,
             creditsPerCut: quoteVideoCredits(model.id, {

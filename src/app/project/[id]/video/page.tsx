@@ -12,6 +12,10 @@ interface VideoModelOption {
     id: string;
     label: string;
     description: string;
+    previewSource?: 'fal' | 'local' | 'none';
+    previewImageUrl?: string;
+    previewVideoUrl?: string;
+    fallbackPreviewImageUrl?: string;
     resolutions: Array<{
         id: string;
         creditsPerCut: number;
@@ -32,6 +36,8 @@ export default function VideoPage() {
     const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_VIDEO_MODEL_ID);
     const [selectedResolution, setSelectedResolution] = useState<string>('1080p');
     const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
+    const [failedModelPreviewVideoIds, setFailedModelPreviewVideoIds] = useState<Record<string, true>>({});
+    const [readyModelPreviewVideoIds, setReadyModelPreviewVideoIds] = useState<Record<string, true>>({});
     const selectedProvider = 'fal';
     const [videoPrompt, setVideoPrompt] = useState('');
 
@@ -39,6 +45,32 @@ export default function VideoPage() {
     const selectedResolutionOption = selectedVideoModel?.resolutions.find((resolution) => resolution.id === selectedResolution)
         || selectedVideoModel?.resolutions[0]
         || null;
+
+    const markModelPreviewVideoFailed = (modelId: string) => {
+        setFailedModelPreviewVideoIds((prev) => {
+            if (prev[modelId]) {
+                return prev;
+            }
+
+            return {
+                ...prev,
+                [modelId]: true,
+            };
+        });
+    };
+
+    const markModelPreviewVideoReady = (modelId: string) => {
+        setReadyModelPreviewVideoIds((prev) => {
+            if (prev[modelId]) {
+                return prev;
+            }
+
+            return {
+                ...prev,
+                [modelId]: true,
+            };
+        });
+    };
 
     // Pagination State
     const [currentPage, setCurrentPage] = useState(0);
@@ -594,6 +626,7 @@ export default function VideoPage() {
                 </div>
                 <div className="flex gap-2">
                     <button
+                        type="button"
                         onClick={() => {
                             addLog('info', '🔄 수동 상태 동기화 요청');
                             resumePendingJobs(projectId);
@@ -604,12 +637,14 @@ export default function VideoPage() {
                         🔄 상태 갱신
                     </button>
                     <button
+                        type="button"
                         onClick={handleDeleteAllVideos}
                         className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
                     >
                         🗑️ 전체 삭제
                     </button>
                     <button
+                        type="button"
                         onClick={() => {
                             if (isGlobalGenerating || generatingIds.size > 0) {
                                 handleCancelAll();
@@ -633,126 +668,190 @@ export default function VideoPage() {
             </div>
 
             {/* Toolbar */}
-            <div className="flex items-center gap-6 p-4 bg-gray-50 border rounded-xl flex-wrap">
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">생성기:</span>
-                    <span className="px-3 py-1.5 border rounded-lg text-sm bg-white">☁️ fal.ai (클라우드)</span>
-                </div>
-                <div className="flex flex-col items-start gap-1">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-700">모델:</span>
-                        <select
-                            value={selectedModel}
-                            onChange={(e) => {
-                                const nextModelId = e.target.value;
-                                const nextModel = videoModels.find((model) => model.id === nextModelId) || videoModels[0];
-                                setSelectedModel(nextModelId);
-                                if (nextModel?.resolutions[0]) {
-                                    setSelectedResolution(nextModel.resolutions[0].id);
-                                }
-                            }}
-                            className="px-3 py-1.5 border rounded-lg text-sm bg-white"
-                            disabled={isGlobalGenerating || generatingIds.size > 0}
-                        >
-                            {videoModels.map((model) => (
-                                <option key={model.id} value={model.id}>{model.label}</option>
-                            ))}
-                        </select>
-                        <span className="text-xs text-gray-500">
-                            예상 {selectedResolutionOption?.creditsPerCut || 0} credits / 6초 컷 ({(selectedResolutionOption?.creditsPerCut || 0) * 5} credits / 30초)
-                        </span>
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 md:p-5 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700">
+                        <span className="font-medium">생성기</span>
+                        <span className="text-gray-400">|</span>
+                        <span>☁️ fal.ai 클라우드</span>
                     </div>
-                    {selectedVideoModel?.description && (
-                        <p className="text-xs text-gray-500">{selectedVideoModel.description}</p>
+                    <div className="text-xs text-gray-600 rounded-full border border-violet-100 bg-violet-50 px-3 py-1.5">
+                        예상 {(selectedResolutionOption?.creditsPerCut || 0) * 5} credits / 30초
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-4">
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1.5 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                                <label htmlFor="project-video-model" className="text-xs font-semibold tracking-wide text-gray-500 uppercase">비디오 모델</label>
+                                <select
+                                    id="project-video-model"
+                                    value={selectedModel}
+                                    onChange={(e) => {
+                                        const nextModelId = e.target.value;
+                                        const nextModel = videoModels.find((model) => model.id === nextModelId) || videoModels[0];
+                                        setSelectedModel(nextModelId);
+                                        if (nextModel?.resolutions[0]) {
+                                            setSelectedResolution(nextModel.resolutions[0].id);
+                                        }
+                                    }}
+                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
+                                    disabled={isGlobalGenerating || generatingIds.size > 0}
+                                >
+                                    {videoModels.map((model) => (
+                                        <option key={model.id} value={model.id}>{model.label}</option>
+                                    ))}
+                                </select>
+                                <p className="text-xs text-gray-500">예상 {selectedResolutionOption?.creditsPerCut || 0} credits / 6초 컷</p>
+                            </div>
+
+                            <div className="space-y-1.5 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                                <label htmlFor="project-video-resolution" className="text-xs font-semibold tracking-wide text-gray-500 uppercase">화질</label>
+                                <select
+                                    id="project-video-resolution"
+                                    value={selectedResolution}
+                                    onChange={(e) => setSelectedResolution(e.target.value)}
+                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
+                                    disabled={isGlobalGenerating || generatingIds.size > 0}
+                                >
+                                    {(selectedVideoModel?.resolutions || []).map((resolution) => (
+                                        <option key={resolution.id} value={resolution.id}>{resolution.id}</option>
+                                    ))}
+                                </select>
+                                <p className="text-xs text-gray-500">권장 형식: MP4 / 24 FPS</p>
+                            </div>
+                        </div>
+
+                        {selectedVideoModel?.description && (
+                            <p className="text-xs text-gray-600 leading-relaxed">{selectedVideoModel.description}</p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+                            <span>형식 <span className="text-gray-900 font-semibold">MP4</span></span>
+                            <span className="w-px h-3 bg-gray-300"></span>
+                            <span>러닝타임 <span className="text-gray-900 font-semibold">컷당 6초</span></span>
+                            <span className="w-px h-3 bg-gray-300"></span>
+                            <span>FPS <span className="text-gray-900 font-semibold">24</span></span>
+                        </div>
+                    </div>
+
+                    {selectedVideoModel && (
+                        <div className="rounded-xl border border-gray-200 bg-gray-50 p-2.5">
+                            <p className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">모델 미리보기</p>
+                            <div className="relative overflow-hidden rounded-lg border border-gray-200 bg-slate-100 aspect-video">
+                                {selectedVideoModel.previewVideoUrl && !failedModelPreviewVideoIds[selectedVideoModel.id] ? (
+                                    <>
+                                        {!readyModelPreviewVideoIds[selectedVideoModel.id] && (
+                                            <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200" />
+                                        )}
+                                        <video
+                                            src={selectedVideoModel.previewVideoUrl}
+                                            className={`w-full h-full object-cover transition-opacity duration-300 ${readyModelPreviewVideoIds[selectedVideoModel.id] ? 'opacity-100' : 'opacity-0'}`}
+                                            muted
+                                            loop
+                                            autoPlay
+                                            playsInline
+                                            preload="auto"
+                                            aria-label={`${selectedVideoModel.label} 미리보기 영상`}
+                                            onLoadedData={() => markModelPreviewVideoReady(selectedVideoModel.id)}
+                                            onError={() => markModelPreviewVideoFailed(selectedVideoModel.id)}
+                                        >
+                                            <track kind="captions" srcLang="ko" label="미리보기 자막" src="data:text/vtt,WEBVTT" />
+                                        </video>
+                                    </>
+                                ) : (
+                                    <img
+                                        src={selectedVideoModel.previewImageUrl || selectedVideoModel.fallbackPreviewImageUrl || '/styles/cinematic.png'}
+                                        alt={`${selectedVideoModel.label} 미리보기`}
+                                        className="w-full h-full object-cover"
+                                        loading="lazy"
+                                        onError={(event) => {
+                                            const img = event.currentTarget;
+                                            if (img.dataset.fallbackApplied === 'true') {
+                                                return;
+                                            }
+                                            img.dataset.fallbackApplied = 'true';
+                                            img.src = selectedVideoModel.fallbackPreviewImageUrl || '/styles/cinematic.png';
+                                        }}
+                                    />
+                                )}
+                            </div>
+                        </div>
                     )}
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">화질:</span>
-                    <select
-                        value={selectedResolution}
-                        onChange={(e) => setSelectedResolution(e.target.value)}
-                        className="px-3 py-1.5 border rounded-lg text-sm bg-white"
-                        disabled={isGlobalGenerating || generatingIds.size > 0}
-                    >
-                        {(selectedVideoModel?.resolutions || []).map((resolution) => (
-                            <option key={resolution.id} value={resolution.id}>{resolution.id}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="flex items-center gap-4 text-sm text-gray-500 bg-white px-4 py-1.5 border rounded-lg">
-                    <span>형식: <span className="text-gray-900 font-medium">MP4</span></span>
-                    <span className="w-px h-3 bg-gray-200"></span>
-                    <span>러닝타임: <span className="text-gray-900 font-medium">컷당 6초</span></span>
-                    <span className="w-px h-3 bg-gray-200"></span>
-                    <span>FPS: <span className="text-gray-900 font-medium">24</span></span>
                 </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-8">
-                {/* Segment List */}
-                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-                    {isLoading ? (
-                        <div className="p-8 text-center text-gray-400">불러오는 중...</div>
-                    ) : segments.map((seg, index) => (
-                        <button
-                            key={seg.id}
-                            onClick={() => setSelectedSegmentId(seg.id)}
-                            className={`w-full p-3 rounded-xl border-2 text-left transition-all
-                                ${selectedSegmentId === seg.id
-                                    ? 'border-violet-600 bg-violet-50'
-                                    : 'border-gray-200 hover:border-gray-300'
-                                }`}
-                        >
-                            <div className="flex items-center gap-4">
-                                <div className="w-20 h-12 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0 relative">
-                                    {seg.image_url && (
-                                        <img src={seg.image_url} alt="" className="w-full h-full object-cover opacity-50" />
-                                    )}
-                                    <div className="absolute inset-0 flex items-center justify-center">
-                                        {generatingIds.has(seg.id) ? (
-                                            <div className="w-5 h-5 border-2 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
-                                        ) : seg.video_url ? (
-                                            <span className="text-xl">✅</span>
-                                        ) : (
-                                            <span className="text-xl">🎬</span>
-                                        )}
+            <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)] gap-6">
+                <div className="space-y-3">
+                    <div className="rounded-2xl border border-gray-200 bg-white p-2.5 shadow-sm">
+                        <div className="max-h-[62vh] overflow-y-auto pr-1.5 space-y-2">
+                            {isLoading ? (
+                                <div className="p-8 text-center text-gray-400">불러오는 중...</div>
+                            ) : segments.map((seg, index) => (
+                                <button
+                                    key={seg.id}
+                                    type="button"
+                                    onClick={() => setSelectedSegmentId(seg.id)}
+                                    className={`w-full p-3 rounded-xl border-2 text-left transition-all
+                                        ${selectedSegmentId === seg.id
+                                            ? 'border-violet-600 bg-violet-50'
+                                            : 'border-gray-200 hover:border-gray-300 bg-white'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-20 h-12 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0 relative">
+                                            {seg.image_url && (
+                                                <img src={seg.image_url} alt="" className="w-full h-full object-cover opacity-50" />
+                                            )}
+                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                {generatingIds.has(seg.id) ? (
+                                                    <div className="w-5 h-5 border-2 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
+                                                ) : seg.video_url ? (
+                                                    <span className="text-xl">✅</span>
+                                                ) : (
+                                                    <span className="text-xl">🎬</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-bold text-violet-600 mb-1">CUT #{index + 1}</p>
+                                            <p className="text-sm text-gray-600 truncate">{seg.script_text}</p>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-bold text-violet-600 mb-1">CUT #{index + 1}</p>
-                                    <p className="text-sm text-gray-600 truncate">{seg.script_text}</p>
-                                </div>
-                            </div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+                        <button
+                            type="button"
+                            onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                            disabled={currentPage === 0 || isLoading}
+                            className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
+                        >
+                            ◀ 이전
                         </button>
-                    ))}
+                        <span className="text-sm text-gray-600 font-medium">
+                            {currentPage + 1} / {Math.max(1, Math.ceil(totalCount / PAGE_SIZE))}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setCurrentPage(p => p + 1)}
+                            disabled={currentPage >= Math.ceil(totalCount / PAGE_SIZE) - 1 || isLoading}
+                            className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
+                        >
+                            다음 ▶
+                        </button>
+                    </div>
                 </div>
 
-                {/* Pagination Controls */}
-                <div className="flex items-center justify-between p-2 mt-2 border-t pt-4">
-                    <button
-                        onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-                        disabled={currentPage === 0 || isLoading}
-                        className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
-                    >
-                        ◀ 이전
-                    </button>
-                    <span className="text-sm text-gray-600">
-                        {currentPage + 1} / {Math.max(1, Math.ceil(totalCount / PAGE_SIZE))}
-                    </span>
-                    <button
-                        onClick={() => setCurrentPage(p => p + 1)}
-                        disabled={currentPage >= Math.ceil(totalCount / PAGE_SIZE) - 1 || isLoading}
-                        className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
-                    >
-                        다음 ▶
-                    </button>
-                </div>
-
-                {/* Preview Area */}
-                <div className="col-span-2">
+                <div className="space-y-4">
+                    {/* Preview Area */}
                     {selectedSegment ? (
                         <div className="space-y-4">
-                            <div className="aspect-video bg-gray-900 rounded-2xl overflow-hidden border flex items-center justify-center relative shadow-2xl">
+                            <div className="aspect-video bg-gray-900 rounded-2xl overflow-hidden border flex items-center justify-center relative shadow-lg">
                                 {selectedSegment.video_url ? (
                                     <>
                                         <video
@@ -761,8 +860,11 @@ export default function VideoPage() {
                                             controls
                                             autoPlay
                                             loop
-                                        />
+                                        >
+                                            <track kind="captions" srcLang="ko" label="프리뷰 자막" src="data:text/vtt,WEBVTT" />
+                                        </video>
                                         <button
+                                            type="button"
                                             onClick={() => handleDeleteVideo(selectedSegment.id)}
                                             className="absolute top-3 right-3 p-2 bg-red-500/80 hover:bg-red-600 text-white rounded-full transition-colors"
                                             title="영상 삭제"
@@ -781,6 +883,7 @@ export default function VideoPage() {
                                         <span className="text-5xl">🎞️</span>
                                         <p>영상을 생성하세요</p>
                                         <button
+                                            type="button"
                                             onClick={() => handleGenerateVideo(selectedSegment, false, videoPrompt)}
                                             className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
                                         >
@@ -791,11 +894,12 @@ export default function VideoPage() {
                             </div>
                             <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-semibold text-gray-700 block">
+                                    <label htmlFor="video-motion-prompt" className="text-sm font-semibold text-gray-700 block">
                                         비디오 모션 프롬프트
                                         <span className="text-xs font-normal text-gray-500 ml-2">(비어두면 AI가 자동으로 생성합니다)</span>
                                     </label>
                                     <textarea
+                                        id="video-motion-prompt"
                                         value={videoPrompt}
                                         onChange={(e) => setVideoPrompt(e.target.value)}
                                         placeholder="예: 천천히 줌인하면서 주인공의 표정을 클로즈업..."
@@ -809,78 +913,79 @@ export default function VideoPage() {
                             </div>
                         </div>
                     ) : (
-                        <div className="h-64 flex items-center justify-center text-gray-400">
+                        <div className="h-64 rounded-2xl border bg-white flex items-center justify-center text-gray-400">
                             왼쪽에서 컷을 선택해 주세요.
                         </div>
                     )}
-                </div>
-            </div>
 
-            {/* Status & Log Panel */}
-            <div className="fixed right-4 top-24 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden z-50 flex flex-col max-h-[80vh]">
-                {/* Header & Progress */}
-                <div className="p-4 bg-gray-50 border-b flex-shrink-0">
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                            <span>📊 작업 현황</span>
-                            {generatingIds.size > 0 && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-800 animate-pulse">
-                                    {generatingIds.size}개 처리 중
-                                </span>
-                            )}
-                        </h3>
-                        <button
-                            onClick={() => setShowLogs(!showLogs)}
-                            className="text-xs text-gray-500 hover:text-gray-800 underline"
-                        >
-                            {showLogs ? '로그 접기' : '로그 펼치기'}
-                        </button>
-                    </div>
+                    {/* Status & Log Panel */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col max-h-[420px]">
+                        {/* Header & Progress */}
+                        <div className="p-4 bg-gray-50 border-b flex-shrink-0">
+                            <div className="flex justify-between items-center mb-3">
+                                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                    <span>📊 작업 현황</span>
+                                    {generatingIds.size > 0 && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-800 animate-pulse">
+                                            {generatingIds.size}개 처리 중
+                                        </span>
+                                    )}
+                                </h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowLogs(!showLogs)}
+                                    className="text-xs text-gray-500 hover:text-gray-800 underline"
+                                >
+                                    {showLogs ? '로그 접기' : '로그 펼치기'}
+                                </button>
+                            </div>
 
-                    <div className="space-y-2">
-                        <div className="flex justify-between text-xs text-gray-600 font-medium">
-                            <span>진행률</span>
-                            <span>{Math.round((segments.filter(s => s.video_url).length / Math.max(1, segments.length)) * 100)}%</span>
-                        </div>
-                        <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-violet-600 transition-all duration-500 ease-out"
-                                style={{ width: `${(segments.filter(s => s.video_url).length / Math.max(1, segments.length)) * 100}%` }}
-                            />
-                        </div>
-                        <div className="flex justify-between text-xs text-gray-500">
-                            <span>완료: {segments.filter(s => s.video_url).length}</span>
-                            <span>전체: {segments.length}</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Live Logs */}
-                {showLogs && (
-                    <div className="flex-1 bg-gray-900 text-gray-100 overflow-hidden flex flex-col min-h-[200px]">
-                        <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700 text-xs">
-                            <span className="font-bold text-gray-400">📋 시스템 로그</span>
-                            <button onClick={() => { /* clear logs if needed */ }} className="text-gray-500 hover:text-gray-300">지우기</button>
-                        </div>
-                        <div className="p-3 overflow-y-auto font-mono text-xs space-y-1.5 flex-1">
-                            {logs.length === 0 ? (
-                                <p className="text-gray-600 italic text-center py-4">대기 중...</p>
-                            ) : logs.map((log) => (
-                                <div key={log.id} className={`flex gap-2 break-all ${log.type === 'error' ? 'text-red-400' :
-                                    log.type === 'success' ? 'text-green-400' :
-                                        log.type === 'warn' ? 'text-yellow-400' :
-                                            'text-gray-300'
-                                    }`}>
-                                    <span className="text-gray-600 flex-shrink-0 select-none">
-                                        {new Date(log.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                    </span>
-                                    <span>{log.message}</span>
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-xs text-gray-600 font-medium">
+                                    <span>진행률</span>
+                                    <span>{Math.round((segments.filter(s => s.video_url).length / Math.max(1, segments.length)) * 100)}%</span>
                                 </div>
-                            ))}
-                            <div ref={logsEndRef} />
+                                <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-violet-600 transition-all duration-500 ease-out"
+                                        style={{ width: `${(segments.filter(s => s.video_url).length / Math.max(1, segments.length)) * 100}%` }}
+                                    />
+                                </div>
+                                <div className="flex justify-between text-xs text-gray-500">
+                                    <span>완료: {segments.filter(s => s.video_url).length}</span>
+                                    <span>전체: {segments.length}</span>
+                                </div>
+                            </div>
                         </div>
+
+                        {/* Live Logs */}
+                        {showLogs && (
+                            <div className="flex-1 bg-gray-900 text-gray-100 overflow-hidden flex flex-col min-h-[190px]">
+                                <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700 text-xs">
+                                    <span className="font-bold text-gray-400">📋 시스템 로그</span>
+                                    <button type="button" onClick={() => { /* clear logs if needed */ }} className="text-gray-500 hover:text-gray-300">지우기</button>
+                                </div>
+                                <div className="p-3 overflow-y-auto font-mono text-xs space-y-1.5 flex-1">
+                                    {logs.length === 0 ? (
+                                        <p className="text-gray-600 italic text-center py-4">대기 중...</p>
+                                    ) : logs.map((log) => (
+                                        <div key={log.id} className={`flex gap-2 break-all ${log.type === 'error' ? 'text-red-400' :
+                                            log.type === 'success' ? 'text-green-400' :
+                                                log.type === 'warn' ? 'text-yellow-400' :
+                                                    'text-gray-300'
+                                            }`}>
+                                            <span className="text-gray-600 flex-shrink-0 select-none">
+                                                {new Date(log.timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                            </span>
+                                            <span>{log.message}</span>
+                                        </div>
+                                    ))}
+                                    <div ref={logsEndRef} />
+                                </div>
+                            </div>
+                        )}
                     </div>
-                )}
+                </div>
             </div>
 
             {/* Navigation */}
@@ -889,6 +994,7 @@ export default function VideoPage() {
                     ← 이전 단계
                 </Link>
                 <button
+                    type="button"
                     onClick={() => router.push(`/project/${projectId}/preview`)}
                     className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
                 >
