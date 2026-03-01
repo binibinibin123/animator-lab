@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createUploadSessionId, uploadProjectReference } from '@/lib/api/referenceUploadClient';
+import { getReferenceUploadMaxMb, validateReferenceUploadFile } from '@/lib/api/referenceUploadConfig';
 import type { AspectRatio, RenderStrategy } from '@/types';
 
 interface LogMessage {
@@ -36,6 +37,19 @@ interface VideoModelOption {
         id: string;
         creditsPerCut: number;
     }>;
+}
+
+interface VoiceOption {
+    voiceId: string;
+    name: string;
+    category?: string;
+    previewUrl?: string;
+}
+
+interface ScriptToneOption {
+    id: string;
+    name: string;
+    desc: string;
 }
 
 interface HoverPreviewState {
@@ -71,6 +85,36 @@ const ORIENTATION_OPTIONS: { value: AspectRatio; label: string; desc: string }[]
     { value: '9:16', label: '세로 (9:16)', desc: '쇼츠/릴스 기본형' },
 ];
 
+const DURATION_OPTIONS = [30, 45, 60, 90] as const;
+
+const SCRIPT_TONE_OPTIONS: ScriptToneOption[] = [
+    {
+        id: 'ko_trust_briefing',
+        name: '신뢰 브리핑형',
+        desc: '과장 없이 핵심 사실과 근거를 먼저 전달하는 뉴스/브리핑 톤',
+    },
+    {
+        id: 'ko_empathy_story',
+        name: '공감 스토리형',
+        desc: '시청자 상황에 공감하고 사례 중심으로 풀어내는 따뜻한 톤',
+    },
+    {
+        id: 'ko_practical_coach',
+        name: '실전 코치형',
+        desc: '바로 실행 가능한 체크리스트/행동 팁 중심의 코칭 톤',
+    },
+    {
+        id: 'ko_trend_analyst',
+        name: '트렌드 해설형',
+        desc: '왜 지금 중요한지 맥락과 흐름을 분석해 주는 인사이트 톤',
+    },
+    {
+        id: 'ko_light_variety',
+        name: '가벼운 예능형',
+        desc: '밝고 경쾌하지만 과도한 낚시 없이 전달하는 캐주얼 톤',
+    },
+];
+
 const HOVER_PREVIEW_WIDTH = 288;
 const HOVER_PREVIEW_HEIGHT = 162;
 
@@ -80,6 +124,12 @@ export default function AutopilotPage() {
     const [visualMode, setVisualMode] = useState<VisualMode>('style_fixed');
     const [style, setStyle] = useState('anime');
     const [styleText, setStyleText] = useState('');
+    const [scriptTone, setScriptTone] = useState<string>(SCRIPT_TONE_OPTIONS[0].id);
+    const [durationSeconds, setDurationSeconds] = useState<number>(30);
+    const [voices, setVoices] = useState<VoiceOption[]>([]);
+    const [selectedVoiceId, setSelectedVoiceId] = useState<string>('');
+    const [isLoadingVoices, setIsLoadingVoices] = useState(false);
+    const [playingVoicePreviewId, setPlayingVoicePreviewId] = useState<string | null>(null);
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
     const [renderStrategy, setRenderStrategy] = useState<RenderStrategy>('native');
     const [imageModelId, setImageModelId] = useState(DEFAULT_IMAGE_MODEL_ID);
@@ -109,6 +159,7 @@ export default function AutopilotPage() {
     const streamAbortRef = useRef<AbortController | null>(null);
     const hoverHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const referenceInputRef = useRef<HTMLInputElement>(null);
+    const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -171,6 +222,51 @@ export default function AutopilotPage() {
         };
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadVoices = async () => {
+            setIsLoadingVoices(true);
+            try {
+                const response = await fetch('/api/voices');
+                if (!response.ok) {
+                    throw new Error('보이스 목록을 불러오지 못했습니다.');
+                }
+
+                const payload = await response.json();
+                if (cancelled) {
+                    return;
+                }
+
+                const nextVoices: VoiceOption[] = payload?.voices || [];
+                setVoices(nextVoices);
+
+                if (nextVoices.length > 0) {
+                    setSelectedVoiceId((prev) => {
+                        if (prev && nextVoices.some((voice) => voice.voiceId === prev)) {
+                            return prev;
+                        }
+                        return nextVoices[0].voiceId;
+                    });
+                }
+            } catch (error: any) {
+                if (!cancelled) {
+                    setNotice({ type: 'warn', message: error?.message || '보이스 목록을 불러오지 못했습니다.' });
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsLoadingVoices(false);
+                }
+            }
+        };
+
+        void loadVoices();
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const selectedImageModel = imageModels.find((model) => model.id === imageModelId) || imageModels[0] || null;
     const selectedImageQuality = selectedImageModel?.qualities.find((quality) => quality.id === imageQuality) || selectedImageModel?.qualities[0] || null;
     const selectedVideoModel = videoModels.find((model) => model.id === videoModelId) || videoModels[0] || null;
@@ -178,6 +274,7 @@ export default function AutopilotPage() {
     const hoveredVideoModel = hoverPreview
         ? videoModels.find((model) => model.id === hoverPreview.modelId) || null
         : null;
+    const selectedVoice = voices.find((voice) => voice.voiceId === selectedVoiceId) || null;
 
     const getPreviewImageUrl = (model: { previewImageUrl?: string; fallbackPreviewImageUrl?: string } | null | undefined) => {
         return model?.previewImageUrl || model?.fallbackPreviewImageUrl || '/styles/minimalist.png';
@@ -247,11 +344,48 @@ export default function AutopilotPage() {
         });
     };
 
+    const toggleVoicePreview = (voice: VoiceOption | null) => {
+        if (!voice?.previewUrl) {
+            return;
+        }
+
+        if (playingVoicePreviewId === voice.voiceId) {
+            voicePreviewAudioRef.current?.pause();
+            setPlayingVoicePreviewId(null);
+            return;
+        }
+
+        if (voicePreviewAudioRef.current) {
+            voicePreviewAudioRef.current.pause();
+            voicePreviewAudioRef.current = null;
+        }
+
+        const audio = new Audio(voice.previewUrl);
+        audio.volume = 0.55;
+        audio.onended = () => setPlayingVoicePreviewId(null);
+        audio.onpause = () => {
+            setPlayingVoicePreviewId((prev) => (prev === voice.voiceId ? null : prev));
+        };
+
+        voicePreviewAudioRef.current = audio;
+        audio.play().then(() => {
+            setPlayingVoicePreviewId(voice.voiceId);
+        }).catch(() => {
+            setPlayingVoicePreviewId(null);
+            setNotice({ type: 'warn', message: '보이스 미리듣기를 재생하지 못했습니다.' });
+        });
+    };
+
     useEffect(() => {
         return () => {
             if (hoverHideTimerRef.current) {
                 clearTimeout(hoverHideTimerRef.current);
                 hoverHideTimerRef.current = null;
+            }
+
+            if (voicePreviewAudioRef.current) {
+                voicePreviewAudioRef.current.pause();
+                voicePreviewAudioRef.current = null;
             }
         };
     }, []);
@@ -275,15 +409,9 @@ export default function AutopilotPage() {
             return;
         }
 
-        const supportedTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
-        if (!supportedTypes.has(file.type)) {
-            setReferenceError('PNG, JPG, WEBP 파일만 업로드할 수 있습니다.');
-            return;
-        }
-
-        const maxBytes = 15 * 1024 * 1024;
-        if (file.size > maxBytes) {
-            setReferenceError('이미지 크기는 15MB 이하로 업로드해 주세요.');
+        const validationError = validateReferenceUploadFile(file);
+        if (validationError) {
+            setReferenceError(validationError);
             return;
         }
 
@@ -366,7 +494,9 @@ export default function AutopilotPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     topic,
-                    duration: 30,
+                    duration: durationSeconds,
+                    persona: scriptTone,
+                    voiceId: selectedVoiceId || undefined,
                     aspectRatio,
                     renderStrategy: aspectRatio === '9:16' ? renderStrategy : 'native',
                     style,
@@ -536,6 +666,93 @@ export default function AutopilotPage() {
                         </div>
                     </div>
 
+                    <div className="space-y-2 border rounded-xl bg-gray-50 p-4">
+                        <p className="text-sm font-medium text-gray-700">영상 길이</p>
+                        <div className="flex flex-wrap gap-2">
+                            {DURATION_OPTIONS.map((seconds) => (
+                                <button
+                                    key={seconds}
+                                    type="button"
+                                    onClick={() => setDurationSeconds(seconds)}
+                                    className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
+                                        durationSeconds === seconds
+                                            ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                                    }`}
+                                >
+                                    {seconds}초
+                                </button>
+                            ))}
+                        </div>
+                        <p className="text-xs text-gray-500">선택한 길이에 맞춰 대본 분량과 컷 수를 자동 조정합니다.</p>
+                    </div>
+
+                    <div className="space-y-3 border rounded-xl bg-gray-50 p-4">
+                        <p className="text-sm font-medium text-gray-700">대본 톤 (한국 정서)</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {SCRIPT_TONE_OPTIONS.map((tone) => (
+                                <button
+                                    key={tone.id}
+                                    type="button"
+                                    onClick={() => setScriptTone(tone.id)}
+                                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                                        scriptTone === tone.id
+                                            ? 'border-violet-500 bg-violet-50 text-violet-700'
+                                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                                    }`}
+                                >
+                                    <p className="text-sm font-medium">{tone.name}</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">{tone.desc}</p>
+                                </button>
+                            ))}
+                        </div>
+                        <p className="text-xs text-gray-500">과도한 공포/낚시 대신 신뢰·공감·실용성을 중심으로 구성합니다.</p>
+                    </div>
+
+                    <div className="space-y-2 border rounded-xl bg-gray-50 p-4">
+                        <p className="text-sm font-medium text-gray-700">TTS 보이스</p>
+                        <select
+                            value={selectedVoiceId}
+                            onChange={(event) => setSelectedVoiceId(event.target.value)}
+                            disabled={isLoadingVoices || voices.length === 0}
+                            className="w-full px-3 py-2 border rounded-lg bg-white text-sm disabled:opacity-60"
+                        >
+                            {voices.map((voice) => (
+                                <option key={voice.voiceId} value={voice.voiceId}>
+                                    {voice.name}{voice.category ? ` · ${voice.category}` : ''}
+                                </option>
+                            ))}
+                        </select>
+                        <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs text-gray-500 truncate">
+                                {selectedVoice?.name
+                                    ? `선택됨: ${selectedVoice.name}`
+                                    : '보이스를 선택해 주세요.'}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => toggleVoicePreview(selectedVoice)}
+                                disabled={!selectedVoice?.previewUrl || isLoadingVoices}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                                    !selectedVoice?.previewUrl || isLoadingVoices
+                                        ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                                        : playingVoicePreviewId === selectedVoice.voiceId
+                                            ? 'border-violet-600 bg-violet-600 text-white'
+                                            : 'border-violet-200 bg-white text-violet-700 hover:bg-violet-50'
+                                }`}
+                            >
+                                {playingVoicePreviewId === selectedVoice?.voiceId ? '■ 미리듣기 정지' : '▶ 미리듣기'}
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                            {isLoadingVoices
+                                ? '보이스 목록을 불러오는 중입니다...'
+                                : voices.length > 0
+                                    ? '선택한 보이스로 오토파일럿 TTS를 생성합니다.'
+                                    : '사용 가능한 보이스가 없어 기본 보이스로 시도합니다.'}
+                        </p>
+                    </div>
+
                     {aspectRatio === '9:16' && (
                         <div className="space-y-2 border rounded-xl bg-gray-50 p-4">
                             <p className="text-sm font-medium text-gray-700">세로 렌더 방식</p>
@@ -614,7 +831,7 @@ export default function AutopilotPage() {
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                 <div>
                                     <p className="text-sm text-gray-700">이미지를 드래그해서 놓거나 파일을 선택하세요.</p>
-                                    <p className="text-xs text-gray-500 mt-1">PNG/JPG/WEBP, 최대 15MB</p>
+                                    <p className="text-xs text-gray-500 mt-1">PNG/JPG/WEBP, 최대 {getReferenceUploadMaxMb()}MB</p>
                                 </div>
                                 <span
                                     className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium"
@@ -919,7 +1136,7 @@ export default function AutopilotPage() {
                             id="autopilot-topic"
                             value={topic}
                             onChange={(e) => setTopic(e.target.value)}
-                            placeholder="예: 현대 사회에서 AI가 가져올 변화와 기회에 대해 설명하는 30초 영상..."
+                            placeholder={`예: 현대 사회에서 AI가 가져올 변화와 기회에 대해 설명하는 ${durationSeconds}초 영상...`}
                             rows={3}
                             className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
                         />

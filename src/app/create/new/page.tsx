@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { AspectRatio, RenderStrategy } from '@/types';
 import { createUploadSessionId, uploadProjectReference } from '@/lib/api/referenceUploadClient';
+import { validateReferenceUploadFile } from '@/lib/api/referenceUploadConfig';
 
 const ASPECT_RATIOS: { value: AspectRatio; label: string; icon: string; desc: string }[] = [
     { value: '16:9', label: '16:9', icon: '🖥️', desc: '유튜브 표준' },
@@ -64,6 +65,12 @@ export default function NewProjectPage() {
             setReferencePreviewUrl(null);
             setReferenceFileName(null);
             setReferenceError(null);
+            return;
+        }
+
+        const validationError = validateReferenceUploadFile(file);
+        if (validationError) {
+            setReferenceError(validationError);
             return;
         }
 

@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "bot": "npx tsx src/scripts/bot.ts",
+    "test:video:models:1s": "npx tsx src/scripts/test_video_models_1s.ts",
     "test:e2e": "playwright test --project=mocked-e2e",
     "test:e2e:smoke": "playwright test --project=smoke-real"
   },

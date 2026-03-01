@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 
@@ -13,6 +13,36 @@ const LANGUAGES = [
 ];
 
 const PERSONAS = [
+    {
+        id: 'ko_trust_briefing',
+        name: '🧭 신뢰 브리핑형',
+        desc: '과장 없이 핵심 사실과 근거를 먼저 전달',
+        style: '한국형 브리핑'
+    },
+    {
+        id: 'ko_empathy_story',
+        name: '🤝 공감 스토리형',
+        desc: '생활 맥락과 사례로 공감부터 연결',
+        style: '한국형 공감 내러티브'
+    },
+    {
+        id: 'ko_practical_coach',
+        name: '✅ 실전 코치형',
+        desc: '당장 실행 가능한 행동 팁 중심',
+        style: '한국형 실용 가이드'
+    },
+    {
+        id: 'ko_trend_analyst',
+        name: '📈 트렌드 해설형',
+        desc: '변화의 원인과 흐름을 분석적으로 정리',
+        style: '한국형 인사이트 분석'
+    },
+    {
+        id: 'ko_light_variety',
+        name: '🎬 가벼운 예능형',
+        desc: '밝고 경쾌하게 전달하되 정보는 정확하게',
+        style: '한국형 캐주얼 쇼츠'
+    },
     {
         id: 'finance',
         name: '📊 경제 유튜버',
@@ -54,10 +84,11 @@ export default function ScriptPage() {
     const [script, setScript] = useState('');
     const [duration, setDuration] = useState(60);
     const [language, setLanguage] = useState('ko');
-    const [persona, setPersona] = useState('finance');
+    const [persona, setPersona] = useState('ko_trust_briefing');
     const [isGenerating, setIsGenerating] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [hasExistingScript, setHasExistingScript] = useState(false);
+    const [generationMessage, setGenerationMessage] = useState<string | null>(null);
     const [segments, setSegments] = useState<Segment[]>([]);
     const [projectStyle, setProjectStyle] = useState<string>('anime'); // Image style from project
     const [projectVisualMode, setProjectVisualMode] = useState<'legacy' | 'character_fixed' | 'style_fixed'>('legacy');
@@ -65,68 +96,61 @@ export default function ScriptPage() {
 
     const [projectInfo, setProjectInfo] = useState<{ is_test_run: boolean; autopilot_status: string } | null>(null);
 
-    // Load existing data
-    useEffect(() => {
-        const fetchProjectAndSegments = async () => {
-            if (!projectId) return;
+    const fetchProjectAndSegments = useCallback(async () => {
+        if (!projectId) return;
 
-            setIsLoading(true);
+        setIsLoading(true);
 
-            // Fetch project info
-            const { data: projectData, error: projectError } = await supabase
-                .from('projects')
-                .select('title, topic, duration, style, visual_mode, character_reference_url, is_test_run, autopilot_status')
-                .eq('id', projectId)
-                .single();
+        // Fetch project info
+        const { data: projectData, error: projectError } = await supabase
+            .from('projects')
+            .select('title, topic, duration, style, visual_mode, character_reference_url, is_test_run, autopilot_status')
+            .eq('id', projectId)
+            .single();
 
-            const project = projectData as any; // simplified typing
+        const project = projectData as any; // simplified typing
 
-            if (project && !projectError) {
-                setTitle(project.title || '');
-                if (project.duration) setDuration(project.duration);
-                if (project.style) setProjectStyle(project.style);
-                if (project.visual_mode) setProjectVisualMode(project.visual_mode);
-                setHasCharacterReference(!!project.character_reference_url);
-                setProjectInfo({
-                    is_test_run: project.is_test_run,
-                    autopilot_status: project.autopilot_status
-                });
-            }
+        if (project && !projectError) {
+            setTitle(project.title || '');
+            if (project.duration) setDuration(project.duration);
+            if (project.style) setProjectStyle(project.style);
+            if (project.visual_mode) setProjectVisualMode(project.visual_mode);
+            setHasCharacterReference(!!project.character_reference_url);
+            setProjectInfo({
+                is_test_run: project.is_test_run,
+                autopilot_status: project.autopilot_status
+            });
+        }
 
-            // Fetch existing segments (generated script)
-            const { data: segmentsData, error: segmentsError } = await supabase
-                .from('segments')
-                .select('id, project_id, order_index, script_text, visual_description')
-                .eq('project_id', projectId)
-                .order('order_index', { ascending: true });
+        // Fetch existing segments (generated script)
+        const { data: segmentsData, error: segmentsError } = await supabase
+            .from('segments')
+            .select('id, project_id, order_index, script_text, visual_description')
+            .eq('project_id', projectId)
+            .order('order_index', { ascending: true });
 
-            const loadedSegments = (segmentsData || []) as Segment[];
+        const loadedSegments = (segmentsData || []) as Segment[];
 
-            if (loadedSegments.length > 0 && !segmentsError) {
-                setSegments(loadedSegments);
-                setHasExistingScript(true);
-                const fullScript = loadedSegments.map(s => s.script_text).join('\n\n');
-                setScript(fullScript);
-            } else if (project?.topic) {
+        if (loadedSegments.length > 0 && !segmentsError) {
+            setSegments(loadedSegments);
+            setHasExistingScript(true);
+            const fullScript = loadedSegments.map(s => s.script_text).join('\n\n');
+            setScript(fullScript);
+        } else {
+            setSegments([]);
+            setHasExistingScript(false);
+            if (project?.topic) {
                 setScript(project.topic);
             }
+        }
 
-            setIsLoading(false);
-        };
-
-        fetchProjectAndSegments();
+        setIsLoading(false);
     }, [projectId]);
 
-    // Auto-Advance logic
+    // Load existing data
     useEffect(() => {
-        if (hasExistingScript && projectInfo && (projectInfo.is_test_run || projectInfo.autopilot_status === 'generating')) {
-            console.log('Auto-advancing to Voice page...');
-            const timer = setTimeout(() => {
-                router.push(`/project/${projectId}/voice?autopilot=true`);
-            }, 1000);
-            return () => clearTimeout(timer);
-        }
-    }, [hasExistingScript, projectInfo, projectId, router]);
+        void fetchProjectAndSegments();
+    }, [fetchProjectAndSegments]);
 
     const handleGenerate = async () => {
         if (!script) {
@@ -134,7 +158,9 @@ export default function ScriptPage() {
             return;
         }
 
+        const wasExistingScript = hasExistingScript;
         setIsGenerating(true);
+        setGenerationMessage(null);
         try {
             const response = await fetch('/api/script/generate', {
                 method: 'POST',
@@ -153,7 +179,12 @@ export default function ScriptPage() {
 
             const data = await response.json();
             setTitle(data.title || title);
-            router.push(`/project/${projectId}/voice`);
+            await fetchProjectAndSegments();
+            setGenerationMessage(
+                wasExistingScript
+                    ? '대본을 재생성했습니다. 내용을 확인한 뒤 원할 때 다음 단계로 이동하세요.'
+                    : '대본이 생성되었습니다. 내용을 확인한 뒤 원할 때 다음 단계로 이동하세요.'
+            );
         } catch (error) {
             console.error('Error generating script:', error);
             alert('대본 생성에 실패했습니다.');
@@ -185,11 +216,12 @@ export default function ScriptPage() {
 
             {/* Project Title */}
             <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <label htmlFor="project-title" className="flex items-center gap-2 text-sm font-medium text-gray-700">
                     프로젝트 제목
-                    <button className="text-gray-400 hover:text-gray-600">✏️</button>
+                    <button type="button" className="text-gray-400 hover:text-gray-600">✏️</button>
                 </label>
                 <input
+                    id="project-title"
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
@@ -202,10 +234,11 @@ export default function ScriptPage() {
             <div className="grid grid-cols-2 gap-6">
                 {/* Language */}
                 <div className="space-y-3">
-                    <label className="text-sm font-medium text-gray-700">🌐 대본 언어</label>
+                    <p className="text-sm font-medium text-gray-700">🌐 대본 언어</p>
                     <div className="flex gap-3">
                         {LANGUAGES.map((lang) => (
                             <button
+                                type="button"
                                 key={lang.id}
                                 onClick={() => setLanguage(lang.id)}
                                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all
@@ -223,8 +256,9 @@ export default function ScriptPage() {
 
                 {/* Persona */}
                 <div className="space-y-3">
-                    <label className="text-sm font-medium text-gray-700">🎭 대본 스타일</label>
+                    <label htmlFor="persona-select" className="text-sm font-medium text-gray-700">🎭 대본 스타일</label>
                     <select
+                        id="persona-select"
                         value={persona}
                         onChange={(e) => setPersona(e.target.value)}
                         className="w-full px-4 py-3 border-2 rounded-xl bg-white focus:border-violet-600 focus:ring-0"
@@ -251,8 +285,9 @@ export default function ScriptPage() {
 
             {/* Script Input */}
             <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">💡 대본 / 프롬프트</label>
+                <label htmlFor="script-input" className="text-sm font-medium text-gray-700">💡 대본 / 프롬프트</label>
                 <textarea
+                    id="script-input"
                     value={script}
                     onChange={(e) => setScript(e.target.value)}
                     placeholder={language === 'ko'
@@ -271,9 +306,10 @@ export default function ScriptPage() {
             {/* Duration & Actions */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <label className="text-sm text-gray-600">영상 길이:</label>
+                    <label htmlFor="duration-input" className="text-sm text-gray-600">영상 길이:</label>
                     <div className="flex items-center gap-2">
                         <input
+                            id="duration-input"
                             type="number"
                             value={duration}
                             onChange={(e) => setDuration(Number(e.target.value))}
@@ -286,18 +322,25 @@ export default function ScriptPage() {
                 </div>
 
                 <div className="flex gap-3">
-                    <button className="px-4 py-2 border border-violet-600 text-violet-600 rounded-lg hover:bg-violet-50 transition-colors">
+                    <button type="button" className="px-4 py-2 border border-violet-600 text-violet-600 rounded-lg hover:bg-violet-50 transition-colors">
                         📁 음성 업로드
                     </button>
                     <button
+                        type="button"
                         onClick={handleGenerate}
                         disabled={isGenerating}
                         className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50"
                     >
-                        {isGenerating ? '생성 중...' : '🪄 대본 생성하기'}
+                        {isGenerating ? '생성 중...' : hasExistingScript ? '🔄 대본 재생성' : '🪄 대본 생성하기'}
                     </button>
                 </div>
             </div>
+
+            {generationMessage && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                    {generationMessage}
+                </div>
+            )}
 
             {/* Navigation */}
             <div className="flex justify-between pt-6 border-t">
@@ -308,6 +351,7 @@ export default function ScriptPage() {
                     ← 대시보드로
                 </Link>
                 <button
+                    type="button"
                     onClick={handleNext}
                     className="px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
                 >

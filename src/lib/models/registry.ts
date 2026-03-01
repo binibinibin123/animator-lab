@@ -14,7 +14,7 @@ export type VideoModelId =
 
 export type ModelId = ImageModelId | VideoModelId;
 
-export type VideoResolution = '480p' | '720p' | '1080p' | '1440p' | '2160p';
+export type VideoResolution = '480p' | '720p' | '1080p' | '1440p' | '2160p' | '512P' | '768P';
 export type ModelPreviewSource = 'fal' | 'local' | 'none';
 
 export interface QuoteInput {
@@ -135,14 +135,14 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         provider: 'fal',
         endpoint: 'fal-ai/minimax/hailuo-02/standard/image-to-video',
         acceptsImageInput: true,
-        supportedResolutions: ['720p', '1080p'],
+        supportedResolutions: ['768P', '512P'],
         baseCreditsPerSecond: 6.666,
         audioMultiplier: 1,
         resolutionMultiplier: {
-            '720p': 1,
-            '1080p': 1,
+            '768P': 1,
+            '512P': 1,
         },
-        allowedDurations: [6],
+        allowedDurations: [6, 10],
     },
     'hailuo-02-pro': {
         id: 'hailuo-02-pro',
@@ -173,6 +173,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
         baseCreditsPerSecond: 7,
         audioMultiplier: 2,
         resolutionMultiplier: { '1080p': 1 },
+        allowedDurations: [5, 10],
     },
     'wan-2.5': {
         id: 'wan-2.5',
@@ -192,6 +193,7 @@ export const VIDEO_MODEL_REGISTRY: Record<VideoModelId, VideoModelConfig> = {
             '720p': 2,
             '1080p': 3,
         },
+        allowedDurations: [5, 10],
     },
     'ltx-2.0-pro': {
         id: 'ltx-2.0-pro',
@@ -287,15 +289,48 @@ export function resolveVideoDuration(modelId: VideoModelId, requestedDuration?: 
     }, model.allowedDurations[0]);
 }
 
+function normalizeVideoResolutionInput(modelId: VideoModelId, requestedResolution?: string): VideoResolution | undefined {
+    if (!requestedResolution) {
+        return undefined;
+    }
+
+    const trimmed = requestedResolution.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+
+    if (modelId === 'hailuo-02-standard') {
+        const hailuoAliases: Record<string, VideoResolution> = {
+            '512p': '512P',
+            '768p': '768P',
+            '720p': '768P',
+            '1080p': '768P',
+            '480p': '512P',
+        };
+        const alias = hailuoAliases[trimmed] ?? hailuoAliases[trimmed.toLowerCase()];
+        if (alias) {
+            return alias;
+        }
+    }
+
+    const model = VIDEO_MODEL_REGISTRY[modelId];
+    return model.supportedResolutions.find(
+        (resolution) => resolution.toLowerCase() === trimmed.toLowerCase()
+    );
+}
+
 export function resolveVideoResolution(modelId: VideoModelId, requestedResolution?: string): VideoResolution {
     const model = VIDEO_MODEL_REGISTRY[modelId];
-    if (!requestedResolution) {
+    const normalized = normalizeVideoResolutionInput(modelId, requestedResolution);
+    if (normalized) {
+        return normalized;
+    }
+
+    if (!requestedResolution || !requestedResolution.trim()) {
         return model.supportedResolutions[0];
     }
 
-    return model.supportedResolutions.includes(requestedResolution as VideoResolution)
-        ? (requestedResolution as VideoResolution)
-        : model.supportedResolutions[0];
+    return model.supportedResolutions[0];
 }
 
 export function getSupportedVideoResolutions(modelId: VideoModelId): VideoResolution[] {
@@ -304,7 +339,7 @@ export function getSupportedVideoResolutions(modelId: VideoModelId): VideoResolu
 
 export function isSupportedVideoResolution(modelId: VideoModelId, resolution?: string): boolean {
     if (!resolution) return true;
-    return VIDEO_MODEL_REGISTRY[modelId].supportedResolutions.includes(resolution as VideoResolution);
+    return !!normalizeVideoResolutionInput(modelId, resolution);
 }
 
 export function quoteImageCredits(modelId: ImageModelId, requestedQuality?: string): number {
