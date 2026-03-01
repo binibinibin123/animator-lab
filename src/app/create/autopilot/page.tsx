@@ -118,6 +118,7 @@ const SCRIPT_TONE_OPTIONS: ScriptToneOption[] = [
 
 const HOVER_PREVIEW_WIDTH = 288;
 const HOVER_PREVIEW_HEIGHT = 162;
+const ESTIMATED_TTS_CHARS_PER_SECOND = 6;
 
 export default function AutopilotPage() {
     const router = useRouter();
@@ -140,6 +141,7 @@ export default function AutopilotPage() {
     const [showAdvancedModels, setShowAdvancedModels] = useState(false);
     const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
     const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
+    const [estimatedTtsCredits, setEstimatedTtsCredits] = useState(0);
     const [failedVideoPreviewIds, setFailedVideoPreviewIds] = useState<Record<string, true>>({});
     const [readyVideoPreviewIds, setReadyVideoPreviewIds] = useState<Record<string, true>>({});
     const [hoverPreview, setHoverPreview] = useState<HoverPreviewState | null>(null);
@@ -226,6 +228,43 @@ export default function AutopilotPage() {
     useEffect(() => {
         let cancelled = false;
 
+        const estimateTtsCredits = async () => {
+            try {
+                const estimatedCharacters = Math.max(1, Math.round(durationSeconds * ESTIMATED_TTS_CHARS_PER_SECOND));
+                const response = await fetch('/api/credits/quote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        mode: 'tts',
+                        text: '가'.repeat(estimatedCharacters),
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('TTS estimate failed');
+                }
+
+                const payload = await response.json();
+                if (!cancelled) {
+                    setEstimatedTtsCredits(Number(payload?.quoteCredits || 0));
+                }
+            } catch {
+                if (!cancelled) {
+                    setEstimatedTtsCredits(0);
+                }
+            }
+        };
+
+        void estimateTtsCredits();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [durationSeconds]);
+
+    useEffect(() => {
+        let cancelled = false;
+
         const loadVoices = async () => {
             setIsLoadingVoices(true);
             try {
@@ -273,6 +312,10 @@ export default function AutopilotPage() {
     const selectedVideoModel = videoModels.find((model) => model.id === videoModelId) || videoModels[0] || null;
     const selectedVideoResolution = selectedVideoModel?.resolutions.find((resolution) => resolution.id === videoResolution) || selectedVideoModel?.resolutions[0] || null;
     const selectedVideoDurationSeconds = selectedVideoModel?.defaultDurationSeconds || 6;
+    const estimatedCutCount = Math.max(1, Math.ceil(durationSeconds / selectedVideoDurationSeconds));
+    const estimatedImageCredits = (selectedImageQuality?.credits || 0) * estimatedCutCount;
+    const estimatedVideoCredits = (selectedVideoResolution?.creditsPerCut || 0) * estimatedCutCount;
+    const estimatedTotalCredits = estimatedImageCredits + estimatedVideoCredits + estimatedTtsCredits;
     const hoveredVideoModel = hoverPreview
         ? videoModels.find((model) => model.id === hoverPreview.modelId) || null
         : null;
@@ -1145,14 +1188,21 @@ export default function AutopilotPage() {
                         />
                     </div>
 
-                    <button
-                        type="button"
-                        onClick={startAutopilot}
-                        disabled={!topic || isRunning}
-                        className="w-full py-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-xl font-bold text-lg hover:shadow-lg transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        ✨ 오토파일럿 시작하기
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-3 sm:items-stretch">
+                        <button
+                            type="button"
+                            onClick={startAutopilot}
+                            disabled={!topic || isRunning}
+                            className="flex-1 py-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-xl font-bold text-lg hover:shadow-lg transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            ✨ 오토파일럿 시작하기
+                        </button>
+                        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm min-w-[200px]">
+                            <p className="text-[11px] text-violet-600 font-semibold">예상 크레딧 소모 (실시간)</p>
+                            <p className="text-lg font-bold text-violet-800">{estimatedTotalCredits.toLocaleString()} credits</p>
+                            <p className="text-[11px] text-violet-700">{estimatedCutCount}컷 · 이미지 {estimatedImageCredits.toLocaleString()} + 영상 {estimatedVideoCredits.toLocaleString()} + TTS {estimatedTtsCredits.toLocaleString()}</p>
+                        </div>
+                    </div>
                 </div>
             )}
 

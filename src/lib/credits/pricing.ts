@@ -15,6 +15,11 @@ import {
 
 type PricingSource = 'db' | 'registry';
 
+export const DEFAULT_TTS_MODEL_ID = 'elevenlabs-multilingual-v2';
+
+const DEFAULT_TTS_CREDITS_PER_1K_CHARS = Number(process.env.TTS_CREDITS_PER_1K_CHARS || 40);
+const DEFAULT_TTS_MIN_CREDITS_PER_REQUEST = Number(process.env.TTS_MIN_CREDITS_PER_REQUEST || 1);
+
 interface ImagePricingOverride {
     baseCreditsPerImage?: number;
     qualityMultiplier?: Record<string, number>;
@@ -27,9 +32,15 @@ interface VideoPricingOverride {
     allowedDurations?: number[];
 }
 
+interface TtsPricingOverride {
+    creditsPer1kChars?: number;
+    minimumCreditsPerRequest?: number;
+}
+
 interface PricingConfig {
     image?: Record<string, ImagePricingOverride>;
     video?: Record<string, VideoPricingOverride>;
+    tts?: Record<string, TtsPricingOverride>;
 }
 
 interface PricingVersionRow {
@@ -71,6 +82,13 @@ export interface VideoQuoteResult {
     pricingVersion: string;
     resolvedDurationSeconds: number;
     resolvedResolution: VideoResolution;
+}
+
+export interface TtsQuoteResult {
+    quoteCredits: number;
+    pricingVersion: string;
+    billableCharacters: number;
+    modelId: string;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -156,6 +174,28 @@ function normalizeVideoOverride(value: unknown): VideoPricingOverride | null {
     };
 }
 
+function normalizeTtsOverride(value: unknown): TtsPricingOverride | null {
+    if (!isObject(value)) {
+        return null;
+    }
+
+    const creditsPer1kChars = typeof value.creditsPer1kChars === 'number' && Number.isFinite(value.creditsPer1kChars)
+        ? value.creditsPer1kChars
+        : undefined;
+    const minimumCreditsPerRequest = typeof value.minimumCreditsPerRequest === 'number' && Number.isFinite(value.minimumCreditsPerRequest)
+        ? value.minimumCreditsPerRequest
+        : undefined;
+
+    if (creditsPer1kChars === undefined && minimumCreditsPerRequest === undefined) {
+        return null;
+    }
+
+    return {
+        ...(creditsPer1kChars !== undefined ? { creditsPer1kChars } : {}),
+        ...(minimumCreditsPerRequest !== undefined ? { minimumCreditsPerRequest } : {}),
+    };
+}
+
 function normalizePricingConfig(raw: unknown): PricingConfig | null {
     if (!isObject(raw)) {
         return null;
@@ -177,14 +217,31 @@ function normalizePricingConfig(raw: unknown): PricingConfig | null {
         ) as Record<string, VideoPricingOverride>
         : undefined;
 
-    if ((!image || Object.keys(image).length === 0) && (!video || Object.keys(video).length === 0)) {
+    const tts = isObject(raw.tts)
+        ? Object.fromEntries(
+            Object.entries(raw.tts)
+                .map(([modelId, config]) => [modelId, normalizeTtsOverride(config)])
+                .filter(([, config]) => !!config)
+        ) as Record<string, TtsPricingOverride>
+        : undefined;
+
+    if (
+        (!image || Object.keys(image).length === 0)
+        && (!video || Object.keys(video).length === 0)
+        && (!tts || Object.keys(tts).length === 0)
+    ) {
         return null;
     }
 
     return {
         ...(image && Object.keys(image).length > 0 ? { image } : {}),
         ...(video && Object.keys(video).length > 0 ? { video } : {}),
+        ...(tts && Object.keys(tts).length > 0 ? { tts } : {}),
     };
+}
+
+function countBillableCharacters(text: string): number {
+    return text.trim().length;
 }
 
 function resolveDurationWithAllowed(requestedDuration: number | undefined, allowedDurations: number[] | undefined): number {
@@ -326,5 +383,39 @@ export function quoteVideoCreditsWithContext(
         pricingVersion: context.pricingVersion,
         resolvedDurationSeconds,
         resolvedResolution,
+    };
+}
+
+export function quoteTtsCreditsWithContext(
+    context: PricingContext,
+    input: {
+        text: string;
+        modelId?: string;
+    }
+): TtsQuoteResult {
+    const modelId = input.modelId || DEFAULT_TTS_MODEL_ID;
+    const billableCharacters = countBillableCharacters(input.text || '');
+    const override = context.config?.tts?.[modelId];
+
+    const creditsPer1kChars = Math.max(0, override?.creditsPer1kChars ?? DEFAULT_TTS_CREDITS_PER_1K_CHARS);
+    const minimumCreditsPerRequest = Math.max(0, override?.minimumCreditsPerRequest ?? DEFAULT_TTS_MIN_CREDITS_PER_REQUEST);
+
+    if (billableCharacters <= 0) {
+        return {
+            quoteCredits: 0,
+            pricingVersion: context.pricingVersion,
+            billableCharacters,
+            modelId,
+        };
+    }
+
+    const rawCredits = (billableCharacters / 1000) * creditsPer1kChars;
+    const quoteCredits = Math.ceil(Math.max(rawCredits, minimumCreditsPerRequest));
+
+    return {
+        quoteCredits,
+        pricingVersion: context.pricingVersion,
+        billableCharacters,
+        modelId,
     };
 }

@@ -23,7 +23,13 @@ import {
     resolveVideoResolution,
 } from '@/lib/models/registry';
 import { finalizeCredits, releaseReservedCredits, reserveCredits } from '@/lib/credits/ledger';
-import { loadPricingContext, quoteImageCreditsWithContext, quoteVideoCreditsWithContext } from '@/lib/credits/pricing';
+import {
+    DEFAULT_TTS_MODEL_ID,
+    loadPricingContext,
+    quoteImageCreditsWithContext,
+    quoteTtsCreditsWithContext,
+    quoteVideoCreditsWithContext,
+} from '@/lib/credits/pricing';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const ASPECT_RATIOS = ['16:9', '1:1', '3:4', '9:16'] as const;
@@ -347,9 +353,41 @@ export async function POST(request: NextRequest) {
                 let completedVoiceCount = 0;
 
                 for (const segment of segments) {
+                    const ttsOperationId = `autopilot:tts:${project.id}:${segment.id}`;
+                    const ttsQuote = quoteTtsCreditsWithContext(pricingContext, {
+                        text: segment.script_text || '',
+                        modelId: DEFAULT_TTS_MODEL_ID,
+                    });
+
                     try {
                         if (!defaultVoiceId) {
                             throw new Error('No default voice configured');
+                        }
+
+                        if (ttsQuote.quoteCredits > 0) {
+                            const ttsReserve = await reserveCredits({
+                                supabase,
+                                projectId: project.id,
+                                operationId: ttsOperationId,
+                                amount: ttsQuote.quoteCredits,
+                                modelId: ttsQuote.modelId,
+                                pricingVersion,
+                                details: {
+                                    segmentId: segment.id,
+                                    source: 'autopilot',
+                                    voiceId: defaultVoiceId,
+                                    billableCharacters: ttsQuote.billableCharacters,
+                                },
+                            });
+
+                            if (ttsReserve.insufficient) {
+                                sendLog(`⚠️ TTS skipped for segment ${segment.order_index + 1}. Not enough credits (${ttsQuote.quoteCredits} required)`);
+                                completedVoiceCount += 1;
+                                const progress = 25 + Math.round((completedVoiceCount / segments.length) * 20);
+                                sendProgress(progress);
+                                await delay(120);
+                                continue;
+                            }
                         }
 
                         const ttsResult = await generateTTS(segment.script_text || '', defaultVoiceId);
@@ -374,8 +412,39 @@ export async function POST(request: NextRequest) {
 
                         segment.audio_url = audioUrl;
                         segment.duration_ms = ttsResult.durationMs;
-                        sendLog(`✅ TTS generated for segment ${segment.order_index + 1}`);
+                        if (ttsQuote.quoteCredits > 0) {
+                            await finalizeCredits({
+                                supabase,
+                                operationId: ttsOperationId,
+                                projectId: project.id,
+                                modelId: ttsQuote.modelId,
+                                pricingVersion,
+                                details: {
+                                    segmentId: segment.id,
+                                    source: 'autopilot',
+                                    voiceId: defaultVoiceId,
+                                    billableCharacters: ttsQuote.billableCharacters,
+                                },
+                            });
+                        }
+
+                        sendLog(`✅ TTS generated for segment ${segment.order_index + 1}${ttsQuote.quoteCredits > 0 ? ` (-${ttsQuote.quoteCredits} credits)` : ''}`);
                     } catch (ttsError: any) {
+                        if (ttsQuote.quoteCredits > 0) {
+                            await releaseReservedCredits({
+                                supabase,
+                                operationId: ttsOperationId,
+                                projectId: project.id,
+                                modelId: ttsQuote.modelId,
+                                pricingVersion,
+                                details: {
+                                    segmentId: segment.id,
+                                    reason: 'autopilot_tts_failed',
+                                    voiceId: defaultVoiceId || null,
+                                },
+                            });
+                        }
+
                         sendLog(`⚠️ TTS skipped for segment ${segment.order_index + 1}. Using estimated duration. (${ttsError.message || 'unknown'})`);
                     }
 

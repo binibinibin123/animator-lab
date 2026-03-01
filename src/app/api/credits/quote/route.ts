@@ -10,7 +10,13 @@ import {
     resolveVideoResolution,
 } from '@/lib/models/registry';
 import { createServerClient } from '@/lib/supabase';
-import { loadPricingContext, quoteImageCreditsWithContext, quoteVideoCreditsWithContext } from '@/lib/credits/pricing';
+import {
+    DEFAULT_TTS_MODEL_ID,
+    loadPricingContext,
+    quoteImageCreditsWithContext,
+    quoteTtsCreditsWithContext,
+    quoteVideoCreditsWithContext,
+} from '@/lib/credits/pricing';
 
 export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
@@ -69,8 +75,25 @@ export async function POST(request: NextRequest) {
         });
     }
 
+    if (mode === 'tts') {
+        const text = typeof body.text === 'string' ? body.text : '';
+        const quote = quoteTtsCreditsWithContext(pricingContext, {
+            text,
+            modelId: typeof body.modelId === 'string' && body.modelId.trim() ? body.modelId : DEFAULT_TTS_MODEL_ID,
+        });
+
+        return NextResponse.json({
+            mode,
+            modelId: quote.modelId,
+            pricingVersion: quote.pricingVersion,
+            pricingSource: pricingContext.source,
+            billableCharacters: quote.billableCharacters,
+            quoteCredits: quote.quoteCredits,
+        });
+    }
+
     return NextResponse.json(
-        { error: 'mode must be image or video' },
+        { error: 'mode must be image, video, or tts' },
         { status: 400 }
     );
 }
