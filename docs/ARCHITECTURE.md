@@ -1,6 +1,6 @@
 # Animator Lab Architecture
 
-Animator Lab keeps the original project media pipeline but changes the production unit from a short-form script to an animation work.
+Animator Lab organizes an animation production pipeline around works, shots, generation takes, and render-ready selected media.
 
 ## Data Model
 
@@ -10,7 +10,7 @@ Animator Lab keeps the original project media pipeline but changes the productio
 | `segments` | Shot board rows. Each segment is treated as one animation cut |
 | `generation_takes` | Image, video, or audio generation attempts for a shot |
 
-Selected takes are copied back to `segments.image_url`, `segments.video_url`, or audio fields so the existing Remotion preview and render flow can keep working.
+Selected takes are copied back to `segments.image_url`, `segments.video_url`, or audio fields so Remotion preview and render can consume a stable media contract.
 
 ## Workflow
 

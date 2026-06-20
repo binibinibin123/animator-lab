@@ -46,7 +46,7 @@ export default function LandingPage() {
               서사를 가진 AI 애니메이션을 컷 단위로 설계하고 검증하는 제작 툴
             </h1>
             <p className="mt-7 max-w-2xl text-lg leading-8 text-slate-600">
-              Animator Lab은 기존 숏폼 생성 앱을 애니메이션 제작용으로 포크한 프로젝트입니다.
+              Animator Lab은 AI 애니메이션 제작 흐름을 컷 단위로 관리하는 작업대입니다.
               주제 입력에서 스토리 바이블, 컷보드, 모델별 take 비교, Remotion 렌더까지 이어지는 흐름을
               하나의 작업대로 묶었습니다.
             </p>
