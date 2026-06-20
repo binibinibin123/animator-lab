@@ -2,7 +2,7 @@
 
 AI 애니메이션 제작을 위한 **story bible → shot board → model lab → take selection → Remotion render** 워크플로우 프로젝트입니다.
 
-네이버웹툰 AI Animator 직무에서 요구하는 컷 단위 연출 설계, 프롬프트 디렉팅, 모델 비교, 재생성 결과 관리 흐름에 맞춰 구성했습니다.
+컷 단위 연출 설계, 프롬프트 디렉팅, 모델 비교, 재생성 결과 관리처럼 AI 애니메이션 제작에서 반복적으로 필요한 흐름에 맞춰 구성했습니다.
 
 <img src="portfolio/assets/animator-lab-create-new-v2.png" alt="Animator Lab new animation setup" width="900" />
 
