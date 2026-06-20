@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Animator Lab | AI Animation Production Portfolio</title>
+    <meta
+      name="description"
+      content="Animator Lab은 스토리 바이블, 컷보드, 모델 비교, take 선택, Remotion 렌더를 연결한 AI 애니메이션 제작 워크플로우 포트폴리오입니다."
+    />
+    <style>
+      :root {
+        --ink: #111318;
+        --muted: #69707d;
+        --line: rgba(17, 19, 24, 0.12);
+        --paper: #f6f4ef;
+        --panel: #fffdf8;
+        --dark: #16191f;
+        --accent: #b9822d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+        letter-spacing: 0;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      img,
+      video {
+        display: block;
+        width: 100%;
+      }
+
+      .wrap {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid rgba(255, 253, 248, 0.14);
+        background: rgba(22, 25, 31, 0.9);
+        color: var(--panel);
+        backdrop-filter: blur(16px);
+      }
+
+      .nav-inner {
+        display: flex;
+        min-height: 64px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .brand {
+        font-weight: 900;
+        letter-spacing: -0.03em;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 18px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .hero {
+        padding: 80px 0 48px;
+      }
+
+      .eyebrow {
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 18px 0 0;
+        max-width: 980px;
+        font-size: clamp(44px, 7vw, 86px);
+        line-height: 0.98;
+        letter-spacing: -0.06em;
+      }
+
+      .lead {
+        max-width: 780px;
+        margin: 24px 0 0;
+        color: var(--muted);
+        font-size: 20px;
+        line-height: 1.75;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 22px;
+        margin-top: 48px;
+        align-items: stretch;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .screen {
+        overflow: hidden;
+        border-radius: 20px;
+        box-shadow: 0 24px 60px rgba(17, 19, 24, 0.16);
+      }
+
+      .summary {
+        display: grid;
+        gap: 14px;
+        border-radius: 20px;
+        padding: 24px;
+      }
+
+      .summary strong {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .summary span {
+        display: block;
+        margin-top: 4px;
+        font-size: 20px;
+        font-weight: 900;
+        letter-spacing: -0.03em;
+      }
+
+      section {
+        padding: 56px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      h2 {
+        margin: 0;
+        font-size: clamp(30px, 4vw, 48px);
+        line-height: 1.05;
+        letter-spacing: -0.05em;
+      }
+
+      .section-head {
+        display: flex;
+        gap: 20px;
+        align-items: end;
+        justify-content: space-between;
+        margin-bottom: 28px;
+      }
+
+      .section-head p {
+        max-width: 520px;
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+
+      .card {
+        border-radius: 18px;
+        padding: 22px;
+      }
+
+      .card h3 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .card p {
+        margin: 12px 0 0;
+        color: var(--muted);
+        line-height: 1.7;
+        font-size: 14px;
+      }
+
+      .shots {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 18px;
+      }
+
+      .shot {
+        overflow: hidden;
+        border-radius: 18px;
+      }
+
+      .shot figcaption {
+        padding: 14px 16px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .flow {
+        display: grid;
+        gap: 10px;
+        counter-reset: step;
+      }
+
+      .flow div {
+        counter-increment: step;
+        display: grid;
+        grid-template-columns: 52px 1fr;
+        gap: 14px;
+        align-items: start;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+        padding: 18px;
+      }
+
+      .flow div::before {
+        content: counter(step, decimal-leading-zero);
+        color: var(--accent);
+        font-weight: 900;
+      }
+
+      .flow strong {
+        display: block;
+      }
+
+      .flow p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .footer {
+        padding: 40px 0 60px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      @media (max-width: 820px) {
+        .hero-grid,
+        .cards,
+        .shots {
+          grid-template-columns: 1fr;
+        }
+
+        .section-head {
+          display: block;
+        }
+
+        .section-head p {
+          margin-top: 12px;
+        }
+
+        .nav-links {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="nav">
+      <div class="wrap nav-inner">
+        <div class="brand">Animator Lab</div>
+        <div class="nav-links">
+          <a href="#why">Why</a>
+          <a href="#workflow">Workflow</a>
+          <a href="#screens">Screens</a>
+          <a href="#demo">Demo</a>
+        </div>
+      </div>
+    </nav>
+
+    <main>
+      <header class="wrap hero">
+        <p class="eyebrow">AI Animation Production Portfolio</p>
+        <h1>서사를 가진 AI 애니메이션을 컷 단위로 설계하고 검증하는 작업대</h1>
+        <p class="lead">
+          Animator Lab은 숏폼 자동 생성 앱을 애니메이션 제작 전용으로 포크한 프로젝트입니다.
+          주제 입력에서 스토리 바이블, 컷보드, 이미지/모션 take 비교, Remotion 렌더까지 이어지는 제작 흐름을 하나로 묶었습니다.
+        </p>
+
+        <div class="hero-grid">
+          <div class="screen panel">
+            <img src="assets/animator-lab-html-preview.png" alt="Animator Lab portfolio overview screenshot" />
+          </div>
+          <aside class="summary panel">
+            <p><strong>Role</strong><span>AI workflow design, frontend, provider orchestration</span></p>
+            <p><strong>Focus</strong><span>Story bible, shot board, take comparison</span></p>
+            <p><strong>Models</strong><span>GPT Image 2, LTX-2.3 Fast, Kling, Sora, ComfyUI</span></p>
+            <p><strong>Stack</strong><span>Next.js, Supabase, fal.ai, Remotion, Playwright</span></p>
+          </aside>
+        </div>
+      </header>
+
+      <section id="why">
+        <div class="wrap">
+          <div class="section-head">
+            <h2>왜 만들었나</h2>
+            <p>
+              AI 애니메이션 제작에서 중요한 것은 한 번의 생성보다 컷 사이의 의도, 캐릭터 일관성,
+              카메라워크, 감정선, 재생성 판단을 반복 가능한 구조로 남기는 것입니다.
+            </p>
+          </div>
+          <div class="cards">
+            <article class="card panel">
+              <h3>언어화</h3>
+              <p>흩어진 이미지와 연출 의도를 로그라인, 세계관, 스타일 규칙, 금지 요소로 정리합니다.</p>
+            </article>
+            <article class="card panel">
+              <h3>컷 통제</h3>
+              <p>대사, 화면 설명, 카메라워크, 액션, 조명, 감정을 컷별 메타데이터로 분리합니다.</p>
+            </article>
+            <article class="card panel">
+              <h3>검증 루프</h3>
+              <p>여러 모델 결과를 take로 보관하고 선택된 결과만 최종 렌더에 반영합니다.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="workflow">
+        <div class="wrap">
+          <div class="section-head">
+            <h2>제작 흐름</h2>
+            <p>유료 API를 직접 호출하지 않아도 구조를 이해할 수 있도록 각 단계가 DB와 UI에 남습니다.</p>
+          </div>
+          <div class="flow">
+            <div><p><strong>Story Bible</strong>작품 주제, 장르, 톤, 캐릭터, 세계관, 스타일 규칙을 정리합니다.</p></div>
+            <div><p><strong>Shot Board</strong>각 컷을 대사, 화면, 카메라, 액션, 조명, 감정 단위로 편집합니다.</p></div>
+            <div><p><strong>Image / Motion Takes</strong>모델별 생성 결과를 비교하고 선택한 take를 컷 결과로 동기화합니다.</p></div>
+            <div><p><strong>Edit / Render</strong>선택된 이미지/영상, 자막, 오디오를 Remotion preview와 render로 연결합니다.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screens">
+        <div class="wrap">
+          <div class="section-head">
+            <h2>스크린샷</h2>
+            <p>포트폴리오용 더미 작품 데이터로 구성한 주요 화면입니다.</p>
+          </div>
+          <div class="shots">
+            <figure class="shot panel">
+              <img src="assets/animator-lab-create-new-v2.png" alt="New animation work setup screen" />
+              <figcaption>새 작품 생성: 로그라인, 캐릭터, 세계관, 스타일 규칙, 컷 수, 비율을 먼저 고정합니다.</figcaption>
+            </figure>
+            <figure class="shot panel">
+              <img src="assets/animator-shot-board.png" alt="Shot board editor screen" />
+              <figcaption>컷보드: 각 컷의 대사, 화면 설명, 카메라워크, 액션, 조명, 감정 메모를 편집합니다.</figcaption>
+            </figure>
+            <figure class="shot panel">
+              <img src="assets/animator-motion-takes.png" alt="Motion take comparison screen" />
+              <figcaption>모션 take: 생성 이력, 비용, 속도, 모델명을 비교하고 선택된 take만 렌더에 반영합니다.</figcaption>
+            </figure>
+            <figure class="shot panel">
+              <img src="assets/animator-autopilot.png" alt="Autopilot screen" />
+              <figcaption>Autopilot: 스토리 바이블과 컷보드 생성을 자동화하되, 유료 생성은 명시적 실행으로 분리합니다.</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section id="demo">
+        <div class="wrap">
+          <div class="section-head">
+            <h2>36초 데모</h2>
+            <p>스크린샷 기반의 빠른 워크플로우 데모입니다. 실제 유료 생성 API 호출 없이 제품 구조를 보여줍니다.</p>
+          </div>
+          <div class="screen panel">
+            <video controls src="assets/animator-lab-demo.mp4"></video>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="wrap footer">
+      Animator Lab. Built as a portfolio fork for AI animation workflow design and model orchestration.
+    </footer>
+  </body>
+</html>

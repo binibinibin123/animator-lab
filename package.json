@@ -1,7 +1,12 @@
 {
-  "name": "autovideo",
+  "name": "animator-lab",
   "version": "0.1.0",
+  "description": "AI animation production lab for story bible, shot board, model comparison, and Remotion render workflows.",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/binibinibin123/animator-lab.git"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

@@ -97,7 +97,7 @@ export default function ChannelsPage() {
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <Link href="/" className="text-2xl font-bold text-gray-400 hover:text-violet-600 transition-colors">
-                                AutoVideo
+                                Animator Lab
                             </Link>
                             <span className="text-gray-300 text-2xl">/</span>
                             <h1 className="text-2xl font-bold text-violet-600">Channels</h1>

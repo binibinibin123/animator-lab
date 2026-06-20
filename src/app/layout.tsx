@@ -1,21 +1,21 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import AuthSessionProvider from "@/components/providers/AuthSessionProvider";
+import type { Metadata } from 'next';
+import { Geist, Geist_Mono } from 'next/font/google';
+import AuthSessionProvider from '@/components/providers/AuthSessionProvider';
+import './globals.css';
 
 const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+  variable: '--font-geist-sans',
+  subsets: ['latin'],
 });
 
 const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  variable: '--font-geist-mono',
+  subsets: ['latin'],
 });
 
 export const metadata: Metadata = {
-  title: "AutoVideo",
-  description: "AI 숏폼 영상 자동 제작 SaaS",
+  title: 'Animator Lab',
+  description: 'AI animation production lab for story bible, shot board, model comparison, and render workflows.',
 };
 
 export default function RootLayout({
@@ -25,9 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AuthSessionProvider>{children}</AuthSessionProvider>
       </body>
     </html>
