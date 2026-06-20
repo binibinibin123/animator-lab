@@ -207,8 +207,8 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-violet-600">AutoVideo</h1>
-                <span className="px-2 py-1 text-[10px] font-bold tracking-wide rounded-full bg-violet-100 text-violet-700">Projects</span>
+                <h1 className="text-2xl font-bold text-slate-950">Animator Lab</h1>
+                <span className="px-2 py-1 text-[10px] font-bold tracking-wide rounded-full bg-slate-100 text-slate-700">Works</span>
               </div>
               <div className="flex items-center gap-6">
                 <div className="text-right">
@@ -250,6 +250,15 @@ export default function Home() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
+          <div className="mb-5 inline-flex rounded-full bg-slate-900 px-3 py-1 text-xs font-bold text-white">
+            Animation production workspace
+          </div>
+          <h2 className="mb-3 text-4xl font-black tracking-tight text-slate-950">
+            AI Animation Works from story to render
+          </h2>
+          <p className="mx-auto mb-8 max-w-3xl text-lg text-slate-600">
+            Build Story Bible, Shot Board, image takes, motion takes, subtitles, transitions, and final Remotion exports.
+          </p>
           <h2 className="text-4xl font-bold text-gray-900 mb-4">
             주제 하나로 완성하는
             <span className="text-violet-600"> AI 영상</span>

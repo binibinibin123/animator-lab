@@ -18,9 +18,18 @@ const PROJECT_STEPS = [
     { id: 6, path: 'preview', label: '영상 확인' },
 ] as const;
 
+const ANIMATOR_PROJECT_STEPS = [
+    { id: 1, path: 'script', label: 'Story / Shot Board' },
+    { id: 2, path: 'voice', label: 'Audio' },
+    { id: 3, path: 'image', label: 'Image Takes' },
+    { id: 4, path: 'video', label: 'Motion Takes' },
+    { id: 5, path: 'thumbnail', label: 'Package' },
+    { id: 6, path: 'preview', label: 'Edit / Render' },
+] as const;
+
 function ProjectStepper({ projectId, currentPath }: { projectId: string; currentPath: string }) {
     const getCurrentStep = () => {
-        const step = PROJECT_STEPS.find(s => currentPath.includes(s.path));
+        const step = ANIMATOR_PROJECT_STEPS.find(s => currentPath.includes(s.path));
         return step?.id || 1;
     };
 
@@ -29,7 +38,7 @@ function ProjectStepper({ projectId, currentPath }: { projectId: string; current
     return (
         <div className="w-full py-6">
             <div className="flex items-center justify-center gap-2">
-                {PROJECT_STEPS.map((step, index) => {
+                {ANIMATOR_PROJECT_STEPS.map((step, index) => {
                     const isCompleted = step.id < currentStep;
                     const isCurrent = step.id === currentStep;
 
@@ -59,7 +68,7 @@ function ProjectStepper({ projectId, currentPath }: { projectId: string; current
                             <span className={`ml-2 text-sm ${isCurrent ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>
                                 {step.label}
                             </span>
-                            {index < PROJECT_STEPS.length - 1 && (
+                            {index < ANIMATOR_PROJECT_STEPS.length - 1 && (
                                 <div className={`w-12 h-0.5 mx-3 ${isCompleted ? 'bg-violet-600' : 'bg-gray-200'}`} />
                             )}
                         </div>
@@ -138,7 +147,7 @@ export default function ProjectLayout({
                     <div className="max-w-7xl mx-auto px-4 py-5">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <Link href="/projects" className="text-xl font-bold tracking-wide text-violet-600">AutoVideo</Link>
+                                <Link href="/projects" className="text-xl font-bold tracking-wide text-slate-950">Animator Lab</Link>
                                 {project && (
                                     <span className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">
                                         {project.title || '제목 없음'}

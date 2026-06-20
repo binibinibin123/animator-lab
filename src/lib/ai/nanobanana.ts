@@ -5,13 +5,15 @@ import {
     getDefaultImageModelId,
     IMAGE_MODEL_REGISTRY,
     isImageModelId,
+    type ImageQuality,
     type ImageModelId,
 } from '@/lib/models/registry';
+import { generateFalImage } from '@/lib/image/FalImageProvider';
 
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY!;
 
 function getGeminiApiUrl(modelId: ImageModelId) {
-    const modelName = IMAGE_MODEL_REGISTRY[modelId].providerModel;
+    const modelName = IMAGE_MODEL_REGISTRY[modelId].providerModel || IMAGE_MODEL_REGISTRY[modelId].endpoint;
     return `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
 }
 
@@ -21,7 +23,7 @@ export interface ImageGenerationOptions {
     style?: string;
     styleText?: string | null;
     aspectRatio?: '16:9' | '1:1' | '3:4' | '9:16';
-    resolution?: '2K' | '4K';
+    resolution?: ImageQuality;
     referenceImage?: string; // Base64 encoded image data
     referenceMimeType?: string; // e.g., 'image/png' or 'image/jpeg'
     referenceIntent?: 'character' | 'style' | null;
@@ -66,6 +68,19 @@ export async function generateImage(options: ImageGenerationOptions): Promise<Im
     } = options;
 
     const resolvedModelId = isImageModelId(modelId) ? modelId : getDefaultImageModelId();
+    const modelConfig = IMAGE_MODEL_REGISTRY[resolvedModelId];
+
+    if (modelConfig.provider === 'fal') {
+        return generateFalImage({
+            modelId: resolvedModelId,
+            prompt,
+            aspectRatio,
+            quality: resolution,
+            referenceImage,
+            referenceMimeType,
+        });
+    }
+
     const geminiApiUrl = getGeminiApiUrl(resolvedModelId);
 
     const styleModifier = STYLE_PRESETS[style] || '';

@@ -8,6 +8,7 @@ import { ResolverError, resolveReferenceContext } from '@/lib/image/referenceRes
 import {
     getDefaultImageModelId,
     getSupportedImageQualities,
+    IMAGE_MODEL_REGISTRY,
     isSupportedImageQuality,
     isImageModelId,
     resolveImageQuality,
@@ -50,13 +51,14 @@ export async function POST(request: NextRequest) {
             styleText,
             aspectRatio,
             resolution,
+            quality,
             segmentId,
             projectId,
             modelId,
         } = body;
 
         const resolvedModelId = isImageModelId(modelId) ? modelId : getDefaultImageModelId();
-        const requestedQuality = resolution;
+        const requestedQuality = quality || resolution;
 
         if (!isSupportedImageQuality(resolvedModelId, requestedQuality)) {
             return errorResponse(400, 'INVALID_INPUT', 'Unsupported image quality', {
@@ -179,6 +181,42 @@ export async function POST(request: NextRequest) {
                     }
                 }
 
+                await supabase
+                    .from('generation_takes')
+                    .update({ is_selected: false } as never)
+                    .eq('segment_id', segmentId)
+                    .eq('media_type', 'image')
+                    .then(({ error: clearTakeError }) => {
+                        if (clearTakeError) {
+                            console.warn('[Image API] Failed to clear previous image takes:', clearTakeError.message);
+                        }
+                    });
+
+                await supabase
+                    .from('generation_takes')
+                    .insert({
+                        project_id: resolved.projectId,
+                        segment_id: segmentId,
+                        media_type: 'image',
+                        provider: IMAGE_MODEL_REGISTRY[resolvedModelId].provider,
+                        model_id: resolvedModelId,
+                        prompt: imagePrompt,
+                        params: {
+                            quality: resolvedQuality,
+                            aspectRatio: aspectRatio || '16:9',
+                            referenceIntent: resolved.referenceIntent || null,
+                        },
+                        asset_url: result.imageUrl,
+                        thumbnail_url: result.imageUrl,
+                        status: 'succeeded',
+                        is_selected: true,
+                    } as never)
+                    .then(({ error: takeError }) => {
+                        if (takeError) {
+                            console.warn('[Image API] Failed to record image take:', takeError.message);
+                        }
+                    });
+
                 const { data: segmentData } = await supabase
                     .from('segments')
                     .select('order_index, project_id')
@@ -229,6 +267,7 @@ export async function POST(request: NextRequest) {
             warnings: resolved.warnings,
             modelId: resolvedModelId,
             quality: resolvedQuality,
+            provider: IMAGE_MODEL_REGISTRY[resolvedModelId].provider,
             quoteCredits: quotedCredits,
             pricingVersion,
             pricingSource: pricingContext.source,

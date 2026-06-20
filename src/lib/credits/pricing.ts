@@ -15,9 +15,9 @@ import {
 
 type PricingSource = 'db' | 'registry';
 
-export const DEFAULT_TTS_MODEL_ID = 'elevenlabs-multilingual-v2';
+export const DEFAULT_TTS_MODEL_ID = 'elevenlabs-flash-v2.5';
 
-const DEFAULT_TTS_CREDITS_PER_1K_CHARS = Number(process.env.TTS_CREDITS_PER_1K_CHARS || 40);
+const DEFAULT_TTS_CREDITS_PER_1K_CHARS = Number(process.env.TTS_CREDITS_PER_1K_CHARS || 20);
 const DEFAULT_TTS_MIN_CREDITS_PER_REQUEST = Number(process.env.TTS_MIN_CREDITS_PER_REQUEST || 1);
 
 interface ImagePricingOverride {

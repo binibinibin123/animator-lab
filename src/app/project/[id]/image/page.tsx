@@ -4,23 +4,32 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import type { Segment } from '@/types/database';
+import type { GenerationTake, Segment } from '@/types/database';
 import type { AspectRatio } from '@/types';
+
+type PreviewSource = 'curated_sample' | 'official_thumbnail' | 'reference_placeholder' | 'none' | 'fal' | 'local';
 
 interface ImageModelOption {
     id: string;
     label: string;
     description: string;
-    previewSource?: 'fal' | 'local' | 'none';
+    previewSource?: PreviewSource;
+    previewSourceLabel?: string;
     previewImageUrl?: string;
     fallbackPreviewImageUrl?: string;
+    providerDisplayName?: string;
+    modelDisplayName?: string;
+    costModeLabel?: string;
+    defaultQuality?: string;
     qualities: Array<{
         id: string;
         credits: number;
+        modeLabel?: string;
+        estimatedUsd?: number;
     }>;
 }
 
-const DEFAULT_IMAGE_MODEL_ID = 'nano-banana-2';
+const DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2';
 
 export default function ImagePage() {
     const router = useRouter();
@@ -33,7 +42,7 @@ export default function ImagePage() {
     const [currentGeneratingId, setCurrentGeneratingId] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
 
-    const [resolution, setResolution] = useState<string>('2K');
+    const [resolution, setResolution] = useState<string>('medium');
     const [customPrompt, setCustomPrompt] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [projectStyle, setProjectStyle] = useState<string>('anime');
@@ -44,8 +53,7 @@ export default function ImagePage() {
     const [projectVisualMode, setProjectVisualMode] = useState<'legacy' | 'character_fixed' | 'style_fixed'>('legacy');
     const [hasCharacterReference, setHasCharacterReference] = useState(false);
     const [hasStyleReference, setHasStyleReference] = useState(false);
-    const imageProvider = 'gemini';
-
+    const [imageTakes, setImageTakes] = useState<GenerationTake[]>([]);
     // Logs for real-time feedback
     const [logs, setLogs] = useState<Array<{ time: string; type: 'info' | 'success' | 'error' | 'warn'; message: string }>>([]);
     const [showLogs, setShowLogs] = useState(true);
@@ -55,6 +63,26 @@ export default function ImagePage() {
         const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLogs(prev => [...prev.slice(-50), { time, type, message }]);
         setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    };
+
+    const getModelPreviewSourceLabel = (model: { previewSource?: PreviewSource; previewSourceLabel?: string } | null | undefined) => {
+        if (model?.previewSourceLabel) {
+            return model.previewSourceLabel;
+        }
+
+        switch (model?.previewSource) {
+            case 'curated_sample':
+                return '직접 생성 샘플';
+            case 'official_thumbnail':
+            case 'fal':
+                return 'fal 공식 썸네일';
+            case 'none':
+                return '샘플 없음';
+            case 'reference_placeholder':
+            case 'local':
+            default:
+                return '참고 이미지 · 모델 출력 아님';
+        }
     };
 
     useEffect(() => {
@@ -85,7 +113,9 @@ export default function ImagePage() {
                     setImageModelId((prevId) => {
                         const selected = nextModels.find((model) => model.id === prevId) || nextModels[0];
                         setResolution((prevResolution) => {
-                            const quality = selected.qualities.find((item) => item.id === prevResolution) || selected.qualities[0];
+                            const quality = selected.qualities.find((item) => item.id === prevResolution)
+                                || selected.qualities.find((item) => item.id === selected.defaultQuality)
+                                || selected.qualities[0];
                             return quality ? quality.id : prevResolution;
                         });
                         return selected.id;
@@ -109,8 +139,22 @@ export default function ImagePage() {
         const seg = segments.find(s => s.id === selectedSegmentId);
         if (seg) {
             setCustomPrompt(seg.visual_description || '');
+            void fetchImageTakes(seg.id);
         }
     }, [selectedSegmentId, segments]);
+
+    const fetchImageTakes = async (segmentId: string) => {
+        try {
+            const response = await fetch(`/api/animation/takes?segmentId=${encodeURIComponent(segmentId)}`);
+            if (!response.ok) {
+                return;
+            }
+            const payload = await response.json();
+            setImageTakes((payload.takes || []).filter((take: GenerationTake) => take.media_type === 'image'));
+        } catch (takeError) {
+            console.warn('Failed to load image takes:', takeError);
+        }
+    };
 
     const fetchSegments = async () => {
         setIsLoading(true);
@@ -202,6 +246,7 @@ export default function ImagePage() {
 
     const selectedSegment = segments.find(s => s.id === selectedSegmentId);
     const selectedImageModel = imageModels.find((model) => model.id === imageModelId) || imageModels[0] || null;
+    const imageProvider = selectedImageModel?.providerDisplayName || 'fal.ai';
     const supportedImageQualities = selectedImageModel?.qualities || [];
     const selectedImageQuality = supportedImageQualities.find((quality) => quality.id === resolution) || supportedImageQualities[0] || null;
 
@@ -228,6 +273,7 @@ export default function ImagePage() {
                             scriptText: segment.script_text,
                             segmentId: segment.id,
                             projectId,
+                            quality: selectedQualityId,
                             resolution: selectedQualityId,
                             style: projectStyle,
                             styleText: projectStyleText,
@@ -246,6 +292,7 @@ export default function ImagePage() {
             setSegments(prev => prev.map(s =>
                 s.id === segment.id ? { ...s, image_url: data.imageUrl } : s
             ));
+            await fetchImageTakes(segment.id);
             setCustomPrompt('');
             addLog('success', `✅ 이미지 생성 완료!`);
         } catch (error: any) {
@@ -283,6 +330,7 @@ export default function ImagePage() {
                             scriptText: segment.script_text,
                             segmentId: segment.id,
                             projectId,
+                            quality: selectedQualityId,
                             resolution: selectedQualityId,
                             style: projectStyle,
                             styleText: projectStyleText,
@@ -359,6 +407,33 @@ export default function ImagePage() {
         }
     };
 
+    const handleSelectImageTake = async (take: GenerationTake) => {
+        if (!take.asset_url) {
+            return;
+        }
+
+        const response = await fetch('/api/animation/takes/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                takeId: take.id,
+                segmentId: take.segment_id,
+                mediaType: 'image',
+                assetUrl: take.asset_url,
+            }),
+        });
+
+        if (!response.ok) {
+            addLog('error', 'Failed to select image take');
+            return;
+        }
+
+        setSegments((prev) => prev.map((segment) => (
+            segment.id === take.segment_id ? { ...segment, image_url: take.asset_url } : segment
+        )));
+        await fetchImageTakes(take.segment_id);
+    };
+
     return (
         <div className="space-y-6">
             {/* ... (Previous UI code remains same until Main Edit Area) ... */}
@@ -405,10 +480,11 @@ export default function ImagePage() {
                     <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700">
                         <span className="font-medium">생성기</span>
                         <span className="text-gray-400">|</span>
-                        <span>☁️ Gemini 클라우드</span>
+                        <span>☁️ {imageProvider} 클라우드</span>
                     </div>
                     <div className="text-xs text-gray-600 rounded-full border border-violet-100 bg-violet-50 px-3 py-1.5">
                         예상 {selectedImageQuality?.credits || 0} credits / image
+                        {typeof selectedImageQuality?.estimatedUsd === 'number' ? ` · 약 $${selectedImageQuality.estimatedUsd.toFixed(selectedImageQuality.estimatedUsd < 0.1 ? 3 : 2)}` : ''}
                     </div>
                 </div>
 
@@ -425,7 +501,7 @@ export default function ImagePage() {
                                         const nextModel = imageModels.find((model) => model.id === nextModelId);
                                         setImageModelId(nextModelId);
                                         if (nextModel) {
-                                            setResolution(nextModel.qualities[0].id);
+                                            setResolution(nextModel.defaultQuality || nextModel.qualities[0].id);
                                         }
                                     }}
                                     className="w-full px-3 py-2 border rounded-lg text-sm bg-white"
@@ -435,11 +511,11 @@ export default function ImagePage() {
                                         <option key={model.id} value={model.id}>{model.label}</option>
                                     ))}
                                 </select>
-                                <p className="text-xs text-gray-500">컷별 고정 이미지 생성 기준</p>
+                                <p className="text-xs text-gray-500">{selectedImageModel?.costModeLabel || '표준'} · {selectedImageModel?.modelDisplayName || selectedImageModel?.label}</p>
                             </div>
 
                             <div className="space-y-1.5 rounded-xl border border-gray-200 bg-gray-50 p-3">
-                                <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase">해상도</p>
+                                <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase">품질</p>
                                 <div className="flex flex-wrap bg-white border rounded-lg p-1 gap-1">
                                     {supportedImageQualities.map((quality) => (
                                         <button
@@ -448,11 +524,11 @@ export default function ImagePage() {
                                             onClick={() => setResolution(quality.id)}
                                             className={`px-3 py-1.5 text-xs rounded-md transition-all ${selectedImageQuality?.id === quality.id ? 'bg-violet-600 text-white' : 'hover:bg-gray-50 text-gray-700'}`}
                                         >
-                                            {quality.id}
+                                            {(quality.modeLabel || quality.id)} · {quality.id}
                                         </button>
                                     ))}
                                 </div>
-                                <p className="text-xs text-gray-500">모델별 지원 해상도만 선택 가능</p>
+                                <p className="text-xs text-gray-500">모델별 지원 품질만 선택 가능</p>
                             </div>
                         </div>
 
@@ -463,7 +539,12 @@ export default function ImagePage() {
 
                     {selectedImageModel && (
                         <div className="rounded-xl border border-gray-200 bg-gray-50 p-2.5">
-                            <p className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">모델 미리보기</p>
+                            <div className="flex items-center justify-between gap-2 px-1 pb-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">모델 샘플</p>
+                                <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                                    {getModelPreviewSourceLabel(selectedImageModel)}
+                                </span>
+                            </div>
                             <div className="overflow-hidden rounded-lg border border-gray-200 bg-slate-100 aspect-video">
                                 <img
                                     src={selectedImageModel.previewImageUrl || selectedImageModel.fallbackPreviewImageUrl || '/styles/minimalist.png'}
@@ -559,6 +640,49 @@ export default function ImagePage() {
                                             <div className="w-8 h-8 border-4 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
                                             <p className="text-violet-600 font-medium">이미지 생성 중...</p>
                                         </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                <div className="mb-3 flex items-center justify-between">
+                                    <div>
+                                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Model Lab</p>
+                                        <h3 className="text-sm font-bold text-slate-950">Image Takes</h3>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => fetchImageTakes(selectedSegment.id)}
+                                        className="rounded-lg border px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                                    >
+                                        Refresh
+                                    </button>
+                                </div>
+                                {imageTakes.length === 0 ? (
+                                    <p className="text-sm text-slate-500">No image takes yet. Generate this cut to record a take.</p>
+                                ) : (
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        {imageTakes.map((take) => (
+                                            <button
+                                                key={take.id}
+                                                type="button"
+                                                onClick={() => handleSelectImageTake(take)}
+                                                disabled={!take.asset_url}
+                                                className={`overflow-hidden rounded-xl border text-left transition ${
+                                                    take.is_selected ? 'border-slate-950 ring-2 ring-slate-200' : 'border-slate-200 hover:border-slate-400'
+                                                } ${!take.asset_url ? 'opacity-60' : ''}`}
+                                            >
+                                                {take.asset_url ? (
+                                                    <img src={take.asset_url} alt="Image take" className="h-32 w-full object-cover" />
+                                                ) : (
+                                                    <div className="flex h-32 items-center justify-center bg-slate-100 text-xs text-slate-500">{take.status}</div>
+                                                )}
+                                                <div className="space-y-1 p-3">
+                                                    <p className="text-xs font-bold text-slate-900">{take.model_id || take.provider}</p>
+                                                    <p className="line-clamp-2 text-xs text-slate-500">{take.prompt || 'No prompt recorded'}</p>
+                                                </div>
+                                            </button>
+                                        ))}
                                     </div>
                                 )}
                             </div>

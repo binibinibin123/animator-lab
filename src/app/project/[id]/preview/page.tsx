@@ -455,9 +455,26 @@ export default function PreviewPage() {
                                 autoPlay
                             />
                         ) : (
-                            <div className="text-center text-gray-400">
+                            <div className="text-center text-gray-300 p-8 space-y-5">
                                 <div className="text-5xl mb-4">🎬</div>
-                                <p className="text-lg">영상이 준비되지 않았습니다</p>
+                                <div>
+                                    <p className="text-lg font-semibold text-white">프리뷰할 컷이 아직 준비되지 않았습니다</p>
+                                    <p className="text-sm text-gray-400 mt-2">스크립트, 이미지, 영상 단계 중 비어 있는 작업부터 이어서 진행하세요.</p>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-left">
+                                    <Link href={`/project/${projectId}/script`} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 hover:bg-white/10">
+                                        <span className="block font-semibold text-white">1. 스크립트</span>
+                                        <span className="text-gray-400">컷 구성 확인</span>
+                                    </Link>
+                                    <Link href={`/project/${projectId}/image`} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 hover:bg-white/10">
+                                        <span className="block font-semibold text-white">2. 이미지</span>
+                                        <span className="text-gray-400">GPT Image 2 컷 생성</span>
+                                    </Link>
+                                    <Link href={`/project/${projectId}/video`} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 hover:bg-white/10">
+                                        <span className="block font-semibold text-white">3. 영상</span>
+                                        <span className="text-gray-400">LTX-2.3 컷 생성</span>
+                                    </Link>
+                                </div>
                             </div>
                         )}
                     </div>

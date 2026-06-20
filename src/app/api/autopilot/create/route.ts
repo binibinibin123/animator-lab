@@ -6,6 +6,7 @@ import { generateScript } from '@/lib/ai/gemini';
 import { generateImage } from '@/lib/ai/nanobanana';
 import { generateQuickVideoPrompt } from '@/lib/ai/videoPrompt';
 import { DEFAULT_VOICES, generateTTS } from '@/lib/ai/elevenlabs';
+import { buildStoryBible } from '@/lib/animation/storyboard';
 import { parseCreateVisualMode, normalizeStyleInput } from '@/lib/api/visualModeValidation';
 import { resolveReferenceContext } from '@/lib/image/referenceResolver';
 import { getVideoProvider } from '@/lib/video';
@@ -34,13 +35,18 @@ import {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const ASPECT_RATIOS = ['16:9', '1:1', '3:4', '9:16'] as const;
 const AUTOPILOT_SCRIPT_PERSONAS = [
+    'ani_webtoon_cutscene',
+    'ani_cinematic_sequence',
+    'ani_action_beat',
+    'ani_character_showcase',
+    'ani_montage_mv',
     'ko_trust_briefing',
     'ko_empathy_story',
     'ko_practical_coach',
     'ko_trend_analyst',
     'ko_light_variety',
 ] as const;
-const DEFAULT_AUTOPILOT_PERSONA = AUTOPILOT_SCRIPT_PERSONAS[0];
+const DEFAULT_AUTOPILOT_PERSONA = 'ani_webtoon_cutscene';
 const DEFAULT_AUTOPILOT_DURATION = 30;
 const MIN_AUTOPILOT_DURATION = 15;
 const MAX_AUTOPILOT_DURATION = 180;
@@ -234,6 +240,12 @@ export async function POST(request: NextRequest) {
 
     const normalizedStyle = normalizeStyleInput(rawStyle, rawStyleText);
     const scriptStyle = normalizedStyle.style === 'custom' ? 'informative' : normalizedStyle.style;
+    const storyBible = buildStoryBible({
+        ...(body.storyBible || {}),
+        topic,
+        styleRules: body.storyBible?.styleRules || normalizedStyle.styleText,
+        referenceImageUrl: body.storyBible?.referenceImageUrl || body.characterReferenceUrl || body.styleReferenceUrl,
+    });
 
     const encoder = new TextEncoder();
 
@@ -249,14 +261,14 @@ export async function POST(request: NextRequest) {
             let createdProjectId: string | null = null;
 
             try {
-                sendLog(`🚀 Starting Autopilot for topic: ${topic} (${duration}초)`);
+                sendLog(`Animator Lab autopilot started: ${topic} (${duration}s)`);
                 sendProgress(5);
 
                 const supabase = createServerClient();
                 const pricingContext = await loadPricingContext(supabase);
                 const pricingVersion = pricingContext.pricingVersion;
                 const modernProjectInsert = {
-                    title: topic,
+                    title: typeof body.title === 'string' && body.title.trim() ? body.title.trim() : topic,
                     topic,
                     duration,
                     style: normalizedStyle.style,
@@ -266,6 +278,8 @@ export async function POST(request: NextRequest) {
                     pricing_version: pricingVersion,
                     aspect_ratio: aspectRatio,
                     render_strategy: renderStrategy,
+                    story_bible: storyBible,
+                    production_mode: body.productionMode === 'shorts' ? 'shorts' : 'animation',
                     visual_mode: visualMode,
                     character_reference_url: body.characterReferenceUrl || null,
                     style_reference_url: body.styleReferenceUrl || null,
@@ -283,7 +297,7 @@ export async function POST(request: NextRequest) {
                 if ((!project || projectError) && isSchemaMissingColumnError(projectError)) {
                     sendLog('⚠️ DB schema is behind. Retrying project insert with legacy-safe columns.');
                     const legacyProjectInsert = {
-                        title: topic,
+                        title: typeof body.title === 'string' && body.title.trim() ? body.title.trim() : topic,
                         topic,
                         duration,
                         style: normalizedStyle.style,
@@ -310,26 +324,52 @@ export async function POST(request: NextRequest) {
                 createdProjectId = project.id;
                 sendEvent('project_created', { projectId: project.id });
 
-                sendLog('✍️ Writing script with Gemini...');
+                sendLog('Writing story bible and shot board with Gemini...');
                 await delay(600);
 
                 const scriptResult = await generateScript(topic, duration, scriptStyle, 'ko', scriptPersona);
                 sendProgress(20);
-                sendLog(`✅ Script generated: "${scriptResult.title}" (${scriptResult.segments.length} segments, tone=${scriptPersona})`);
+                sendLog(`Shot board generated: "${scriptResult.title}" (${scriptResult.segments.length} cuts, template=${scriptPersona})`);
 
                 const segmentsToInsert = scriptResult.segments.map((seg: any, index: number) => ({
                     project_id: project.id,
                     order_index: index,
                     script_text: seg.text,
                     visual_description: seg.visual || seg.text,
+                    camera_work: 'medium shot, readable staging',
+                    action_notes: seg.visual || seg.text,
+                    lighting_notes: storyBible.tone,
+                    emotion_notes: scriptPersona,
+                    negative_prompt: storyBible.negativeRules,
+                    review_status: 'draft',
                     duration_ms: seg.estimatedDurationMs,
                 }));
 
-                const { data: segmentsData, error: segmentError } = await supabase
+                let { data: segmentsData, error: segmentError } = await supabase
                     .from('segments')
                     .insert(segmentsToInsert)
                     .select()
                     .order('order_index', { ascending: true });
+
+                if ((!segmentsData?.length || segmentError) && isSchemaMissingColumnError(segmentError)) {
+                    sendLog('DB schema is behind. Retrying shot board insert with legacy-safe segment columns.');
+                    const legacySegmentsToInsert = segmentsToInsert.map((segment) => ({
+                        project_id: segment.project_id,
+                        order_index: segment.order_index,
+                        script_text: segment.script_text,
+                        visual_description: segment.visual_description,
+                        duration_ms: segment.duration_ms,
+                    }));
+
+                    const retrySegments = await supabase
+                        .from('segments')
+                        .insert(legacySegmentsToInsert)
+                        .select()
+                        .order('order_index', { ascending: true });
+
+                    segmentsData = retrySegments.data;
+                    segmentError = retrySegments.error;
+                }
 
                 const segments = segmentsData || [];
 
@@ -697,6 +737,7 @@ export async function POST(request: NextRequest) {
                             style: resolved.effectiveStylePreset,
                             modelId: videoModelId,
                             resolution: videoResolution,
+                            aspectRatio,
                         });
 
                         if (videoJobId) {

@@ -70,6 +70,8 @@ export type Database = {
                     video_model: string;
                     pricing_version: string;
                     render_strategy: 'native' | 'reframe_portrait';
+                    story_bible: Json;
+                    production_mode: string;
                     status: string;
                     duration: number;
                     video_provider: string;
@@ -97,6 +99,8 @@ export type Database = {
                     video_model?: string;
                     pricing_version?: string;
                     render_strategy?: 'native' | 'reframe_portrait';
+                    story_bible?: Json;
+                    production_mode?: string;
                     status?: string;
                     duration?: number;
                     video_provider?: string;
@@ -124,6 +128,8 @@ export type Database = {
                     video_model?: string;
                     pricing_version?: string;
                     render_strategy?: 'native' | 'reframe_portrait';
+                    story_bible?: Json;
+                    production_mode?: string;
                     status?: string;
                     duration?: number;
                     video_provider?: string;
@@ -151,6 +157,12 @@ export type Database = {
                     image_model: string | null;
                     video_model: string | null;
                     last_quote_credits: number | null;
+                    camera_work: string | null;
+                    action_notes: string | null;
+                    lighting_notes: string | null;
+                    emotion_notes: string | null;
+                    negative_prompt: string | null;
+                    review_status: string;
                     created_at: string;
                 };
                 Insert: {
@@ -167,6 +179,12 @@ export type Database = {
                     image_model?: string | null;
                     video_model?: string | null;
                     last_quote_credits?: number | null;
+                    camera_work?: string | null;
+                    action_notes?: string | null;
+                    lighting_notes?: string | null;
+                    emotion_notes?: string | null;
+                    negative_prompt?: string | null;
+                    review_status?: string;
                     created_at?: string;
                 };
                 Update: {
@@ -183,6 +201,12 @@ export type Database = {
                     image_model?: string | null;
                     video_model?: string | null;
                     last_quote_credits?: number | null;
+                    camera_work?: string | null;
+                    action_notes?: string | null;
+                    lighting_notes?: string | null;
+                    emotion_notes?: string | null;
+                    negative_prompt?: string | null;
+                    review_status?: string;
                     created_at?: string;
                 };
             };
@@ -237,6 +261,62 @@ export type Database = {
                     created_at?: string;
                     started_at?: string | null;
                     finished_at?: string | null;
+                };
+            };
+            generation_takes: {
+                Row: {
+                    id: string;
+                    project_id: string;
+                    segment_id: string;
+                    media_type: 'image' | 'video' | 'audio';
+                    provider: string;
+                    model_id: string | null;
+                    prompt: string;
+                    params: Json;
+                    asset_url: string | null;
+                    thumbnail_url: string | null;
+                    status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+                    error: string | null;
+                    score: Json;
+                    review_notes: string | null;
+                    is_selected: boolean;
+                    created_at: string;
+                };
+                Insert: {
+                    id?: string;
+                    project_id: string;
+                    segment_id: string;
+                    media_type: 'image' | 'video' | 'audio';
+                    provider: string;
+                    model_id?: string | null;
+                    prompt?: string;
+                    params?: Json;
+                    asset_url?: string | null;
+                    thumbnail_url?: string | null;
+                    status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+                    error?: string | null;
+                    score?: Json;
+                    review_notes?: string | null;
+                    is_selected?: boolean;
+                    created_at?: string;
+                };
+                Update: {
+                    id?: string;
+                    project_id?: string;
+                    segment_id?: string;
+                    media_type?: 'image' | 'video' | 'audio';
+                    provider?: string;
+                    model_id?: string | null;
+                    prompt?: string;
+                    params?: Json;
+                    asset_url?: string | null;
+                    thumbnail_url?: string | null;
+                    status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+                    error?: string | null;
+                    score?: Json;
+                    review_notes?: string | null;
+                    is_selected?: boolean;
+                    created_at?: string;
                 };
             };
             pricing_versions: {
@@ -350,5 +430,7 @@ export type SegmentInsert = Database['public']['Tables']['segments']['Insert'];
 export type VideoJob = Database['public']['Tables']['video_jobs']['Row'];
 export type VideoJobInsert = Database['public']['Tables']['video_jobs']['Insert'];
 export type VideoJobStatus = VideoJob['status'];
+export type GenerationTake = Database['public']['Tables']['generation_takes']['Row'];
+export type GenerationTakeInsert = Database['public']['Tables']['generation_takes']['Insert'];
 export type CreditAccount = Database['public']['Tables']['credit_accounts']['Row'];
 export type CreditLedgerEntry = Database['public']['Tables']['credit_ledger_entries']['Row'];

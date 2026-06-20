@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
             modelId,
             model,
             resolution,
+            aspectRatio,
             audioEnabled,
         } = body;
 
@@ -218,6 +219,7 @@ export async function POST(request: NextRequest) {
                 style,
                 modelId: resolvedModelId,
                 resolution: resolvedResolution,
+                aspectRatio,
             });
             externalJobId = submitResult.externalJobId;
         } catch (submitError) {
@@ -244,6 +246,33 @@ export async function POST(request: NextRequest) {
                     started_at: new Date().toISOString(),
                 })
                 .eq('id', jobRecord.id);
+        }
+
+        if (segmentId && resolvedProjectId) {
+            await supabase
+                .from('generation_takes')
+                .insert({
+                    project_id: resolvedProjectId,
+                    segment_id: segmentId,
+                    media_type: 'video',
+                    provider: providerType,
+                    model_id: resolvedModelId,
+                    prompt: videoPrompt,
+                    params: {
+                        jobId: jobRecord?.id || null,
+                        externalJobId,
+                        duration: effectiveDuration,
+                        resolution: resolvedResolution,
+                        aspectRatio: aspectRatio || null,
+                    },
+                    status: 'running',
+                    is_selected: false,
+                } as never)
+                .then(({ error: takeError }) => {
+                    if (takeError) {
+                        console.warn('[VideoAPI] Failed to record video take:', takeError.message);
+                    }
+                });
         }
 
         return NextResponse.json({
@@ -402,6 +431,37 @@ export async function GET(request: NextRequest) {
                 }
             }
 
+            if (currentStatus === 'succeeded' && currentVideoUrl && job.segment_id) {
+                await supabase
+                    .from('generation_takes')
+                    .update({ is_selected: false } as never)
+                    .eq('segment_id', job.segment_id)
+                    .eq('media_type', 'video')
+                    .then(({ error: clearTakeError }) => {
+                        if (clearTakeError) {
+                            console.warn('[VideoAPI] Failed to clear previous video takes:', clearTakeError.message);
+                        }
+                    });
+
+                await supabase
+                    .from('generation_takes')
+                    .update({
+                        status: 'succeeded',
+                        asset_url: currentVideoUrl,
+                        thumbnail_url: currentVideoUrl,
+                        is_selected: true,
+                    } as never)
+                    .eq('segment_id', job.segment_id)
+                    .eq('media_type', 'video')
+                    .eq('model_id', job.model_id)
+                    .in('status', ['queued', 'running'])
+                    .then(({ error: takeError }) => {
+                        if (takeError) {
+                            console.warn('[VideoAPI] Failed to sync selected video take:', takeError.message);
+                        }
+                    });
+            }
+
             return NextResponse.json({
                 success: true,
                 jobId: job.id,
@@ -440,6 +500,17 @@ export async function GET(request: NextRequest) {
                     .from('segments')
                     .update({ video_url: statusResult.videoUrl })
                     .eq('id', segmentId);
+
+                await supabase
+                    .from('generation_takes')
+                    .update({
+                        status: 'succeeded',
+                        asset_url: statusResult.videoUrl,
+                        thumbnail_url: statusResult.videoUrl,
+                        is_selected: true,
+                    } as never)
+                    .eq('segment_id', segmentId)
+                    .eq('media_type', 'video');
             }
 
             return NextResponse.json({

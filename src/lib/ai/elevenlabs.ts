@@ -35,7 +35,7 @@ export async function generateTTS(
 
         const audioStream = await client.textToSpeech.convert(voiceId, {
             text,
-            modelId: 'eleven_multilingual_v2',
+            modelId: 'eleven_flash_v2_5',
         });
 
         const chunks: Uint8Array[] = [];

@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { listEnabledVideoModels, resolveDefaultVideoDuration } from '@/lib/models/registry';
+import {
+    getPreviewSourceLabel,
+    listEnabledVideoModels,
+    type ModelPreviewSource,
+    resolveDefaultVideoDuration,
+} from '@/lib/models/registry';
 import { createServerClient } from '@/lib/supabase';
 import { getDefaultVideoDurationSeconds, loadPricingContext, quoteVideoCreditsWithContext } from '@/lib/credits/pricing';
 import { fetchFalModelPreviews } from '@/lib/video/falModelMetadata';
@@ -20,22 +25,29 @@ export async function GET() {
                 resolution,
                 audioEnabled: false,
             }).quoteCredits,
+            estimatedUsdPerCut: model.estimatedUsdPerSecond?.[resolution] !== undefined
+                ? Number((model.estimatedUsdPerSecond[resolution]! * defaultDurationSeconds).toFixed(3))
+                : undefined,
         }));
 
         const falPreview = falPreviewMap[model.endpoint];
+        const hasOfficialPreview = Boolean(falPreview?.previewImageUrl || falPreview?.previewVideoUrl);
+        const previewSource: ModelPreviewSource = hasOfficialPreview ? 'official_thumbnail' : 'reference_placeholder';
         const previewImageUrl = falPreview?.previewImageUrl || model.fallbackPreviewImageUrl;
-        const previewVideoUrl = falPreview?.previewVideoUrl || model.fallbackPreviewVideoUrl;
-        const previewSource = falPreview?.previewImageUrl || falPreview?.previewVideoUrl ? 'fal' : 'local';
+        const previewVideoUrl = falPreview?.previewVideoUrl;
 
         return {
             id: model.id,
             label: model.label,
             description: model.description,
             previewSource,
+            previewSourceLabel: getPreviewSourceLabel(previewSource),
             previewImageUrl,
             previewVideoUrl,
             fallbackPreviewImageUrl: model.fallbackPreviewImageUrl,
-            fallbackPreviewVideoUrl: model.fallbackPreviewVideoUrl,
+            providerDisplayName: model.providerDisplayName,
+            modelDisplayName: model.modelDisplayName,
+            costModeLabel: model.costModeLabel,
             baseCreditsPerSecond: model.baseCreditsPerSecond,
             acceptsImageInput: model.acceptsImageInput,
             audioMultiplier: model.audioMultiplier,
@@ -52,6 +64,30 @@ export async function GET() {
             resolutions,
         };
     });
+
+    models.push({
+        id: 'local-comfyui-ltx-2.3',
+        label: 'Local · ComfyUI LTX 2.3',
+        description: 'Local ComfyUI LTX 2.3 workflow slot for 1280x720 animation motion tests.',
+        previewSource: 'local' as const,
+        previewSourceLabel: getPreviewSourceLabel('local'),
+        previewImageUrl: '/styles/cinematic.png',
+        providerDisplayName: 'Local ComfyUI',
+        modelDisplayName: 'LTX 2.3 Local Workflow',
+        costModeLabel: 'Local',
+        baseCreditsPerSecond: 0,
+        acceptsImageInput: true,
+        audioMultiplier: 1,
+        supportedResolutions: ['720p'],
+        defaultDurationSeconds: 4,
+        creditsByResolution: { '720p': 0 },
+        creditsPerSixSecondsByResolution: { '720p': 0 },
+        resolutions: [{ id: '720p', creditsPerCut: 0 }],
+        disabled: true,
+        offlineReason: process.env.COMFYUI_BASE_URL
+            ? 'ComfyUI LTX workflow adapter is not wired yet.'
+            : 'COMFYUI_BASE_URL is not configured.',
+    } as any);
 
     return NextResponse.json({
         pricingVersion: pricingContext.pricingVersion,

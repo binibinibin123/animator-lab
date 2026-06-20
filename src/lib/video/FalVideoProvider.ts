@@ -8,6 +8,7 @@ import {
     isVideoModelId,
     resolveVideoDuration,
     VIDEO_MODEL_REGISTRY,
+    type VideoModelConfig,
     type VideoModelId,
 } from '@/lib/models/registry';
 
@@ -15,6 +16,44 @@ import {
 fal.config({
     credentials: process.env.FAL_KEY,
 });
+
+export function buildFalVideoInput(
+    modelConfig: VideoModelConfig,
+    request: {
+        imageUrl?: string;
+        motionPrompt: string;
+        duration: number;
+        resolution?: string;
+        aspectRatio?: string;
+    },
+): Record<string, unknown> {
+    const input: Record<string, unknown> = {
+        prompt: request.motionPrompt,
+        ...(modelConfig.inputMapping.staticInput || {}),
+    };
+
+    if (!modelConfig.inputMapping.omitDuration) {
+        input.duration = modelConfig.inputMapping.durationFormat === 'seconds-string'
+            ? `${request.duration}s`
+            : modelConfig.inputMapping.durationFormat === 'string'
+                ? String(request.duration)
+                : request.duration;
+    }
+
+    if (!modelConfig.inputMapping.omitResolution && request.resolution && modelConfig.inputMapping.resolutionInputKey) {
+        input[modelConfig.inputMapping.resolutionInputKey] = request.resolution;
+    }
+
+    if (request.aspectRatio && modelConfig.inputMapping.aspectRatioInputKey) {
+        input[modelConfig.inputMapping.aspectRatioInputKey] = request.aspectRatio;
+    }
+
+    if (modelConfig.acceptsImageInput && request.imageUrl) {
+        input[modelConfig.inputMapping.imageInputKey] = request.imageUrl;
+    }
+
+    return input;
+}
 
 export class FalVideoProvider implements VideoProvider {
     readonly name = 'fal' as const;
@@ -83,26 +122,24 @@ export class FalVideoProvider implements VideoProvider {
         return imageUrl;
     }
 
-    async submitJob(request: { imageUrl: string; motionPrompt: string; duration?: number; modelId?: string; resolution?: string }): Promise<{ externalJobId: string }> {
-        const { imageUrl, motionPrompt, duration = 6, modelId, resolution } = request;
+    async submitJob(request: { imageUrl: string; motionPrompt: string; duration?: number; modelId?: string; resolution?: string; aspectRatio?: string }): Promise<{ externalJobId: string }> {
+        const { imageUrl, motionPrompt, duration = 6, modelId, resolution, aspectRatio } = request;
         const resolvedModelId: VideoModelId = isVideoModelId(modelId) ? modelId : getDefaultVideoModelId();
         const modelConfig = VIDEO_MODEL_REGISTRY[resolvedModelId];
         const validDuration = resolveVideoDuration(resolvedModelId, duration);
 
         console.log(`[FalVideoProvider] Submitting job with model ${resolvedModelId} prompt: ${motionPrompt}`);
 
-        const input: Record<string, unknown> = {
-            prompt: motionPrompt,
+        const preparedImageUrl = modelConfig.acceptsImageInput
+            ? await this.prepareImageUrlForFal(imageUrl)
+            : undefined;
+        const input = buildFalVideoInput(modelConfig, {
+            imageUrl: preparedImageUrl,
+            motionPrompt,
             duration: validDuration,
-        };
-
-        if (resolution) {
-            input.resolution = resolution;
-        }
-
-        if (modelConfig.acceptsImageInput) {
-            input.image_url = await this.prepareImageUrlForFal(imageUrl);
-        }
+            resolution,
+            aspectRatio,
+        });
 
         let requestId = '';
         try {

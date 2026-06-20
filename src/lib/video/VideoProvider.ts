@@ -13,6 +13,7 @@ export interface VideoGenerationRequest {
     style?: string;
     modelId?: string;
     resolution?: string;
+    aspectRatio?: string;
 }
 
 export interface VideoGenerationResult {

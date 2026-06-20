@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
             style: resolved.effectiveStylePreset,
             styleText: resolved.effectiveStyleText,
             aspectRatio: '16:9',
-            resolution: '2K',
+            resolution: 'medium',
             referenceImage: resolved.referenceImage || undefined,
             referenceMimeType: resolved.referenceMimeType || 'image/png',
             referenceIntent: resolved.referenceIntent,

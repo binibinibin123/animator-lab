@@ -1,27 +1,31 @@
 'use client';
 
-import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { createUploadSessionId, uploadProjectReference } from '@/lib/api/referenceUploadClient';
-import { getReferenceUploadMaxMb, validateReferenceUploadFile } from '@/lib/api/referenceUploadConfig';
+import { useRouter } from 'next/navigation';
 import type { AspectRatio, RenderStrategy } from '@/types';
 
-interface LogMessage {
-    message: string;
-    timestamp: number;
-}
+type PreviewSource = 'curated_sample' | 'official_thumbnail' | 'reference_placeholder' | 'none' | 'fal' | 'local';
 
 interface ImageModelOption {
     id: string;
     label: string;
     description: string;
-    previewSource?: 'fal' | 'local' | 'none';
+    previewSource?: PreviewSource;
+    previewSourceLabel?: string;
     previewImageUrl?: string;
     fallbackPreviewImageUrl?: string;
+    providerDisplayName?: string;
+    modelDisplayName?: string;
+    costModeLabel?: string;
+    defaultQuality?: string;
+    disabled?: boolean;
+    offlineReason?: string;
     qualities: Array<{
         id: string;
         credits: number;
+        modeLabel?: string;
+        estimatedUsd?: number;
     }>;
 }
 
@@ -29,14 +33,21 @@ interface VideoModelOption {
     id: string;
     label: string;
     description: string;
-    previewSource?: 'fal' | 'local' | 'none';
+    previewSource?: PreviewSource;
+    previewSourceLabel?: string;
     previewImageUrl?: string;
     previewVideoUrl?: string;
     fallbackPreviewImageUrl?: string;
+    providerDisplayName?: string;
+    modelDisplayName?: string;
+    costModeLabel?: string;
     defaultDurationSeconds?: number;
+    disabled?: boolean;
+    offlineReason?: string;
     resolutions: Array<{
         id: string;
         creditsPerCut: number;
+        estimatedUsdPerCut?: number;
     }>;
 }
 
@@ -47,178 +58,147 @@ interface VoiceOption {
     previewUrl?: string;
 }
 
-interface ScriptToneOption {
-    id: string;
-    name: string;
-    desc: string;
+interface LogMessage {
+    message: string;
+    timestamp: number;
 }
 
-interface HoverPreviewState {
-    modelId: string;
-    left: number;
-    top: number;
-}
-
-type VisualMode = 'character_fixed' | 'style_fixed';
-
-const STYLE_OPTIONS = [
-    { id: 'economy-1', name: '경제유튜브 1', thumbnail: '/styles/economy-1.png' },
-    { id: 'senior-1', name: '시니어 유튜브 1', thumbnail: '/styles/senior-1.png' },
-    { id: 'anime', name: '애니메이션', thumbnail: '/styles/anime.png' },
-    { id: 'realistic', name: '실사', thumbnail: '/styles/realistic.png' },
-    { id: 'digital-art', name: '디지털아트', thumbnail: '/styles/digital-art.png' },
-    { id: 'illustration', name: '일러스트', thumbnail: '/styles/illustration.png' },
-    { id: 'cinematic', name: '시네마틱', thumbnail: '/styles/cinematic.png' },
-    { id: 'cartoon', name: '카툰', thumbnail: '/styles/cartoon.png' },
-    { id: 'watercolor', name: '수채화', thumbnail: '/styles/watercolor.png' },
-    { id: 'minimalist', name: '미니멀', thumbnail: '/styles/minimalist.png' },
-    { id: '3d-render', name: '3D 렌더', thumbnail: '/styles/3d-render.png' },
-    { id: 'vintage', name: '빈티지', thumbnail: '/styles/vintage.png' },
-    { id: 'neon', name: '네온', thumbnail: '/styles/neon.png' },
-    { id: 'sketch', name: '스케치', thumbnail: '/styles/sketch.png' },
-];
-
-const DEFAULT_IMAGE_MODEL_ID = 'nano-banana-2';
-const DEFAULT_VIDEO_MODEL_ID = 'ltx-2-fast';
-
-const ORIENTATION_OPTIONS: { value: AspectRatio; label: string; desc: string }[] = [
-    { value: '16:9', label: '가로 (16:9)', desc: '유튜브 기본 가로형' },
-    { value: '9:16', label: '세로 (9:16)', desc: '쇼츠/릴스 기본형' },
-];
-
+const DEFAULT_IMAGE_MODEL_ID = 'gpt-image-2';
+const DEFAULT_VIDEO_MODEL_ID = 'ltx-2.3-fast';
 const DURATION_OPTIONS = [30, 45, 60, 90] as const;
-
-const SCRIPT_TONE_OPTIONS: ScriptToneOption[] = [
-    {
-        id: 'ko_trust_briefing',
-        name: '신뢰 브리핑형',
-        desc: '과장 없이 핵심 사실과 근거를 먼저 전달하는 뉴스/브리핑 톤',
-    },
-    {
-        id: 'ko_empathy_story',
-        name: '공감 스토리형',
-        desc: '시청자 상황에 공감하고 사례 중심으로 풀어내는 따뜻한 톤',
-    },
-    {
-        id: 'ko_practical_coach',
-        name: '실전 코치형',
-        desc: '바로 실행 가능한 체크리스트/행동 팁 중심의 코칭 톤',
-    },
-    {
-        id: 'ko_trend_analyst',
-        name: '트렌드 해설형',
-        desc: '왜 지금 중요한지 맥락과 흐름을 분석해 주는 인사이트 톤',
-    },
-    {
-        id: 'ko_light_variety',
-        name: '가벼운 예능형',
-        desc: '밝고 경쾌하지만 과도한 낚시 없이 전달하는 캐주얼 톤',
-    },
+const ASPECT_OPTIONS: Array<{ value: AspectRatio; label: string }> = [
+    { value: '16:9', label: '16:9 가로' },
+    { value: '9:16', label: '9:16 세로' },
 ];
 
-const HOVER_PREVIEW_WIDTH = 288;
-const HOVER_PREVIEW_HEIGHT = 162;
-const ESTIMATED_TTS_CHARS_PER_SECOND = 6;
+const DIRECTION_TEMPLATES = [
+    {
+        id: 'ani_webtoon_cutscene',
+        title: '웹툰 컷신',
+        summary: '대사, 표정, 패널 전환, 컷 간 연결 중심',
+    },
+    {
+        id: 'ani_cinematic_sequence',
+        title: '시네마틱 시퀀스',
+        summary: '카메라워크, 조명, 감정선 중심',
+    },
+    {
+        id: 'ani_action_beat',
+        title: '액션 비트',
+        summary: '동작, 타이밍, 임팩트 포즈 중심',
+    },
+    {
+        id: 'ani_character_showcase',
+        title: '캐릭터 쇼케이스',
+        summary: '캐릭터 일관성, 포즈, 표정 중심',
+    },
+    {
+        id: 'ani_montage_mv',
+        title: '몽타주 / MV',
+        summary: '리듬, 이미지 연결, 분위기 중심',
+    },
+] as const;
+
+function getPreviewImageUrl(model: { previewImageUrl?: string; fallbackPreviewImageUrl?: string }) {
+    return model.previewImageUrl || model.fallbackPreviewImageUrl || '/styles/cinematic.png';
+}
+
+function getPreviewLabel(model: { previewSource?: PreviewSource; previewSourceLabel?: string }) {
+    if (model.previewSourceLabel) return model.previewSourceLabel;
+    if (model.previewSource === 'official_thumbnail' || model.previewSource === 'fal') return 'fal official preview';
+    if (model.previewSource === 'local') return 'Local reference preview';
+    return 'Reference image · not model output';
+}
+
+function formatUsd(value?: number) {
+    return typeof value === 'number' ? `$${value.toFixed(value < 0.1 ? 3 : 2)}` : null;
+}
 
 export default function AutopilotPage() {
     const router = useRouter();
+    const logsEndRef = useRef<HTMLDivElement>(null);
+
+    const [projectTitle, setProjectTitle] = useState('새 애니메이션 작품');
     const [topic, setTopic] = useState('');
-    const [visualMode, setVisualMode] = useState<VisualMode>('style_fixed');
-    const [style, setStyle] = useState('anime');
-    const [styleText, setStyleText] = useState('');
-    const [scriptTone, setScriptTone] = useState<string>(SCRIPT_TONE_OPTIONS[0].id);
+    const [storyGenre, setStoryGenre] = useState('어반 판타지');
+    const [storyTone, setStoryTone] = useState('시네마틱 서스펜스');
+    const [directionTemplate, setDirectionTemplate] = useState<(typeof DIRECTION_TEMPLATES)[number]['id']>('ani_webtoon_cutscene');
+    const [storyCharacters, setStoryCharacters] = useState('');
+    const [storyWorld, setStoryWorld] = useState('');
+    const [storyNegativeRules, setStoryNegativeRules] = useState('깨진 손, 일그러진 얼굴, 읽을 수 없는 텍스트, 과한 고어 표현 금지');
+    const [styleText, setStyleText] = useState('웹툰풍 선명한 실루엣, 일관된 캐릭터 디자인, 영화적인 조명');
     const [durationSeconds, setDurationSeconds] = useState<number>(30);
-    const [voices, setVoices] = useState<VoiceOption[]>([]);
-    const [selectedVoiceId, setSelectedVoiceId] = useState<string>('');
-    const [isLoadingVoices, setIsLoadingVoices] = useState(false);
-    const [playingVoicePreviewId, setPlayingVoicePreviewId] = useState<string | null>(null);
     const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
     const [renderStrategy, setRenderStrategy] = useState<RenderStrategy>('native');
     const [imageModelId, setImageModelId] = useState(DEFAULT_IMAGE_MODEL_ID);
     const [videoModelId, setVideoModelId] = useState(DEFAULT_VIDEO_MODEL_ID);
-    const [imageQuality, setImageQuality] = useState('2K');
+    const [imageQuality, setImageQuality] = useState('medium');
     const [videoResolution, setVideoResolution] = useState('1080p');
-    const [showAdvancedModels, setShowAdvancedModels] = useState(false);
     const [imageModels, setImageModels] = useState<ImageModelOption[]>([]);
     const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
+    const [voices, setVoices] = useState<VoiceOption[]>([]);
+    const [selectedVoiceId, setSelectedVoiceId] = useState('');
+    const [showAdvancedModels, setShowAdvancedModels] = useState(false);
+    const [comfyStatus, setComfyStatus] = useState<{ configured: boolean; online: boolean } | null>(null);
     const [estimatedTtsCredits, setEstimatedTtsCredits] = useState(0);
-    const [failedVideoPreviewIds, setFailedVideoPreviewIds] = useState<Record<string, true>>({});
-    const [readyVideoPreviewIds, setReadyVideoPreviewIds] = useState<Record<string, true>>({});
-    const [hoverPreview, setHoverPreview] = useState<HoverPreviewState | null>(null);
-    const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
-    const [referenceFileName, setReferenceFileName] = useState<string | null>(null);
-    const [referenceError, setReferenceError] = useState<string | null>(null);
-    const [isUploadingReference, setIsUploadingReference] = useState(false);
-    const [isReferenceDragOver, setIsReferenceDragOver] = useState(false);
-    const [uploadSessionId] = useState(() => createUploadSessionId());
-
-    const [isRunning, setIsRunning] = useState(false);
+    const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
     const [progress, setProgress] = useState(0);
     const [logs, setLogs] = useState<LogMessage[]>([]);
-    const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
     const [projectId, setProjectId] = useState<string | null>(null);
-    const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'warn' | 'error'; message: string } | null>(null);
-    const logsEndRef = useRef<HTMLDivElement>(null);
-    const streamAbortRef = useRef<AbortController | null>(null);
-    const hoverHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const referenceInputRef = useRef<HTMLInputElement>(null);
-    const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
 
     useEffect(() => {
         let cancelled = false;
 
-        const loadModelOptions = async () => {
-            try {
-                const [imageResponse, videoResponse] = await Promise.all([
-                    fetch('/api/models/image'),
-                    fetch('/api/models/video'),
-                ]);
+        async function load() {
+            const [imageResponse, videoResponse, voicesResponse, comfyResponse] = await Promise.all([
+                fetch('/api/models/image'),
+                fetch('/api/models/video'),
+                fetch('/api/voices').catch(() => null),
+                fetch('/api/comfyui/status').catch(() => null),
+            ]);
 
-                if (!imageResponse.ok || !videoResponse.ok) {
-                    throw new Error('모델 정보를 불러오지 못했습니다.');
-                }
+            if (cancelled) return;
 
-                const imagePayload = await imageResponse.json();
-                const videoPayload = await videoResponse.json();
-
-                if (cancelled) {
-                    return;
-                }
-
-                const nextImageModels: ImageModelOption[] = imagePayload?.models || [];
-                const nextVideoModels: VideoModelOption[] = videoPayload?.models || [];
-                setImageModels(nextImageModels);
-                setVideoModels(nextVideoModels);
-
-                if (nextImageModels.length > 0) {
-                    setImageModelId((prevId) => {
-                        const currentImageModel = nextImageModels.find((model) => model.id === prevId) || nextImageModels[0];
-                        setImageQuality((prevQuality) => {
-                            const currentQuality = currentImageModel.qualities.find((quality) => quality.id === prevQuality) || currentImageModel.qualities[0];
-                            return currentQuality ? currentQuality.id : prevQuality;
-                        });
-                        return currentImageModel.id;
-                    });
-                }
-
-                if (nextVideoModels.length > 0) {
-                    setVideoModelId((prevId) => {
-                        const currentVideoModel = nextVideoModels.find((model) => model.id === prevId) || nextVideoModels[0];
-                        setVideoResolution((prevResolution) => {
-                            const currentResolution = currentVideoModel.resolutions.find((resolution) => resolution.id === prevResolution) || currentVideoModel.resolutions[0];
-                            return currentResolution ? currentResolution.id : prevResolution;
-                        });
-                        return currentVideoModel.id;
-                    });
-                }
-            } catch (error: any) {
-                if (!cancelled) {
-                    setNotice({ type: 'warn', message: error?.message || '모델 설정을 불러오지 못했습니다.' });
+            if (imageResponse.ok) {
+                const payload = await imageResponse.json();
+                const nextModels: ImageModelOption[] = payload.models || [];
+                setImageModels(nextModels);
+                const selected = nextModels.find((model) => model.id === DEFAULT_IMAGE_MODEL_ID) || nextModels.find((model) => !model.disabled);
+                if (selected) {
+                    setImageModelId(selected.id);
+                    setImageQuality(selected.defaultQuality || selected.qualities[0]?.id || 'medium');
                 }
             }
-        };
 
-        void loadModelOptions();
+            if (videoResponse.ok) {
+                const payload = await videoResponse.json();
+                const nextModels: VideoModelOption[] = payload.models || [];
+                setVideoModels(nextModels);
+                const selected = nextModels.find((model) => model.id === DEFAULT_VIDEO_MODEL_ID) || nextModels.find((model) => !model.disabled);
+                if (selected) {
+                    setVideoModelId(selected.id);
+                    setVideoResolution(selected.resolutions[0]?.id || '1080p');
+                }
+            }
+
+            if (voicesResponse?.ok) {
+                const payload = await voicesResponse.json();
+                const nextVoices: VoiceOption[] = payload.voices || [];
+                setVoices(nextVoices);
+                if (nextVoices[0]) setSelectedVoiceId(nextVoices[0].voiceId);
+            }
+
+            if (comfyResponse?.ok) {
+                setComfyStatus(await comfyResponse.json());
+            } else {
+                setComfyStatus({ configured: false, online: false });
+            }
+        }
+
+        void load().catch((error) => {
+            if (!cancelled) setNotice(error instanceof Error ? error.message : 'Failed to load setup data');
+        });
 
         return () => {
             cancelled = true;
@@ -228,34 +208,23 @@ export default function AutopilotPage() {
     useEffect(() => {
         let cancelled = false;
 
-        const estimateTtsCredits = async () => {
-            try {
-                const estimatedCharacters = Math.max(1, Math.round(durationSeconds * ESTIMATED_TTS_CHARS_PER_SECOND));
-                const response = await fetch('/api/credits/quote', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        mode: 'tts',
-                        text: '가'.repeat(estimatedCharacters),
-                    }),
-                });
+        async function estimateTts() {
+            const response = await fetch('/api/credits/quote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mode: 'tts',
+                    text: 'a'.repeat(Math.max(1, durationSeconds * 6)),
+                }),
+            });
+            if (!response.ok || cancelled) return;
+            const payload = await response.json();
+            setEstimatedTtsCredits(Number(payload.quoteCredits || 0));
+        }
 
-                if (!response.ok) {
-                    throw new Error('TTS estimate failed');
-                }
-
-                const payload = await response.json();
-                if (!cancelled) {
-                    setEstimatedTtsCredits(Number(payload?.quoteCredits || 0));
-                }
-            } catch {
-                if (!cancelled) {
-                    setEstimatedTtsCredits(0);
-                }
-            }
-        };
-
-        void estimateTtsCredits();
+        void estimateTts().catch(() => {
+            if (!cancelled) setEstimatedTtsCredits(0);
+        });
 
         return () => {
             cancelled = true;
@@ -263,1028 +232,451 @@ export default function AutopilotPage() {
     }, [durationSeconds]);
 
     useEffect(() => {
-        let cancelled = false;
+        logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [logs]);
 
-        const loadVoices = async () => {
-            setIsLoadingVoices(true);
-            try {
-                const response = await fetch('/api/voices');
-                if (!response.ok) {
-                    throw new Error('보이스 목록을 불러오지 못했습니다.');
-                }
-
-                const payload = await response.json();
-                if (cancelled) {
-                    return;
-                }
-
-                const nextVoices: VoiceOption[] = payload?.voices || [];
-                setVoices(nextVoices);
-
-                if (nextVoices.length > 0) {
-                    setSelectedVoiceId((prev) => {
-                        if (prev && nextVoices.some((voice) => voice.voiceId === prev)) {
-                            return prev;
-                        }
-                        return nextVoices[0].voiceId;
-                    });
-                }
-            } catch (error: any) {
-                if (!cancelled) {
-                    setNotice({ type: 'warn', message: error?.message || '보이스 목록을 불러오지 못했습니다.' });
-                }
-            } finally {
-                if (!cancelled) {
-                    setIsLoadingVoices(false);
-                }
-            }
-        };
-
-        void loadVoices();
-
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-
-    const selectedImageModel = imageModels.find((model) => model.id === imageModelId) || imageModels[0] || null;
+    const selectedImageModel = imageModels.find((model) => model.id === imageModelId) || imageModels.find((model) => !model.disabled) || null;
     const selectedImageQuality = selectedImageModel?.qualities.find((quality) => quality.id === imageQuality) || selectedImageModel?.qualities[0] || null;
-    const selectedVideoModel = videoModels.find((model) => model.id === videoModelId) || videoModels[0] || null;
+    const selectedVideoModel = videoModels.find((model) => model.id === videoModelId) || videoModels.find((model) => !model.disabled) || null;
     const selectedVideoResolution = selectedVideoModel?.resolutions.find((resolution) => resolution.id === videoResolution) || selectedVideoModel?.resolutions[0] || null;
     const selectedVideoDurationSeconds = selectedVideoModel?.defaultDurationSeconds || 6;
-    const estimatedCutCount = Math.max(1, Math.ceil(durationSeconds / selectedVideoDurationSeconds));
-    const estimatedImageCredits = (selectedImageQuality?.credits || 0) * estimatedCutCount;
-    const estimatedVideoCredits = (selectedVideoResolution?.creditsPerCut || 0) * estimatedCutCount;
-    const estimatedTotalCredits = estimatedImageCredits + estimatedVideoCredits + estimatedTtsCredits;
-    const hoveredVideoModel = hoverPreview
-        ? videoModels.find((model) => model.id === hoverPreview.modelId) || null
-        : null;
-    const selectedVoice = voices.find((voice) => voice.voiceId === selectedVoiceId) || null;
+    const selectedDirectionTemplate = DIRECTION_TEMPLATES.find((template) => template.id === directionTemplate) || DIRECTION_TEMPLATES[0];
 
-    const getPreviewImageUrl = (model: { previewImageUrl?: string; fallbackPreviewImageUrl?: string } | null | undefined) => {
-        return model?.previewImageUrl || model?.fallbackPreviewImageUrl || '/styles/minimalist.png';
-    };
-
-    const markVideoPreviewFailed = (modelId: string) => {
-        setFailedVideoPreviewIds((prev) => {
-            if (prev[modelId]) {
-                return prev;
-            }
-
-            return {
-                ...prev,
-                [modelId]: true,
-            };
-        });
-    };
-
-    const markVideoPreviewReady = (modelId: string) => {
-        setReadyVideoPreviewIds((prev) => {
-            if (prev[modelId]) {
-                return prev;
-            }
-
-            return {
-                ...prev,
-                [modelId]: true,
-            };
-        });
-    };
-
-    const clearHoverHideTimer = () => {
-        if (hoverHideTimerRef.current) {
-            clearTimeout(hoverHideTimerRef.current);
-            hoverHideTimerRef.current = null;
-        }
-    };
-
-    const scheduleHideHoverPreview = () => {
-        clearHoverHideTimer();
-        hoverHideTimerRef.current = setTimeout(() => {
-            setHoverPreview(null);
-        }, 120);
-    };
-
-    const showHoverPreviewForCard = (modelId: string, cardEl: HTMLButtonElement) => {
-        clearHoverHideTimer();
-
-        const anchor = cardEl.querySelector('[data-video-preview-anchor="true"]') as HTMLElement | null;
-        const rect = (anchor || cardEl).getBoundingClientRect();
-
-        let left = rect.right + 16;
-        if (left + HOVER_PREVIEW_WIDTH > window.innerWidth - 16) {
-            left = rect.left - HOVER_PREVIEW_WIDTH - 16;
-        }
-        if (left < 16) {
-            left = Math.max(16, Math.round((window.innerWidth - HOVER_PREVIEW_WIDTH) / 2));
-        }
-
-        const centeredTop = rect.top + (rect.height / 2) - (HOVER_PREVIEW_HEIGHT / 2);
-        const top = Math.max(16, Math.min(centeredTop, window.innerHeight - HOVER_PREVIEW_HEIGHT - 16));
-
-        setHoverPreview({
-            modelId,
-            left,
-            top,
-        });
-    };
-
-    const toggleVoicePreview = (voice: VoiceOption | null) => {
-        if (!voice?.previewUrl) {
-            return;
-        }
-
-        if (playingVoicePreviewId === voice.voiceId) {
-            voicePreviewAudioRef.current?.pause();
-            setPlayingVoicePreviewId(null);
-            return;
-        }
-
-        if (voicePreviewAudioRef.current) {
-            voicePreviewAudioRef.current.pause();
-            voicePreviewAudioRef.current = null;
-        }
-
-        const audio = new Audio(voice.previewUrl);
-        audio.volume = 0.55;
-        audio.onended = () => setPlayingVoicePreviewId(null);
-        audio.onpause = () => {
-            setPlayingVoicePreviewId((prev) => (prev === voice.voiceId ? null : prev));
+    const estimate = useMemo(() => {
+        const cutCount = Math.max(1, Math.ceil(durationSeconds / selectedVideoDurationSeconds));
+        const imageCredits = (selectedImageQuality?.credits || 0) * cutCount;
+        const videoCredits = (selectedVideoResolution?.creditsPerCut || 0) * cutCount;
+        return {
+            cutCount,
+            imageCredits,
+            videoCredits,
+            totalCredits: imageCredits + videoCredits + estimatedTtsCredits,
         };
-
-        voicePreviewAudioRef.current = audio;
-        audio.play().then(() => {
-            setPlayingVoicePreviewId(voice.voiceId);
-        }).catch(() => {
-            setPlayingVoicePreviewId(null);
-            setNotice({ type: 'warn', message: '보이스 미리듣기를 재생하지 못했습니다.' });
-        });
-    };
-
-    useEffect(() => {
-        return () => {
-            if (hoverHideTimerRef.current) {
-                clearTimeout(hoverHideTimerRef.current);
-                hoverHideTimerRef.current = null;
-            }
-
-            if (voicePreviewAudioRef.current) {
-                voicePreviewAudioRef.current.pause();
-                voicePreviewAudioRef.current = null;
-            }
-        };
-    }, []);
-
-    const handleVisualModeChange = (nextMode: VisualMode) => {
-        if (nextMode === visualMode) {
-            return;
-        }
-
-        setVisualMode(nextMode);
-        setReferencePreviewUrl(null);
-        setReferenceFileName(null);
-        setReferenceError(null);
-    };
-
-    const handleReferenceFileChange = async (file: File | null) => {
-        if (!file) {
-            setReferencePreviewUrl(null);
-            setReferenceFileName(null);
-            setReferenceError(null);
-            return;
-        }
-
-        const validationError = validateReferenceUploadFile(file);
-        if (validationError) {
-            setReferenceError(validationError);
-            return;
-        }
-
-        setIsUploadingReference(true);
-        setReferenceError(null);
-
-        try {
-            const uploaded = await uploadProjectReference({
-                file,
-                referenceType: visualMode === 'character_fixed' ? 'character' : 'style',
-                uploadSessionId,
-            });
-
-            setReferencePreviewUrl(uploaded.url);
-            setReferenceFileName(file.name);
-        } catch (error: any) {
-            console.error('Reference upload error:', error);
-            setReferencePreviewUrl(null);
-            setReferenceFileName(null);
-            setReferenceError(error?.message || '참조 이미지 업로드에 실패했습니다.');
-        } finally {
-            setIsUploadingReference(false);
-        }
-    };
-
-    const triggerReferencePicker = () => {
-        if (isRunning || isUploadingReference) {
-            return;
-        }
-        referenceInputRef.current?.click();
-    };
-
-    const handleReferenceDrop = (event: DragEvent<HTMLElement>) => {
-        event.preventDefault();
-        setIsReferenceDragOver(false);
-
-        if (isRunning || isUploadingReference) {
-            return;
-        }
-
-        const file = event.dataTransfer.files?.[0] || null;
-        void handleReferenceFileChange(file);
-    };
+    }, [durationSeconds, selectedImageQuality, selectedVideoDurationSeconds, selectedVideoResolution, estimatedTtsCredits]);
 
     const startAutopilot = async () => {
-        if (!topic.trim()) {
-            setNotice({ type: 'warn', message: '주제를 먼저 입력해 주세요.' });
+        if (!topic.trim() || !selectedImageModel || !selectedImageQuality || !selectedVideoModel || !selectedVideoResolution) {
+            setNotice('작품 아이디어를 입력하고 모델 옵션 로딩이 끝날 때까지 기다려 주세요.');
             return;
         }
 
-        if (isUploadingReference) {
-            setNotice({ type: 'warn', message: '참조 이미지 업로드가 완료된 뒤 다시 시도해 주세요.' });
-            return;
-        }
-
-        if (!selectedImageQuality || !selectedVideoResolution) {
-            setNotice({ type: 'warn', message: '모델 옵션을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.' });
-            return;
-        }
-
-        setNotice({
-            type: 'info',
-            message:
-                visualMode === 'character_fixed'
-                    ? '캐릭터 고정 모드로 오토파일럿을 시작합니다. 참조를 업로드하지 않으면 일관성은 best-effort로 처리됩니다.'
-                    : '스타일 고정 모드로 오토파일럿을 시작합니다. 참조 이미지는 선택사항입니다.',
-        });
-
-        setIsRunning(true);
         setStatus('running');
         setProgress(0);
         setLogs([]);
-
-        const controller = new AbortController();
-        streamAbortRef.current = controller;
+        setNotice(null);
 
         try {
             const response = await fetch('/api/autopilot/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    title: projectTitle.trim() || topic,
                     topic,
                     duration: durationSeconds,
-                    persona: scriptTone,
+                    persona: directionTemplate,
                     voiceId: selectedVoiceId || undefined,
                     aspectRatio,
                     renderStrategy: aspectRatio === '9:16' ? renderStrategy : 'native',
-                    style,
-                    styleText: styleText.trim() || undefined,
+                    style: 'anime',
+                    styleText: [
+                        `연출 템플릿: ${selectedDirectionTemplate.title}`,
+                        `템플릿 의도: ${selectedDirectionTemplate.summary}`,
+                        `비주얼 규칙: ${styleText.trim() || '캐릭터와 배경의 일관성 유지'}`,
+                    ].join('\n'),
                     imageModelId,
                     videoModelId,
                     imageQuality: selectedImageQuality.id,
                     videoResolution: selectedVideoResolution.id,
-                    visualMode,
-                    characterReferenceUrl: visualMode === 'character_fixed' ? referencePreviewUrl || undefined : undefined,
-                    styleReferenceUrl: visualMode === 'style_fixed' ? referencePreviewUrl || undefined : undefined,
+                    visualMode: 'style_fixed',
+                    productionMode: 'animation',
+                    storyBible: {
+                        logline: topic,
+                        genre: storyGenre,
+                        tone: storyTone,
+                        characters: storyCharacters,
+                        world: storyWorld,
+                        styleRules: styleText.trim() || undefined,
+                        negativeRules: storyNegativeRules,
+                        directionTemplate: selectedDirectionTemplate.title,
+                        targetCutCount: estimate.cutCount,
+                    },
                 }),
-                signal: controller.signal,
             });
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData?.error?.message || 'Failed to start autopilot');
+                const errorPayload = await response.json().catch(() => ({}));
+                throw new Error(errorPayload?.error?.message || 'Failed to start autopilot');
             }
 
             const reader = response.body?.getReader();
             const decoder = new TextDecoder();
-
-            if (!reader) throw new Error('No response body');
+            if (!reader) throw new Error('No response stream');
 
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-
                 const chunk = decoder.decode(value);
-                const lines = chunk.split('\n\n');
-
-                for (const line of lines) {
-                    if (!line.startsWith('event: ')) continue;
-
-                    const eventName = line.split('\n')[0].replace('event: ', '');
-                    const dataStr = line.split('\n')[1]?.replace('data: ', '');
-                    if (!dataStr) continue;
-
-                    try {
-                        const data = JSON.parse(dataStr);
-
-                        if (eventName === 'log') {
-                            setLogs((prev) => [...prev, { message: data.message, timestamp: Date.now() }]);
-                        } else if (eventName === 'progress') {
-                            setProgress(data.progress);
-                        } else if (eventName === 'project_created') {
-                            setProjectId(data.projectId);
-                        } else if (eventName === 'completed') {
-                            setStatus('completed');
-                            setProgress(100);
-                        } else if (eventName === 'error') {
-                            setStatus('error');
-                            const message = data?.error?.message || data?.message || 'Unknown error';
-                            setLogs((prev) => [...prev, { message: `❌ Error: ${message}`, timestamp: Date.now() }]);
-                        }
-                    } catch (parseError) {
-                        console.error('Failed to parse SSE data', parseError);
+                for (const eventBlock of chunk.split('\n\n')) {
+                    if (!eventBlock.startsWith('event: ')) continue;
+                    const [eventLine, dataLine] = eventBlock.split('\n');
+                    const eventName = eventLine.replace('event: ', '');
+                    const data = JSON.parse((dataLine || 'data: {}').replace('data: ', ''));
+                    if (eventName === 'progress') setProgress(Number(data.progress || 0));
+                    if (eventName === 'log') setLogs((prev) => [...prev, { message: data.message || '', timestamp: Date.now() }]);
+                    if (eventName === 'project_created') setProjectId(data.projectId);
+                    if (eventName === 'completed') {
+                        setProgress(100);
+                        setStatus('completed');
+                    }
+                    if (eventName === 'error') {
+                        setStatus('error');
+                        setLogs((prev) => [...prev, { message: data?.message || data?.error?.message || 'Unknown error', timestamp: Date.now() }]);
                     }
                 }
             }
-        } catch (error: any) {
-            if (error?.name === 'AbortError') {
-                setStatus('idle');
-                setNotice({ type: 'info', message: '오토파일럿 작업을 중단했습니다.' });
-                setLogs((prev) => [...prev, { message: '⏹️ 사용자 요청으로 작업이 중단되었습니다.', timestamp: Date.now() }]);
-                return;
-            }
-
-            console.error('Autopilot error:', error);
+        } catch (error) {
             setStatus('error');
-            setLogs((prev) => [...prev, { message: `❌ System Error: ${error.message}`, timestamp: Date.now() }]);
-            setNotice({ type: 'error', message: '오토파일럿 실행 중 오류가 발생했습니다.' });
-        } finally {
-            setIsRunning(false);
-            streamAbortRef.current = null;
+            setLogs((prev) => [...prev, { message: error instanceof Error ? error.message : 'Unknown error', timestamp: Date.now() }]);
         }
     };
 
-    const stopAutopilot = () => {
-        streamAbortRef.current?.abort();
-        streamAbortRef.current = null;
-        setIsRunning(false);
-    };
-
     return (
-        <div className="max-w-2xl mx-auto space-y-8">
+        <div className="mx-auto max-w-5xl space-y-8">
             <div>
-                <Link href="/create/new" className="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1">
-                    ← 일반 모드로 돌아가기
+                <Link href="/create/new" className="text-sm text-slate-500 hover:text-slate-900">
+                    수동 설정으로 돌아가기
                 </Link>
             </div>
 
             {notice && (
-                <div className={`rounded-xl border px-4 py-3 text-sm ${notice.type === 'error'
-                    ? 'bg-red-50 border-red-200 text-red-700'
-                    : notice.type === 'warn'
-                        ? 'bg-amber-50 border-amber-200 text-amber-700'
-                        : notice.type === 'success'
-                            ? 'bg-green-50 border-green-200 text-green-700'
-                            : 'bg-blue-50 border-blue-200 text-blue-700'
-                    }`}>
-                    {notice.message}
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    {notice}
                 </div>
             )}
 
-            <div className="text-center space-y-2">
-                <div className="inline-block px-3 py-1 bg-violet-100 text-violet-700 rounded-full text-xs font-bold mb-2">✨ Auto Mode</div>
-                <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-indigo-600">
-                    AutoVideo 오토파일럿
+            <section className="text-center">
+                <div className="mb-3 inline-flex rounded-full bg-slate-950 px-3 py-1 text-xs font-bold text-white">
+                    Animation Production Workspace
+                </div>
+                <h1 data-testid="animator-lab-title" className="text-5xl font-black tracking-tight text-slate-950">
+                    Animator Lab
                 </h1>
-                <p className="text-gray-500">주제만 입력하면 대본부터 영상까지 한 번에 생성합니다.</p>
+                <p className="mx-auto mt-3 max-w-2xl text-slate-500">
+                    아이디어를 스토리 바이블과 컷보드로 분해하고, 이미지/모션 테이크를 비교한 뒤 편집과 렌더까지 이어가는 애니메이션 제작 워크벤치입니다.
+                </p>
+                <div
+                    data-testid="comfyui-status"
+                    className={`mt-4 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
+                        comfyStatus?.online ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'
+                    }`}
+                >
+                    <span className={`h-2 w-2 rounded-full ${comfyStatus?.online ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                    Local ComfyUI: {comfyStatus?.online ? 'Online' : 'Offline'}
+                </div>
+            </section>
+
+            <div className="grid gap-3 md:grid-cols-3">
+                <div data-testid="story-bible-panel" className="rounded-2xl border bg-white p-4 shadow-sm">
+                    <p className="font-bold text-slate-950">스토리 바이블</p>
+                    <p className="mt-1 text-xs text-slate-500">로그라인, 캐릭터, 세계관, 톤, 스타일 규칙, 금지 요소를 먼저 고정합니다.</p>
+                </div>
+                <div data-testid="shot-board-panel" className="rounded-2xl border bg-white p-4 shadow-sm">
+                    <p className="font-bold text-slate-950">컷보드</p>
+                    <p className="mt-1 text-xs text-slate-500">컷마다 대사, 카메라, 액션, 조명, 감정, 예상 길이를 분리합니다.</p>
+                </div>
+                <div data-testid="model-lab-panel" className="rounded-2xl border bg-white p-4 shadow-sm">
+                    <p className="font-bold text-slate-950">모델랩</p>
+                    <p className="mt-1 text-xs text-slate-500">클라우드와 로컬 모델 결과를 take로 비교하고 최종 컷만 선택합니다.</p>
+                </div>
             </div>
 
-            {status === 'idle' && (
-                <div className="bg-white p-8 rounded-2xl border shadow-sm space-y-6">
-                    <div className="space-y-3">
-                        <p className="text-sm font-medium text-gray-700">생성 모드</p>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                type="button"
-                                onClick={() => handleVisualModeChange('character_fixed')}
-                                className={`px-4 py-3 rounded-xl border-2 text-left ${visualMode === 'character_fixed'
-                                    ? 'border-violet-600 bg-violet-50'
-                                    : 'border-gray-200 hover:border-gray-300'
-                                    }`}
-                            >
-                                <p className="font-semibold text-gray-900">캐릭터 고정</p>
-                                <p className="text-xs text-gray-500 mt-1">참조가 없으면 best-effort</p>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleVisualModeChange('style_fixed')}
-                                className={`px-4 py-3 rounded-xl border-2 text-left ${visualMode === 'style_fixed'
-                                    ? 'border-violet-600 bg-violet-50'
-                                    : 'border-gray-200 hover:border-gray-300'
-                                    }`}
-                            >
-                                <p className="font-semibold text-gray-900">스타일 고정</p>
-                                <p className="text-xs text-gray-500 mt-1">그림체를 우선 유지</p>
-                            </button>
+            {status === 'idle' ? (
+                <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+                    <div className="space-y-6 rounded-2xl border bg-white p-6 shadow-sm">
+                        <div className="space-y-2">
+                            <label htmlFor="autopilot-title" className="text-sm font-bold text-slate-700">
+                                작품 제목
+                            </label>
+                            <input
+                                id="autopilot-title"
+                                value={projectTitle}
+                                onChange={(event) => setProjectTitle(event.target.value)}
+                                className="w-full rounded-xl border px-4 py-3 text-sm focus:ring-2 focus:ring-slate-400"
+                            />
                         </div>
-                    </div>
 
-                    <div className="space-y-3">
-                        <p className="text-sm font-medium text-gray-700">출력 비율</p>
-                        <div className="grid grid-cols-2 gap-3">
-                            {ORIENTATION_OPTIONS.map((option) => (
-                                <button
-                                    key={option.value}
-                                    type="button"
-                                    onClick={() => {
-                                        setAspectRatio(option.value);
-                                        if (option.value !== '9:16') {
-                                            setRenderStrategy('native');
-                                        }
-                                    }}
-                                    className={`px-4 py-3 rounded-xl border-2 text-left ${aspectRatio === option.value
-                                        ? 'border-violet-600 bg-violet-50'
-                                        : 'border-gray-200 hover:border-gray-300'
+                        <div className="space-y-2">
+                            <label htmlFor="autopilot-topic" className="text-sm font-bold text-slate-700">
+                                작품 아이디어 / 로그라인
+                            </label>
+                            <textarea
+                                id="autopilot-topic"
+                                value={topic}
+                                onChange={(event) => setTopic(event.target.value)}
+                                rows={4}
+                                placeholder="예: 새벽 한강 다리 아래에서 배달 일을 하던 소녀가, 자기 이름이 적힌 빛나는 편지를 발견한다."
+                                className="w-full rounded-xl border px-4 py-3 text-sm focus:ring-2 focus:ring-slate-400"
+                            />
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <label className="space-y-1 text-xs font-semibold text-slate-600">
+                                장르
+                                <input value={storyGenre} onChange={(event) => setStoryGenre(event.target.value)} className="w-full rounded-xl border px-3 py-2 text-sm font-normal" />
+                            </label>
+                            <label className="space-y-1 text-xs font-semibold text-slate-600">
+                                톤
+                                <input value={storyTone} onChange={(event) => setStoryTone(event.target.value)} className="w-full rounded-xl border px-3 py-2 text-sm font-normal" />
+                            </label>
+                        </div>
+
+                        <div className="space-y-3">
+                            <p className="text-xs font-bold text-slate-500">연출 템플릿</p>
+                            <div className="grid gap-2 md:grid-cols-2">
+                                {DIRECTION_TEMPLATES.map((template) => (
+                                    <button
+                                        key={template.id}
+                                        type="button"
+                                        onClick={() => setDirectionTemplate(template.id)}
+                                        className={`rounded-xl border p-3 text-left text-sm transition ${
+                                            directionTemplate === template.id
+                                                ? 'border-slate-950 bg-slate-950 text-white'
+                                                : 'bg-white hover:border-slate-400'
                                         }`}
-                                >
-                                    <p className="font-semibold text-gray-900">{option.label}</p>
-                                    <p className="text-xs text-gray-500 mt-1">{option.desc}</p>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="space-y-2 border rounded-xl bg-gray-50 p-4">
-                        <p className="text-sm font-medium text-gray-700">영상 길이</p>
-                        <div className="flex flex-wrap gap-2">
-                            {DURATION_OPTIONS.map((seconds) => (
-                                <button
-                                    key={seconds}
-                                    type="button"
-                                    onClick={() => setDurationSeconds(seconds)}
-                                    className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
-                                        durationSeconds === seconds
-                                            ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
-                                    }`}
-                                >
-                                    {seconds}초
-                                </button>
-                            ))}
-                        </div>
-                        <p className="text-xs text-gray-500">선택한 길이에 맞춰 대본 분량과 컷 수를 자동 조정합니다.</p>
-                    </div>
-
-                    <div className="space-y-3 border rounded-xl bg-gray-50 p-4">
-                        <p className="text-sm font-medium text-gray-700">대본 톤 (한국 정서)</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {SCRIPT_TONE_OPTIONS.map((tone) => (
-                                <button
-                                    key={tone.id}
-                                    type="button"
-                                    onClick={() => setScriptTone(tone.id)}
-                                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${
-                                        scriptTone === tone.id
-                                            ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
-                                    }`}
-                                >
-                                    <p className="text-sm font-medium">{tone.name}</p>
-                                    <p className="text-xs text-gray-500 mt-0.5">{tone.desc}</p>
-                                </button>
-                            ))}
-                        </div>
-                        <p className="text-xs text-gray-500">과도한 공포/낚시 대신 신뢰·공감·실용성을 중심으로 구성합니다.</p>
-                    </div>
-
-                    <div className="space-y-2 border rounded-xl bg-gray-50 p-4">
-                        <p className="text-sm font-medium text-gray-700">TTS 보이스</p>
-                        <select
-                            value={selectedVoiceId}
-                            onChange={(event) => setSelectedVoiceId(event.target.value)}
-                            disabled={isLoadingVoices || voices.length === 0}
-                            className="w-full px-3 py-2 border rounded-lg bg-white text-sm disabled:opacity-60"
-                        >
-                            {voices.map((voice) => (
-                                <option key={voice.voiceId} value={voice.voiceId}>
-                                    {voice.name}{voice.category ? ` · ${voice.category}` : ''}
-                                </option>
-                            ))}
-                        </select>
-                        <div className="flex items-center justify-between gap-3">
-                            <p className="text-xs text-gray-500 truncate">
-                                {selectedVoice?.name
-                                    ? `선택됨: ${selectedVoice.name}`
-                                    : '보이스를 선택해 주세요.'}
-                            </p>
-                            <button
-                                type="button"
-                                onClick={() => toggleVoicePreview(selectedVoice)}
-                                disabled={!selectedVoice?.previewUrl || isLoadingVoices}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                                    !selectedVoice?.previewUrl || isLoadingVoices
-                                        ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                                        : playingVoicePreviewId === selectedVoice.voiceId
-                                            ? 'border-violet-600 bg-violet-600 text-white'
-                                            : 'border-violet-200 bg-white text-violet-700 hover:bg-violet-50'
-                                }`}
-                            >
-                                {playingVoicePreviewId === selectedVoice?.voiceId ? '■ 미리듣기 정지' : '▶ 미리듣기'}
-                            </button>
-                        </div>
-                        <p className="text-xs text-gray-500">
-                            {isLoadingVoices
-                                ? '보이스 목록을 불러오는 중입니다...'
-                                : voices.length > 0
-                                    ? '선택한 보이스로 오토파일럿 TTS를 생성합니다.'
-                                    : '사용 가능한 보이스가 없어 기본 보이스로 시도합니다.'}
-                        </p>
-                    </div>
-
-                    {aspectRatio === '9:16' && (
-                        <div className="space-y-2 border rounded-xl bg-gray-50 p-4">
-                            <p className="text-sm font-medium text-gray-700">세로 렌더 방식</p>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => setRenderStrategy('native')}
-                                    className={`p-3 rounded-lg border text-left text-sm ${
-                                        renderStrategy === 'native'
-                                            ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                            : 'border-gray-200 bg-white text-gray-700'
-                                    }`}
-                                >
-                                    <p className="font-medium">네이티브 세로</p>
-                                    <p className="text-xs mt-1 text-gray-500">세로 프레임 중심으로 구성</p>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setRenderStrategy('reframe_portrait')}
-                                    className={`p-3 rounded-lg border text-left text-sm ${
-                                        renderStrategy === 'reframe_portrait'
-                                            ? 'border-violet-500 bg-violet-50 text-violet-700'
-                                            : 'border-gray-200 bg-white text-gray-700'
-                                    }`}
-                                >
-                                    <p className="font-medium">가로→세로 보정</p>
-                                    <p className="text-xs mt-1 text-gray-500">가로 구도를 세로 쇼츠로 재프레이밍</p>
-                                </button>
+                                    >
+                                        <span className="block font-black">{template.title}</span>
+                                        <span className={`mt-1 block text-xs ${directionTemplate === template.id ? 'text-slate-300' : 'text-slate-500'}`}>
+                                            {template.summary}
+                                        </span>
+                                    </button>
+                                ))}
                             </div>
                         </div>
-                    )}
 
-                    <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <p className="text-sm font-semibold text-gray-800">레퍼런스 이미지 업로드</p>
-                                <p className="text-xs text-gray-500 mt-0.5">
-                                    {visualMode === 'character_fixed' ? '캐릭터 외형 고정용 참조' : '그림체 고정용 참조'}
-                                </p>
+                        <label className="block space-y-1 text-xs font-semibold text-slate-600">
+                            캐릭터 메모
+                            <textarea value={storyCharacters} onChange={(event) => setStoryCharacters(event.target.value)} rows={3} className="w-full rounded-xl border px-3 py-2 text-sm font-normal" />
+                        </label>
+
+                        <label className="block space-y-1 text-xs font-semibold text-slate-600">
+                            세계관 / 연속성
+                            <textarea value={storyWorld} onChange={(event) => setStoryWorld(event.target.value)} rows={3} className="w-full rounded-xl border px-3 py-2 text-sm font-normal" />
+                        </label>
+
+                        <label className="block space-y-1 text-xs font-semibold text-slate-600">
+                            비주얼 스타일 규칙
+                            <input value={styleText} onChange={(event) => setStyleText(event.target.value)} className="w-full rounded-xl border px-3 py-2 text-sm font-normal" />
+                        </label>
+
+                        <label className="block space-y-1 text-xs font-semibold text-slate-600">
+                            금지 요소
+                            <input value={storyNegativeRules} onChange={(event) => setStoryNegativeRules(event.target.value)} className="w-full rounded-xl border px-3 py-2 text-sm font-normal" />
+                        </label>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <p className="text-xs font-bold text-slate-500">화면 비율</p>
+                                <div className="flex gap-2">
+                                    {ASPECT_OPTIONS.map((option) => (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => setAspectRatio(option.value)}
+                                            className={`rounded-lg border px-3 py-2 text-sm ${aspectRatio === option.value ? 'border-slate-950 bg-slate-950 text-white' : 'bg-white'}`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
-                            <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700">
-                                {visualMode === 'character_fixed' ? '캐릭터 모드' : '스타일 모드'}
-                            </span>
+                            <div className="space-y-2">
+                                <p className="text-xs font-bold text-slate-500">목표 러닝타임</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {DURATION_OPTIONS.map((seconds) => (
+                                        <button
+                                            key={seconds}
+                                            type="button"
+                                            onClick={() => setDurationSeconds(seconds)}
+                                            className={`rounded-lg border px-3 py-2 text-sm ${durationSeconds === seconds ? 'border-slate-950 bg-slate-950 text-white' : 'bg-white'}`}
+                                        >
+                                            {seconds}s
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
 
-                        <input
-                            ref={referenceInputRef}
-                            id="autopilot-reference-image"
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp"
-                            onChange={(e) => {
-                                void handleReferenceFileChange(e.target.files?.[0] || null);
-                            }}
-                            className="hidden"
-                            disabled={isUploadingReference || isRunning}
-                        />
+                        {aspectRatio === '9:16' && (
+                            <div className="flex gap-2">
+                                <button type="button" onClick={() => setRenderStrategy('native')} className={`rounded-lg border px-3 py-2 text-sm ${renderStrategy === 'native' ? 'bg-slate-950 text-white' : 'bg-white'}`}>
+                                    네이티브 세로
+                                </button>
+                                <button type="button" onClick={() => setRenderStrategy('reframe_portrait')} className={`rounded-lg border px-3 py-2 text-sm ${renderStrategy === 'reframe_portrait' ? 'bg-slate-950 text-white' : 'bg-white'}`}>
+                                    가로 컷 리프레임
+                                </button>
+                            </div>
+                        )}
 
                         <button
                             type="button"
-                            onClick={triggerReferencePicker}
-                            disabled={isUploadingReference || isRunning}
-                            onDragOver={(event) => {
-                                event.preventDefault();
-                                if (!isRunning && !isUploadingReference) {
-                                    setIsReferenceDragOver(true);
-                                }
-                            }}
-                            onDragLeave={() => setIsReferenceDragOver(false)}
-                            onDrop={handleReferenceDrop}
-                            className={`rounded-xl border-2 border-dashed bg-white p-4 transition-colors ${
-                                isReferenceDragOver
-                                    ? 'border-violet-400 bg-violet-50'
-                                    : 'border-gray-300'
-                            } ${isRunning || isUploadingReference ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} w-full text-left`}
+                            data-testid="advanced-model-toggle"
+                            onClick={() => setShowAdvancedModels((value) => !value)}
+                            className="rounded-xl border px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
                         >
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                <div>
-                                    <p className="text-sm text-gray-700">이미지를 드래그해서 놓거나 파일을 선택하세요.</p>
-                                    <p className="text-xs text-gray-500 mt-1">PNG/JPG/WEBP, 최대 {getReferenceUploadMaxMb()}MB</p>
-                                </div>
-                                <span
-                                    className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium"
-                                >
-                                    파일 선택
-                                </span>
-                            </div>
+                            {showAdvancedModels ? '모델 고급 설정 닫기' : '모델 고급 설정 열기'}
                         </button>
 
-                        {isUploadingReference && (
-                            <p className="text-xs text-violet-600">참조 이미지를 업로드하고 있습니다...</p>
-                        )}
-
-                        {referenceError && (
-                            <p className="text-xs text-red-600">{referenceError}</p>
-                        )}
-
-                        {referencePreviewUrl && (
-                            <div className="rounded-lg border bg-white p-3 space-y-2">
-                                <div className="flex items-center justify-between gap-3">
-                                    <p className="text-xs text-gray-600 truncate">
-                                        업로드됨: {referenceFileName || referencePreviewUrl}
-                                    </p>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setReferencePreviewUrl(null);
-                                            setReferenceFileName(null);
-                                            setReferenceError(null);
-                                            if (referenceInputRef.current) {
-                                                referenceInputRef.current.value = '';
-                                            }
-                                        }}
-                                        className="text-xs text-gray-500 hover:text-gray-700"
-                                    >
-                                        제거
-                                    </button>
-                                </div>
-                                <img src={referencePreviewUrl} alt="참조 이미지 미리보기" className="w-full max-h-56 object-contain rounded-md bg-gray-50" />
-                            </div>
-                        )}
-
-                        <p className="text-xs text-gray-500">
-                            업로드하지 않아도 오토파일럿 시작은 가능합니다. 다만 고정 모드 일관성은 참조 이미지가 있을 때 더 좋아집니다.
-                        </p>
-                    </div>
-
-                    <div className="space-y-3">
-                        <p className="text-sm font-medium text-gray-700">그림체 선택</p>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            {STYLE_OPTIONS.map((item) => (
-                                <button
-                                    key={item.id}
-                                    type="button"
-                                    onClick={() => setStyle(item.id)}
-                                    className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all group ${
-                                        style === item.id
-                                            ? 'border-violet-600 ring-2 ring-violet-200'
-                                            : 'border-transparent hover:border-gray-300'
-                                    }`}
-                                >
-                                    <img
-                                        src={item.thumbnail}
-                                        alt={item.name}
-                                        className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-105"
-                                    />
-                                    <div className={`absolute inset-0 bg-black/45 flex items-center justify-center text-center p-2 transition-colors ${style === item.id ? 'bg-black/25' : ''}`}>
-                                        <span className="text-white font-medium text-xs drop-shadow-md">{item.name}</span>
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label htmlFor="autopilot-style-text" className="text-sm font-medium text-gray-700">스타일 가이드 (선택)</label>
-                        <input
-                            id="autopilot-style-text"
-                            value={styleText}
-                            onChange={(e) => setStyleText(e.target.value)}
-                            placeholder="예: 따뜻한 톤, 부드러운 라인"
-                            className="w-full px-3 py-2 border rounded-xl"
-                        />
-                    </div>
-
-                    <div className="space-y-2 border rounded-xl bg-gray-50 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <p className="text-sm font-medium text-gray-800">고급 설정 (오토파일럿 전용)</p>
-                                <p className="text-xs text-gray-500">일반 생성에서는 이미지 단계/영상 단계에서 각각 모델을 선택합니다.</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowAdvancedModels((prev) => !prev)}
-                                className="px-3 py-1.5 text-xs font-medium border rounded-lg bg-white hover:bg-gray-100"
-                            >
-                                {showAdvancedModels ? '고급 설정 닫기' : '고급 설정 열기'}
-                            </button>
-                        </div>
-
                         {showAdvancedModels && (
-                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pt-2">
-                                <div className="space-y-3 p-3.5 border rounded-xl bg-white">
-                                    <p className="text-sm font-medium text-gray-700">이미지 모델</p>
-                                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                                        {imageModels.map((item) => (
+                            <div className="grid gap-4 xl:grid-cols-2">
+                                <div className="space-y-3 rounded-2xl border bg-slate-50 p-4">
+                                    <p className="text-sm font-bold text-slate-900">이미지 모델</p>
+                                    <div className="space-y-2">
+                                        {imageModels.map((model) => (
                                             <button
-                                                key={item.id}
+                                                key={model.id}
                                                 type="button"
+                                                data-testid={`image-model-${model.id}`}
+                                                disabled={model.disabled}
                                                 onClick={() => {
-                                                    setImageModelId(item.id);
-                                                    setImageQuality(item.qualities[0].id);
+                                                    if (model.disabled) return;
+                                                    setImageModelId(model.id);
+                                                    setImageQuality(model.defaultQuality || model.qualities[0]?.id || 'medium');
                                                 }}
-                                                className={`w-full px-3 py-2 rounded-lg border text-left text-sm transition-all ${
-                                                    imageModelId === item.id
-                                                        ? 'border-violet-500 bg-violet-50 text-violet-700 shadow-sm'
-                                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
-                                                }`}
+                                                className={`w-full rounded-xl border p-3 text-left text-sm ${model.disabled ? 'bg-slate-100 text-slate-400' : imageModelId === model.id ? 'border-slate-950 bg-white ring-2 ring-slate-200' : 'bg-white hover:border-slate-400'}`}
                                             >
-                                                <div className="flex items-start gap-3">
-                                                    <div className="w-24 h-14 shrink-0 overflow-hidden rounded-md border bg-gray-100">
-                                                        <img
-                                                            src={getPreviewImageUrl(item)}
-                                                            alt={`${item.label} 미리보기`}
-                                                            className="w-full h-full object-cover"
-                                                            loading="lazy"
-                                                            onError={(event) => {
-                                                                const img = event.currentTarget;
-                                                                if (img.dataset.fallbackApplied === 'true') {
-                                                                    return;
-                                                                }
-                                                                img.dataset.fallbackApplied = 'true';
-                                                                img.src = item.fallbackPreviewImageUrl || '/styles/minimalist.png';
-                                                            }}
-                                                        />
-                                                    </div>
-                                                    <div className="min-w-0 space-y-0.5">
-                                                        <div className="font-medium truncate">{item.label}</div>
-                                                        <div className="text-xs text-gray-500 leading-relaxed">{item.description}</div>
-                                                        <div className="text-[11px] text-gray-500">예상 {item.qualities[0].credits}~{item.qualities[item.qualities.length - 1].credits} credits / image</div>
+                                                <div className="flex gap-3">
+                                                    <img src={getPreviewImageUrl(model)} alt="" className="h-14 w-24 rounded-lg object-cover" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="font-bold text-slate-900">{model.modelDisplayName || model.label}</p>
+                                                        <p className="text-xs text-slate-500">{model.disabled ? model.offlineReason : model.description}</p>
+                                                        <p data-testid={`image-preview-source-${model.id}`} className="mt-1 text-[11px] text-amber-700">{getPreviewLabel(model)}</p>
                                                     </div>
                                                 </div>
                                             </button>
                                         ))}
                                     </div>
-                                    <div className="flex gap-2 pt-1">
+                                    <div className="flex flex-wrap gap-2">
                                         {(selectedImageModel?.qualities || []).map((quality) => (
                                             <button
                                                 key={quality.id}
                                                 type="button"
+                                                data-testid={`image-quality-${quality.id}`}
                                                 onClick={() => setImageQuality(quality.id)}
-                                                className={`px-3 py-1 text-xs rounded-md border ${selectedImageQuality?.id === quality.id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-700 border-gray-200'}`}
+                                                className={`rounded-lg border px-3 py-1 text-xs ${imageQuality === quality.id ? 'bg-slate-950 text-white' : 'bg-white'}`}
                                             >
-                                                {quality.id} ({quality.credits})
+                                                {quality.modeLabel || quality.id} · {quality.id} · {quality.credits}
                                             </button>
                                         ))}
                                     </div>
                                 </div>
 
-                                <div className="space-y-3 p-3.5 border rounded-xl bg-white">
-                                    <p className="text-sm font-medium text-gray-700">비디오 모델</p>
-                                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                                        {videoModels.map((item) => (
+                                <div className="space-y-3 rounded-2xl border bg-slate-50 p-4">
+                                    <p className="text-sm font-bold text-slate-900">영상 모델</p>
+                                    <div className="space-y-2">
+                                        {videoModels.map((model) => (
                                             <button
-                                                key={item.id}
+                                                key={model.id}
                                                 type="button"
-                                                onMouseEnter={(event) => showHoverPreviewForCard(item.id, event.currentTarget)}
-                                                onMouseLeave={scheduleHideHoverPreview}
-                                                onFocus={(event) => showHoverPreviewForCard(item.id, event.currentTarget)}
-                                                onBlur={scheduleHideHoverPreview}
+                                                data-testid={`video-model-${model.id}`}
+                                                disabled={model.disabled}
                                                 onClick={() => {
-                                                    setVideoModelId(item.id);
-                                                    setVideoResolution(item.resolutions[0].id);
+                                                    if (model.disabled) return;
+                                                    setVideoModelId(model.id);
+                                                    setVideoResolution(model.resolutions[0]?.id || '1080p');
                                                 }}
-                                                className={`relative w-full px-3 py-2 rounded-lg border text-left text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 ${
-                                                    videoModelId === item.id
-                                                        ? 'border-violet-500 bg-violet-50 text-violet-700 shadow-sm'
-                                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
-                                                }`}
+                                                className={`w-full rounded-xl border p-3 text-left text-sm ${model.disabled ? 'bg-slate-100 text-slate-400' : videoModelId === model.id ? 'border-slate-950 bg-white ring-2 ring-slate-200' : 'bg-white hover:border-slate-400'}`}
                                             >
-                                                <div className="flex items-start gap-3">
-                                                    <div className="relative w-24 h-14 shrink-0" data-video-preview-anchor="true">
-                                                        <div className="relative w-full h-full overflow-hidden rounded-md border bg-slate-100">
-                                                        {item.previewVideoUrl && !failedVideoPreviewIds[item.id] ? (
-                                                            <>
-                                                                {!readyVideoPreviewIds[item.id] && (
-                                                                    <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200" />
-                                                                )}
-                                                                <video
-                                                                    src={item.previewVideoUrl}
-                                                                    className={`w-full h-full object-cover transition-opacity duration-300 ${readyVideoPreviewIds[item.id] ? 'opacity-100' : 'opacity-0'}`}
-                                                                    muted
-                                                                    loop
-                                                                    autoPlay
-                                                                    playsInline
-                                                                    preload="auto"
-                                                                    aria-label={`${item.label} 미리보기 영상`}
-                                                                    onLoadedData={() => markVideoPreviewReady(item.id)}
-                                                                    onError={() => markVideoPreviewFailed(item.id)}
-                                                                >
-                                                                    <track kind="captions" srcLang="ko" label="미리보기 자막" src="data:text/vtt,WEBVTT" />
-                                                                </video>
-                                                            </>
-                                                        ) : (
-                                                            <img
-                                                                src={getPreviewImageUrl(item)}
-                                                                alt={`${item.label} 미리보기`}
-                                                                className="w-full h-full object-cover"
-                                                                loading="lazy"
-                                                                onError={(event) => {
-                                                                    const img = event.currentTarget;
-                                                                    if (img.dataset.fallbackApplied === 'true') {
-                                                                        return;
-                                                                    }
-                                                                    img.dataset.fallbackApplied = 'true';
-                                                                    img.src = item.fallbackPreviewImageUrl || '/styles/minimalist.png';
-                                                                }}
-                                                            />
-                                                        )}
-                                                        </div>
-                                                    </div>
-                                                    <div className="min-w-0 space-y-0.5">
-                                                        <div className="font-medium truncate">{item.label}</div>
-                                                        <div className="text-xs text-gray-500 leading-relaxed">{item.description}</div>
-                                                        <div className="text-[11px] text-gray-500">예상 {item.resolutions[0].creditsPerCut}~{item.resolutions[item.resolutions.length - 1].creditsPerCut} credits / {item.defaultDurationSeconds || 6}초 컷</div>
+                                                <div className="flex gap-3">
+                                                    <img src={getPreviewImageUrl(model)} alt="" className="h-14 w-24 rounded-lg object-cover" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="font-bold text-slate-900">{model.modelDisplayName || model.label}</p>
+                                                        <p className="text-xs text-slate-500">{model.disabled ? model.offlineReason : model.description}</p>
+                                                        <p data-testid={`video-preview-source-${model.id}`} className="mt-1 text-[11px] text-amber-700">{getPreviewLabel(model)}</p>
                                                     </div>
                                                 </div>
                                             </button>
                                         ))}
                                     </div>
-                                    {hoveredVideoModel && hoverPreview && (
-                                        <div
-                                            className="hidden md:block fixed z-[90] pointer-events-none"
-                                            style={{ left: `${hoverPreview.left}px`, top: `${hoverPreview.top}px` }}
-                                        >
-                                            <div className="w-72 rounded-2xl border border-violet-200 bg-white/95 backdrop-blur-sm shadow-2xl p-2.5 animate-in fade-in zoom-in-95 duration-200">
-                                                <div className="flex items-center justify-between px-1 pb-2">
-                                                    <span className="text-[11px] font-semibold uppercase tracking-wide text-violet-700">Hover Preview</span>
-                                                    <span className="text-[11px] text-gray-500 truncate max-w-[150px]">{hoveredVideoModel.label}</span>
-                                                </div>
-                                                <div className="relative overflow-hidden rounded-xl border border-gray-200 bg-slate-100 aspect-video">
-                                                    {hoveredVideoModel.previewVideoUrl && !failedVideoPreviewIds[hoveredVideoModel.id] ? (
-                                                        <>
-                                                            {!readyVideoPreviewIds[hoveredVideoModel.id] && (
-                                                                <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200" />
-                                                            )}
-                                                            <video
-                                                                src={hoveredVideoModel.previewVideoUrl}
-                                                                className={`w-full h-full object-cover transition-opacity duration-300 ${readyVideoPreviewIds[hoveredVideoModel.id] ? 'opacity-100' : 'opacity-0'}`}
-                                                                muted
-                                                                loop
-                                                                autoPlay
-                                                                playsInline
-                                                                preload="auto"
-                                                                aria-label={`${hoveredVideoModel.label} 확대 미리보기 영상`}
-                                                                onLoadedData={() => markVideoPreviewReady(hoveredVideoModel.id)}
-                                                                onError={() => markVideoPreviewFailed(hoveredVideoModel.id)}
-                                                            >
-                                                                <track kind="captions" srcLang="ko" label="확대 미리보기 자막" src="data:text/vtt,WEBVTT" />
-                                                            </video>
-                                                        </>
-                                                    ) : (
-                                                        <img
-                                                            src={getPreviewImageUrl(hoveredVideoModel)}
-                                                            alt={`${hoveredVideoModel.label} 확대 미리보기`}
-                                                            className="w-full h-full object-cover"
-                                                            loading="lazy"
-                                                            onError={(event) => {
-                                                                const img = event.currentTarget;
-                                                                if (img.dataset.fallbackApplied === 'true') {
-                                                                    return;
-                                                                }
-                                                                img.dataset.fallbackApplied = 'true';
-                                                                img.src = hoveredVideoModel.fallbackPreviewImageUrl || '/styles/minimalist.png';
-                                                            }}
-                                                        />
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    <div className="flex flex-wrap gap-2 pt-1">
+                                    <div className="flex flex-wrap gap-2">
                                         {(selectedVideoModel?.resolutions || []).map((resolution) => (
                                             <button
                                                 key={resolution.id}
                                                 type="button"
                                                 onClick={() => setVideoResolution(resolution.id)}
-                                                className={`px-3 py-1 text-xs rounded-md border ${selectedVideoResolution?.id === resolution.id ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-700 border-gray-200'}`}
+                                                className={`rounded-lg border px-3 py-1 text-xs ${videoResolution === resolution.id ? 'bg-slate-950 text-white' : 'bg-white'}`}
                                             >
-                                                {resolution.id} ({resolution.creditsPerCut})
+                                                {resolution.id} · {resolution.creditsPerCut} {formatUsd(resolution.estimatedUsdPerCut)}
                                             </button>
                                         ))}
                                     </div>
-                                    <p className="text-[11px] text-gray-500">모델 기본 컷 길이: {selectedVideoDurationSeconds}초</p>
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    <div className="space-y-2">
-                        <label htmlFor="autopilot-topic" className="text-sm font-medium text-gray-700">영상 주제</label>
-                        <textarea
-                            id="autopilot-topic"
-                            value={topic}
-                            onChange={(e) => setTopic(e.target.value)}
-                            placeholder={`예: 현대 사회에서 AI가 가져올 변화와 기회에 대해 설명하는 ${durationSeconds}초 영상...`}
-                            rows={3}
-                            className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
-                        />
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-3 sm:items-stretch">
+                    <aside className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
+                        <div>
+                            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Estimate</p>
+                            <p className="mt-1 text-3xl font-black text-slate-950">{estimate.totalCredits.toLocaleString()}</p>
+                            <p className="text-xs text-slate-500">credits, mocked estimate</p>
+                        </div>
+                        <dl className="space-y-2 text-sm">
+                            <div className="flex justify-between"><dt>예상 컷 수</dt><dd>{estimate.cutCount}</dd></div>
+                            <div className="flex justify-between"><dt>이미지</dt><dd>{estimate.imageCredits}</dd></div>
+                            <div className="flex justify-between"><dt>영상</dt><dd>{estimate.videoCredits}</dd></div>
+                            <div className="flex justify-between"><dt>TTS</dt><dd>{estimatedTtsCredits}</dd></div>
+                        </dl>
+                        <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+                            템플릿: {selectedDirectionTemplate.title}
+                            <br />
+                            Image: {selectedImageModel?.modelDisplayName || imageModelId} / {imageQuality}
+                            <br />
+                            Video: {selectedVideoModel?.modelDisplayName || videoModelId} / {videoResolution}
+                            <br />
+                            Voice: {voices.find((voice) => voice.voiceId === selectedVoiceId)?.name || 'default'}
+                        </div>
                         <button
                             type="button"
+                            data-testid="start-autopilot"
                             onClick={startAutopilot}
-                            disabled={!topic || isRunning}
-                            className="flex-1 py-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-xl font-bold text-lg hover:shadow-lg transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={!topic.trim()}
+                            className="w-full rounded-xl bg-slate-950 px-5 py-4 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            ✨ 오토파일럿 시작하기
+                            스토리 바이블과 컷보드 만들기
                         </button>
-                        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm min-w-[200px]">
-                            <p className="text-[11px] text-violet-600 font-semibold">예상 크레딧 소모 (실시간)</p>
-                            <p className="text-lg font-bold text-violet-800">{estimatedTotalCredits.toLocaleString()} credits</p>
-                            <p className="text-[11px] text-violet-700">{estimatedCutCount}컷 · 이미지 {estimatedImageCredits.toLocaleString()} + 영상 {estimatedVideoCredits.toLocaleString()} + TTS {estimatedTtsCredits.toLocaleString()}</p>
+                    </aside>
+                </section>
+            ) : (
+                <section className="rounded-2xl border bg-white p-6 shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Autopilot</p>
+                            <h2 className="text-2xl font-black text-slate-950">{status}</h2>
                         </div>
+                        <div className="text-2xl font-black text-slate-950">{progress}%</div>
                     </div>
-                </div>
-            )}
-
-            {(status === 'running' || status === 'completed' || status === 'error') && (
-                <div className="space-y-6">
-                    <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-4">
-                        <div className="flex justify-between items-center text-sm font-medium">
-                            <span className={status === 'error' ? 'text-red-500' : 'text-violet-600'}>
-                                {status === 'running' ? 'AI 에이전트가 작업 중입니다...' : status === 'completed' ? '작업 완료!' : '오류 발생'}
-                            </span>
-                            <span className="text-gray-500">{progress}%</span>
-                        </div>
-                        <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                            <div
-                                className={`h-full transition-all duration-500 ease-out ${status === 'error' ? 'bg-red-500' : 'bg-violet-600'}`}
-                                style={{ width: `${progress}%` }}
-                            ></div>
-                        </div>
+                    <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full bg-slate-950 transition-all" style={{ width: `${progress}%` }} />
                     </div>
-
-                    <div className="bg-gray-900 rounded-2xl p-6 shadow-lg overflow-hidden font-mono text-sm relative">
-                        <div className="absolute top-0 left-0 right-0 h-8 bg-gray-800 flex items-center px-4 gap-2">
-                            <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                            <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                            <span className="ml-2 text-gray-400 text-xs">autopilot-progress.log</span>
-                        </div>
-
-                        <div className="mt-6 h-[300px] overflow-y-auto space-y-2 scrollbar-thin scrollbar-thumb-gray-700">
-                            {logs.map((log) => (
-                                <div key={`${log.timestamp}-${log.message}`} className="flex gap-3 text-gray-300 animate-in fade-in slide-in-from-left-2 duration-300">
-                                    <span className="text-gray-600 flex-shrink-0">
-                                        {new Date(log.timestamp).toLocaleTimeString([], {
-                                            hour12: false,
-                                            hour: '2-digit',
-                                            minute: '2-digit',
-                                            second: '2-digit',
-                                        })}
-                                    </span>
-                                    <span>{log.message}</span>
-                                </div>
-                            ))}
-                            <div ref={logsEndRef} />
-                        </div>
+                    <div className="mt-5 h-64 overflow-y-auto rounded-xl bg-slate-950 p-4 font-mono text-xs text-slate-200">
+                        {logs.map((log, index) => (
+                            <div key={`${log.timestamp}-${index}`}>
+                                [{new Date(log.timestamp).toLocaleTimeString()}] {log.message}
+                            </div>
+                        ))}
+                        <div ref={logsEndRef} />
                     </div>
-
-                    {status === 'completed' && projectId && (
-                        <div className="flex justify-center pt-4">
-                            <button
-                                type="button"
-                                onClick={() => router.push(`/create/video?projectId=${projectId}`)}
-                                className="px-8 py-3 bg-violet-600 text-white rounded-full font-bold shadow-lg hover:bg-violet-700 transition-all hover:scale-105 animate-bounce"
-                            >
-                                🎬 결과물 확인하러 가기
+                    <div className="mt-5 flex gap-3">
+                        {projectId && (
+                            <button type="button" onClick={() => router.push(`/project/${projectId}/preview`)} className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white">
+                                Open work
                             </button>
-                        </div>
-                    )}
-
-                    {status === 'running' && (
-                        <div className="flex justify-center pt-4">
-                            <button
-                                type="button"
-                                onClick={stopAutopilot}
-                                className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors shadow-lg"
-                            >
-                                🛑 생성 중단하기
-                            </button>
-                        </div>
-                    )}
-
-                    {status === 'error' && (
-                        <div className="flex justify-center pt-4">
-                            <button
-                                type="button"
-                                onClick={() => setStatus('idle')}
-                                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                            >
-                                다시 시도하기
-                            </button>
-                        </div>
-                    )}
-                </div>
+                        )}
+                        <button type="button" onClick={() => setStatus('idle')} className="rounded-xl border px-4 py-2 text-sm font-bold">
+                            Back
+                        </button>
+                    </div>
+                </section>
             )}
         </div>
     );

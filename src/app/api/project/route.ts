@@ -17,6 +17,7 @@ import {
     isVideoModelId,
 } from '@/lib/models/registry';
 import { loadPricingContext } from '@/lib/credits/pricing';
+import { buildStoryBible } from '@/lib/animation/storyboard';
 
 const ASPECT_RATIOS = ['16:9', '1:1', '3:4', '9:16'] as const;
 
@@ -37,6 +38,11 @@ function errorResponse(status: number, code: string, message: string, details?: 
         },
         { status }
     );
+}
+
+function isSchemaMissingColumnError(error: any) {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    return message.includes('schema cache') && message.includes('Could not find the');
 }
 
 async function requireAuth() {
@@ -96,6 +102,12 @@ export async function POST(request: NextRequest) {
             body.channel_id || body.isTestRun ? '9:16' : '16:9'
         );
         const inputRenderStrategy = resolveRenderStrategy(body.renderStrategy, inputAspectRatio);
+        const inputStoryBible = buildStoryBible({
+            ...(body.storyBible || {}),
+            topic: body.topic,
+            styleRules: body.styleText,
+            referenceImageUrl: body.characterReferenceUrl || body.styleReferenceUrl,
+        });
 
         // ---------------------------------------------------------
         // 1. Channel Automation / Test Run Logic
@@ -181,6 +193,8 @@ export async function POST(request: NextRequest) {
                 image_model: inputImageModel,
                 video_model: inputVideoModel,
                 pricing_version: pricingVersion,
+                story_bible: inputStoryBible,
+                production_mode: body.productionMode === 'shorts' ? 'shorts' : 'animation',
                 character_reference_url: body.characterReferenceUrl || null,
                 style_reference_url: body.styleReferenceUrl || null,
                 aspect_ratio: inputAspectRatio,
@@ -246,6 +260,8 @@ export async function POST(request: NextRequest) {
                     image_model: original.image_model || getDefaultImageModelId(),
                     video_model: original.video_model || getDefaultVideoModelId(),
                     pricing_version: original.pricing_version || pricingVersion,
+                    story_bible: original.story_bible || inputStoryBible,
+                    production_mode: original.production_mode || 'animation',
                     render_strategy: original.render_strategy || 'native',
                     character_reference_url: original.character_reference_url || null,
                     style_reference_url: original.style_reference_url || null,
@@ -295,6 +311,8 @@ export async function POST(request: NextRequest) {
             video_model: inputVideoModel,
             pricing_version: pricingVersion,
             render_strategy: inputRenderStrategy,
+            story_bible: inputStoryBible,
+            production_mode: body.productionMode === 'shorts' ? 'shorts' : 'animation',
             character_reference_url: body.characterReferenceUrl || null,
             style_reference_url: body.styleReferenceUrl || null,
             duration: body.duration || 60,
@@ -302,15 +320,43 @@ export async function POST(request: NextRequest) {
             video_provider: body.videoProvider || 'fal',
         };
 
-        const { data, error } = await supabase
+        let usedLegacyProjectInsert = false;
+        let { data, error } = await supabase
             .from('projects')
             .insert(projectData)
             .select()
             .single();
 
+        if ((!data || error) && isSchemaMissingColumnError(error)) {
+            console.warn('[CreateProject] DB schema is behind. Retrying manual project insert with legacy-safe columns.', error?.message);
+
+            const legacyProjectData = {
+                title: body.title || '새 애니메이션 작품',
+                topic: body.topic || '',
+                aspect_ratio: inputAspectRatio,
+                style: normalizedStyle.style,
+                duration: body.duration || 60,
+                status: 'settings',
+                video_provider: body.videoProvider || 'fal',
+            } as any;
+
+            const retry = await supabase
+                .from('projects')
+                .insert(legacyProjectData)
+                .select()
+                .single();
+
+            data = retry.data;
+            error = retry.error;
+            usedLegacyProjectInsert = true;
+        }
+
         if (error) throw error;
 
-        return NextResponse.json({ project: data });
+        return NextResponse.json({
+            project: data,
+            schemaMode: usedLegacyProjectInsert ? 'legacy' : 'current',
+        });
     } catch (error: any) {
         console.error('Failed to create project:', error);
         return errorResponse(500, 'INTERNAL_ERROR', 'Failed to create project', error.message);
@@ -357,6 +403,7 @@ export async function PATCH(request: NextRequest) {
         const hasStyleInput = body.style !== undefined || body.styleText !== undefined;
         const hasModelInput = body.imageModelId !== undefined || body.videoModelId !== undefined;
         const hasRenderInput = body.aspectRatio !== undefined || body.renderStrategy !== undefined;
+        const hasStoryInput = body.storyBible !== undefined || body.productionMode !== undefined;
 
         if (!id) {
             return errorResponse(400, 'INVALID_INPUT', 'Project ID is required');
@@ -430,6 +477,21 @@ export async function PATCH(request: NextRequest) {
             const normalizedStyle = normalizeStyleInput(body.style, body.styleText);
             updates.style = normalizedStyle.style;
             updates.style_text = normalizedStyle.styleText;
+        }
+
+        if (hasStoryInput) {
+            if (body.storyBible !== undefined) {
+                updates.story_bible = buildStoryBible({
+                    ...(body.storyBible || {}),
+                    topic: body.topic,
+                    styleRules: body.styleText,
+                    referenceImageUrl: body.characterReferenceUrl || body.styleReferenceUrl,
+                });
+            }
+
+            if (body.productionMode !== undefined) {
+                updates.production_mode = body.productionMode === 'shorts' ? 'shorts' : 'animation';
+            }
         }
 
         if (Object.keys(updates).length === 0) {

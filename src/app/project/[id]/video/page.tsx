@@ -5,21 +5,28 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import type { Segment } from '@/types/database';
+import type { GenerationTake, Segment } from '@/types/database';
 import { useVideoPolling } from '@/context/VideoPollingContext';
+
+type PreviewSource = 'curated_sample' | 'official_thumbnail' | 'reference_placeholder' | 'none' | 'fal' | 'local';
 
 interface VideoModelOption {
     id: string;
     label: string;
     description: string;
-    previewSource?: 'fal' | 'local' | 'none';
+    previewSource?: PreviewSource;
+    previewSourceLabel?: string;
     previewImageUrl?: string;
     previewVideoUrl?: string;
     fallbackPreviewImageUrl?: string;
+    providerDisplayName?: string;
+    modelDisplayName?: string;
+    costModeLabel?: string;
     defaultDurationSeconds?: number;
     resolutions: Array<{
         id: string;
         creditsPerCut: number;
+        estimatedUsdPerCut?: number;
     }>;
 }
 
@@ -28,7 +35,7 @@ interface HoverPreviewPosition {
     top: number;
 }
 
-const DEFAULT_VIDEO_MODEL_ID = 'ltx-2-fast';
+const DEFAULT_VIDEO_MODEL_ID = 'ltx-2.3-fast';
 const MODEL_HOVER_PREVIEW_WIDTH = 432;
 const MODEL_HOVER_PREVIEW_HEIGHT = 243;
 
@@ -44,6 +51,7 @@ export default function VideoPage() {
     const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_VIDEO_MODEL_ID);
     const [selectedResolution, setSelectedResolution] = useState<string>('1080p');
     const [videoModels, setVideoModels] = useState<VideoModelOption[]>([]);
+    const [videoTakes, setVideoTakes] = useState<GenerationTake[]>([]);
     const [failedModelPreviewVideoIds, setFailedModelPreviewVideoIds] = useState<Record<string, true>>({});
     const [readyModelPreviewVideoIds, setReadyModelPreviewVideoIds] = useState<Record<string, true>>({});
     const [modelHoverPreview, setModelHoverPreview] = useState<HoverPreviewPosition | null>(null);
@@ -57,6 +65,27 @@ export default function VideoPage() {
         || null;
     const selectedVideoDurationSeconds = selectedVideoModel?.defaultDurationSeconds || 6;
     const estimatedCreditsForThirtySeconds = Math.ceil((selectedResolutionOption?.creditsPerCut || 0) * (30 / selectedVideoDurationSeconds));
+    const formatUsd = (value?: number) => (typeof value === 'number' ? `약 $${value.toFixed(value < 0.1 ? 3 : 2)}` : null);
+
+    const getModelPreviewSourceLabel = (model: { previewSource?: PreviewSource; previewSourceLabel?: string } | null | undefined) => {
+        if (model?.previewSourceLabel) {
+            return model.previewSourceLabel;
+        }
+
+        switch (model?.previewSource) {
+            case 'curated_sample':
+                return '직접 생성 샘플';
+            case 'official_thumbnail':
+            case 'fal':
+                return 'fal 공식 썸네일';
+            case 'none':
+                return '샘플 없음';
+            case 'reference_placeholder':
+            case 'local':
+            default:
+                return '참고 이미지 · 모델 출력 아님';
+        }
+    };
 
     const clearHoverPreviewHideTimer = () => {
         if (hoverPreviewHideTimerRef.current) {
@@ -220,6 +249,7 @@ export default function VideoPage() {
                     video_url: lastCompletedJob.videoUrl
                 } : s
             ));
+            void fetchVideoTakes(lastCompletedJob.segmentId);
         }
     }, [lastCompletedJob]);
 
@@ -237,8 +267,22 @@ export default function VideoPage() {
         const seg = segments.find(s => s.id === selectedSegmentId);
         if (seg) {
             setVideoPrompt(seg.video_prompt || '');
+            void fetchVideoTakes(seg.id);
         }
     }, [selectedSegmentId, segments]);
+
+    const fetchVideoTakes = async (segmentId: string) => {
+        try {
+            const response = await fetch(`/api/animation/takes?segmentId=${encodeURIComponent(segmentId)}`);
+            if (!response.ok) {
+                return;
+            }
+            const payload = await response.json();
+            setVideoTakes((payload.takes || []).filter((take: GenerationTake) => take.media_type === 'video'));
+        } catch (takeError) {
+            console.warn('Failed to load video takes:', takeError);
+        }
+    };
 
     // Autopilot Logic
     useEffect(() => {
@@ -415,6 +459,8 @@ export default function VideoPage() {
             addLog('info', `requestId: ${data.externalJobId?.slice(0, 8)}...`);
             addLog('info', `초기 상태: ${data.status}`);
 
+            await fetchVideoTakes(segment.id);
+
             if (data.status === 'running' || data.status === 'in_progress') {
                 addLog('warn', `⏳ 비동기 생성 시작, 폴링 대기...`);
                 // Always start polling regardless of waitForCompletion
@@ -437,6 +483,7 @@ export default function VideoPage() {
                 if (selectedSegmentId === segment.id) {
                     setVideoPrompt(data.generatedPrompt || '');
                 }
+                await fetchVideoTakes(segment.id);
                 removeGeneratingId(segment.id);
                 return true;
             }
@@ -671,6 +718,33 @@ export default function VideoPage() {
 
     const selectedSegment = segments.find(s => s.id === selectedSegmentId);
 
+    const handleSelectVideoTake = async (take: GenerationTake) => {
+        if (!take.asset_url) {
+            return;
+        }
+
+        const response = await fetch('/api/animation/takes/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                takeId: take.id,
+                segmentId: take.segment_id,
+                mediaType: 'video',
+                assetUrl: take.asset_url,
+            }),
+        });
+
+        if (!response.ok) {
+            addLog('error', 'Failed to select video take');
+            return;
+        }
+
+        setSegments((prev) => prev.map((segment) => (
+            segment.id === take.segment_id ? { ...segment, video_url: take.asset_url } : segment
+        )));
+        await fetchVideoTakes(take.segment_id);
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-end">
@@ -727,7 +801,7 @@ export default function VideoPage() {
                     <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-700">
                         <span className="font-medium">생성기</span>
                         <span className="text-gray-400">|</span>
-                        <span>☁️ fal.ai 클라우드</span>
+                        <span>☁️ {selectedVideoModel?.providerDisplayName || 'fal.ai'} 클라우드</span>
                     </div>
                     <div className="text-xs text-gray-600 rounded-full border border-violet-100 bg-violet-50 px-3 py-1.5">
                         예상 {estimatedCreditsForThirtySeconds} credits / 30초
@@ -757,7 +831,10 @@ export default function VideoPage() {
                                         <option key={model.id} value={model.id}>{model.label}</option>
                                     ))}
                                 </select>
-                                <p className="text-xs text-gray-500">예상 {selectedResolutionOption?.creditsPerCut || 0} credits / {selectedVideoDurationSeconds}초 컷</p>
+                                <p className="text-xs text-gray-500">
+                                    예상 {selectedResolutionOption?.creditsPerCut || 0} credits / {selectedVideoDurationSeconds}초 컷
+                                    {formatUsd(selectedResolutionOption?.estimatedUsdPerCut) ? ` · ${formatUsd(selectedResolutionOption?.estimatedUsdPerCut)}` : ''}
+                                </p>
                             </div>
 
                             <div className="space-y-1.5 rounded-xl border border-gray-200 bg-gray-50 p-3">
@@ -778,7 +855,11 @@ export default function VideoPage() {
                         </div>
 
                         {selectedVideoModel?.description && (
-                            <p className="text-xs text-gray-600 leading-relaxed">{selectedVideoModel.description}</p>
+                            <p className="text-xs text-gray-600 leading-relaxed">
+                                <span className="font-semibold text-gray-800">{selectedVideoModel.costModeLabel || '모델'} · {selectedVideoModel.modelDisplayName || selectedVideoModel.label}</span>
+                                <span className="mx-1 text-gray-300">|</span>
+                                {selectedVideoModel.description}
+                            </p>
                         )}
 
                         <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
@@ -792,7 +873,12 @@ export default function VideoPage() {
 
                     {selectedVideoModel && (
                         <div className="rounded-xl border border-gray-200 bg-gray-50 p-2.5">
-                            <p className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">모델 미리보기</p>
+                            <div className="flex items-center justify-between gap-2 px-1 pb-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">모델 샘플</p>
+                                <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                                    {getModelPreviewSourceLabel(selectedVideoModel)}
+                                </span>
+                            </div>
                             <button
                                 type="button"
                                 className="relative overflow-hidden rounded-lg border border-gray-200 bg-slate-100 aspect-video cursor-zoom-in"
@@ -846,7 +932,7 @@ export default function VideoPage() {
                                 >
                                     <div className="w-[27rem] rounded-2xl border border-violet-200 bg-white/95 backdrop-blur-sm shadow-2xl p-2.5 animate-in fade-in zoom-in-95 duration-200">
                                         <div className="flex items-center justify-between px-1 pb-2">
-                                            <span className="text-[11px] font-semibold uppercase tracking-wide text-violet-700">Hover Preview</span>
+                                            <span className="text-[11px] font-semibold tracking-wide text-violet-700">{getModelPreviewSourceLabel(selectedVideoModel)}</span>
                                             <span className="text-[11px] text-gray-500 truncate max-w-[180px]">{selectedVideoModel.label}</span>
                                         </div>
                                         <div className="relative overflow-hidden rounded-xl border border-gray-200 bg-slate-100 aspect-video">
@@ -1002,6 +1088,46 @@ export default function VideoPage() {
                                         >
                                             현재 컷 생성하기
                                         </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                <div className="mb-3 flex items-center justify-between">
+                                    <div>
+                                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Model Lab</p>
+                                        <h3 className="text-sm font-bold text-slate-950">Motion Takes</h3>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => fetchVideoTakes(selectedSegment.id)}
+                                        className="rounded-lg border px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                                    >
+                                        Refresh
+                                    </button>
+                                </div>
+                                {videoTakes.length === 0 ? (
+                                    <p className="text-sm text-slate-500">No motion takes yet. Generate this cut to record a take.</p>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {videoTakes.map((take) => (
+                                            <button
+                                                key={take.id}
+                                                type="button"
+                                                onClick={() => handleSelectVideoTake(take)}
+                                                disabled={!take.asset_url}
+                                                className={`w-full rounded-xl border p-3 text-left transition ${
+                                                    take.is_selected ? 'border-slate-950 ring-2 ring-slate-200' : 'border-slate-200 hover:border-slate-400'
+                                                } ${!take.asset_url ? 'opacity-70' : ''}`}
+                                            >
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-xs font-bold text-slate-900">{take.model_id || take.provider}</p>
+                                                        <p className="truncate text-xs text-slate-500">{take.prompt || 'No prompt recorded'}</p>
+                                                    </div>
+                                                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{take.status}</span>
+                                                </div>
+                                            </button>
+                                        ))}
                                     </div>
                                 )}
                             </div>
